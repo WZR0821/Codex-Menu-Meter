@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Usage Signal Bar</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="panel" data-active-tab="usage" data-provider="codex">
+      <div class="panel-aurora" aria-hidden="true"></div>
+      <div class="motion-layer" aria-hidden="true">
+        <span class="motion-scan" id="motionScan"></span>
+        <span class="motion-edge motion-edge-top" id="motionEdgeTop"></span>
+        <span class="motion-edge motion-edge-bottom" id="motionEdgeBottom"></span>
+        <span class="motion-sparks" id="motionSparks"></span>
+      </div>
+      <header class="toolbar">
+        <div class="provider-row">
+          <div class="provider-switch" id="providerSwitch" role="group" aria-label="平台">
+            <span class="provider-thumb" aria-hidden="true"></span>
+            <button class="provider-option active" type="button" data-provider="codex">GPT</button>
+          </div>
+          <button class="icon-button" id="refresh" type="button" title="刷新" aria-label="刷新">
+            <span>↻</span>
+          </button>
+        </div>
+        <nav class="tabs" aria-label="views">
+          <button class="tab-button active" type="button" data-tab="usage">
+            <span>▥</span>
+            <strong id="tabUsageLabel">用量</strong>
+          </button>
+          <button class="tab-button" type="button" data-tab="radar">
+            <span>⌁</span>
+            <strong id="tabRadarLabel">雷达</strong>
+          </button>
+        </nav>
+      </header>
+
+      <section class="status-line" id="statusLine">正在读取...</section>
+
+      <section class="tab-panel active" id="usagePanel">
+        <section class="section">
+          <div class="section-head">
+            <h2 id="usageTitle">GPT 额度</h2>
+            <span id="usageUpdated" class="subtle"></span>
+          </div>
+          <div class="quota-cards" id="meters"></div>
+        </section>
+
+        <section class="section token-section">
+          <div class="section-head">
+            <h2 id="tokenTitle">Token 活动</h2>
+            <span id="tokenUpdated" class="subtle"></span>
+          </div>
+          <div id="tokenActivity" class="token-usage"></div>
+        </section>
+
+        <section class="section trend-section">
+          <div class="section-head">
+            <h2 id="trendTitle">24 小时额度曲线</h2>
+          </div>
+          <div id="usageTrend" class="usage-trend"></div>
+        </section>
+
+      </section>
+
+      <section class="tab-panel" id="radarPanel">
+        <section class="section">
+          <div class="section-head">
+            <h2 id="iqTitle">今日 IQ</h2>
+            <span id="iqDate" class="subtle"></span>
+          </div>
+          <div id="iqGrid" class="iq-grid"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h2 id="quotaRadarTitle">额度雷达</h2>
+            <span class="subtle" id="quotaSource">Codex Radar</span>
+          </div>
+          <div id="quotaRows" class="quota-table"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h2 id="resetTitle">重置卡</h2>
+            <button class="link-button" id="openRadar" type="button">打开来源</button>
+          </div>
+          <div id="resetCards" class="reset-list"></div>
+        </section>
+
+      </section>
+
+      <div id="chartTooltip" class="chart-tooltip" role="tooltip"></div>
+    </main>
+
+    <script src="./i18n.js"></script>
+    <script src="./provider-config.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>
