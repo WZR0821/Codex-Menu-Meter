@@ -21,6 +21,7 @@ const STATIC_FILES = new Map([
   ['/mobile/manifest.webmanifest', 'manifest.webmanifest'],
   ['/mobile/icon.svg', 'icon.svg']
 ]);
+const MOBILE_COOKIE_NAME = 'cmm_mobile_token';
 
 function createAccessToken() {
   return crypto.randomBytes(24).toString('base64url');
@@ -227,10 +228,27 @@ function tokenMatches(actual, expected) {
     && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
+function extractCookie(request, name) {
+  const raw = String(request.headers.cookie || '');
+  for (const part of raw.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
 function extractToken(request, url) {
   const authorization = request.headers.authorization || '';
-  if (authorization.startsWith('Bearer ')) return authorization.slice(7);
-  return url.searchParams.get('token') || '';
+  const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  return bearer
+    || extractCookie(request, MOBILE_COOKIE_NAME)
+    || url.searchParams.get('token')
+    || '';
 }
 
 function sendJson(response, statusCode, body) {
@@ -241,6 +259,29 @@ function sendJson(response, statusCode, body) {
     'X-Content-Type-Options': 'nosniff'
   });
   response.end(JSON.stringify(body));
+}
+
+function createMobileManifest(accessToken = '') {
+  const startUrl = accessToken
+    ? `/mobile/?token=${encodeURIComponent(accessToken)}`
+    : '/mobile/';
+  return {
+    name: 'Codex Menu Meter Mobile',
+    short_name: 'AI 用量',
+    description: 'Secure mobile view for GPT and Claude usage.',
+    id: '/mobile/',
+    start_url: startUrl,
+    scope: '/mobile/',
+    display: 'standalone',
+    background_color: '#050806',
+    theme_color: '#07110d',
+    icons: [{
+      src: '/mobile/icon.svg',
+      sizes: 'any',
+      type: 'image/svg+xml',
+      purpose: 'any maskable'
+    }]
+  };
 }
 
 function createMobileServer({
@@ -257,13 +298,21 @@ function createMobileServer({
   const eventClients = new Set();
   let lastRefreshAt = 0;
 
-  async function serveStatic(requestPath, response) {
+  async function serveStatic(url, response) {
+    const requestPath = url.pathname;
     const fileName = STATIC_FILES.get(requestPath);
     if (!fileName) return false;
     const filePath = path.join(assetsDir, fileName);
     const extension = path.extname(fileName);
     try {
-      const body = await fs.readFile(filePath);
+      let body = await fs.readFile(filePath);
+      if (fileName === 'index.html') {
+        const token = url.searchParams.get('token') || '';
+        if (tokenMatches(token, getAccessToken())) {
+          const manifestUrl = `./manifest.webmanifest?token=${encodeURIComponent(token)}`;
+          body = Buffer.from(String(body).replace('./manifest.webmanifest', manifestUrl));
+        }
+      }
       response.writeHead(200, {
         'Cache-Control': extension === '.html' ? 'no-store' : 'public, max-age=3600',
         'Content-Security-Policy': "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; manifest-src 'self'; base-uri 'none'; frame-ancestors 'none'",
@@ -286,7 +335,22 @@ function createMobileServer({
       response.end();
       return;
     }
-    if (request.method === 'GET' && await serveStatic(url.pathname, response)) return;
+    if (request.method === 'GET' && url.pathname === '/mobile/manifest.webmanifest' && url.searchParams.has('token')) {
+      const token = url.searchParams.get('token') || '';
+      if (!tokenMatches(token, getAccessToken())) {
+        sendJson(response, 401, { error: 'unauthorized' });
+        return;
+      }
+      response.writeHead(200, {
+        'Cache-Control': 'no-store',
+        'Content-Type': CONTENT_TYPES['.webmanifest'],
+        'Referrer-Policy': 'no-referrer',
+        'X-Content-Type-Options': 'nosniff'
+      });
+      response.end(JSON.stringify(createMobileManifest(token)));
+      return;
+    }
+    if (request.method === 'GET' && await serveStatic(url, response)) return;
     if (request.method === 'GET' && url.pathname === '/health') {
       sendJson(response, 200, { ok: true, service: 'Codex Menu Meter Mobile' });
       return;
@@ -294,6 +358,28 @@ function createMobileServer({
 
     if (!tokenMatches(extractToken(request, url), getAccessToken())) {
       sendJson(response, 401, { error: 'unauthorized' });
+      return;
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/session') {
+      const token = getAccessToken();
+      const forwardedProto = String(request.headers['x-forwarded-proto'] || '').toLowerCase();
+      const secure = Boolean(request.socket.encrypted) || forwardedProto === 'https';
+      const attributes = [
+        `${MOBILE_COOKIE_NAME}=${encodeURIComponent(token)}`,
+        'HttpOnly',
+        'SameSite=Strict',
+        'Path=/',
+        'Max-Age=31536000'
+      ];
+      if (secure) attributes.push('Secure');
+      response.writeHead(204, {
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'Set-Cookie': attributes.join('; '),
+        'X-Content-Type-Options': 'nosniff'
+      });
+      response.end();
       return;
     }
 
@@ -386,6 +472,7 @@ function createMobileServer({
 
 module.exports = {
   createAccessToken,
+  createMobileManifest,
   createMobilePayload,
   createMobileServer,
   findPreferredLanAddress

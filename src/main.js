@@ -643,7 +643,7 @@ function sendSettings() {
 
 function createMobileAccessUrl(baseUrl) {
   if (!baseUrl || !settings.mobileAccessToken) return null;
-  return `${String(baseUrl).replace(/\/+$/, '')}/mobile/#${settings.mobileAccessToken}`;
+  return `${String(baseUrl).replace(/\/+$/, '')}/mobile/?token=${encodeURIComponent(settings.mobileAccessToken)}`;
 }
 
 function getMobileLanBaseUrl() {

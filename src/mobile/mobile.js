@@ -153,17 +153,20 @@ function escapeHtml(value) {
 }
 
 function readAccessToken() {
+  const queryToken = new URLSearchParams(location.search).get('token') || '';
   const hashToken = location.hash.startsWith('#') ? location.hash.slice(1) : '';
-  if (hashToken) {
-    localStorage.setItem('cmm-mobile-token', hashToken);
-    history.replaceState(null, '', `${location.pathname}${location.search}`);
+  const urlToken = queryToken || hashToken;
+  if (urlToken) {
+    localStorage.setItem('cmm-mobile-token', urlToken);
+    const manifest = document.querySelector('link[rel="manifest"]');
+    if (manifest) manifest.href = `/mobile/manifest.webmanifest?token=${encodeURIComponent(urlToken)}`;
   }
-  return hashToken || localStorage.getItem('cmm-mobile-token') || '';
+  return urlToken || localStorage.getItem('cmm-mobile-token') || '';
 }
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  headers.set('Authorization', `Bearer ${accessToken}`);
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
   const response = await fetch(path, { ...options, headers, cache: 'no-store' });
   if (response.status === 401) throw new Error('unauthorized');
   if (!response.ok) throw new Error(`http_${response.status}`);
@@ -178,7 +181,10 @@ function setConnection(connected) {
 function connectEvents() {
   eventSource?.close();
   clearTimeout(reconnectTimer);
-  eventSource = new EventSource(`/api/events?token=${encodeURIComponent(accessToken)}`);
+  const eventUrl = accessToken
+    ? `/api/events?token=${encodeURIComponent(accessToken)}`
+    : '/api/events';
+  eventSource = new EventSource(eventUrl);
   eventSource.addEventListener('state', (event) => {
     try {
       applyState(JSON.parse(event.data));
@@ -561,6 +567,13 @@ async function start() {
   els.connectionLabel.textContent = T('connecting');
   selectView(activeView);
   try {
+    if (accessToken) {
+      await fetch('/api/session', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store'
+      });
+    }
     applyState(await api('/api/state'));
     setConnection(true);
     connectEvents();

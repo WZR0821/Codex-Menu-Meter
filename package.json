@@ -1,6 +1,6 @@
 {
   "name": "codex-menu-meter",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "A macOS menu bar meter for GPT, Claude, and coding-model usage.",
   "main": "src/main.js",
   "private": true,
