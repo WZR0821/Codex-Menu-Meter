@@ -257,9 +257,12 @@ function render() {
   document.body.dataset.provider = provider;
   document.body.dataset.view = activeView;
   if (!providerData) return;
-  els.usageHeading.textContent = T('usageTitle', { name: providerData.label });
-  renderUsage(providerData.usage);
-  renderActivity(providerData.activity);
+  if (activeView === 'usage') {
+    els.usageHeading.textContent = T('usageTitle', { name: providerData.label });
+    renderUsage(providerData.usage);
+    renderActivity(providerData.activity);
+    return;
+  }
   renderRadar(providerData.radar);
 }
 
@@ -456,6 +459,7 @@ function selectView(view) {
   activeView = view;
   document.body.dataset.view = view;
   els.viewSwitch.dataset.view = view;
+  if (changed && currentState) render();
   els.viewButtons.forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   els.views.forEach((node) => node.classList.toggle('active', node.id === `${view}View`));
   if (changed) playMotionBurst();

@@ -203,13 +203,13 @@ p {
 }
 
 h1 {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 780;
   line-height: 1;
 }
 
 h2 {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 760;
   line-height: 1.2;
 }
@@ -217,8 +217,8 @@ h2 {
 .icon-button {
   position: relative;
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   overflow: hidden;
   place-items: center;
@@ -255,7 +255,7 @@ h2 {
 }
 
 .icon-button svg {
-  width: 18px;
+  width: 20px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -313,10 +313,10 @@ h2 {
 }
 
 .provider-button {
-  min-height: 34px;
+  min-height: 36px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -368,9 +368,9 @@ h2 {
 }
 
 .view-button {
-  min-height: 29px;
+  min-height: 31px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .view-button.active {
@@ -414,7 +414,7 @@ h2 {
 
 .section-head span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -440,8 +440,8 @@ h2 {
 
 .quota-card {
   min-width: 0;
-  min-height: 124px;
-  padding: 13px;
+  min-height: 110px;
+  padding: 12px;
   overflow: hidden;
   animation: card-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -453,7 +453,7 @@ h2 {
 .quota-top {
   gap: 6px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
 }
 
@@ -475,8 +475,8 @@ h2 {
 
 .quota-value {
   display: block;
-  margin: 13px 0 10px;
-  font-size: 27px;
+  margin: 11px 0 9px;
+  font-size: 30px;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
 }
@@ -504,7 +504,7 @@ h2 {
   margin-top: 8px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -536,7 +536,7 @@ h2 {
   display: block;
   overflow: hidden;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -545,7 +545,7 @@ h2 {
   display: block;
   margin: 4px 0 2px;
   overflow: hidden;
-  font-size: 17px;
+  font-size: 19px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -567,7 +567,7 @@ h2 {
   border-radius: 4px;
   background: rgba(var(--view-rgb), calc(0.035 + var(--level) * 0.1));
   color: rgba(236, 247, 240, calc(0.48 + var(--level) * 0.09));
-  font-size: 8px;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition:
@@ -609,18 +609,19 @@ h2 {
 }
 
 .token-detail strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .token-detail span {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .iq-list {
   display: grid;
   gap: 7px;
+  animation: card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .iq-item {
@@ -628,16 +629,7 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 62px;
   min-height: 70px;
   overflow: hidden;
-  animation: card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-
-.iq-item:nth-child(2) { animation-delay: 26ms; }
-.iq-item:nth-child(3) { animation-delay: 52ms; }
-.iq-item:nth-child(4) { animation-delay: 78ms; }
-.iq-item:nth-child(5) { animation-delay: 104ms; }
-.iq-item:nth-child(6) { animation-delay: 130ms; }
-.iq-item:nth-child(7) { animation-delay: 156ms; }
-.iq-item:nth-child(8) { animation-delay: 182ms; }
 
 .iq-copy {
   min-width: 0;
@@ -782,6 +774,79 @@ footer {
   transform: translate3d(0, 0, 0) scale(1);
 }
 
+body[data-view="usage"] {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body[data-view="usage"] .app-shell {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+body[data-view="usage"] .app-header {
+  flex: 0 0 auto;
+  min-height: 48px;
+  margin-bottom: 10px;
+}
+
+body[data-view="usage"] .control-deck {
+  position: relative;
+  top: auto;
+  flex: 0 0 auto;
+  margin-bottom: 14px;
+}
+
+body[data-view="usage"] #usageView {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+body[data-view="usage"] .quota-grid {
+  display: flex;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+}
+
+body[data-view="usage"] .quota-grid::-webkit-scrollbar {
+  display: none;
+}
+
+body[data-view="usage"] .quota-card {
+  flex: 0 0 calc(50% - 4px);
+  scroll-snap-align: start;
+}
+
+body[data-view="usage"] .quota-card:only-child {
+  flex-basis: 100%;
+}
+
+body[data-view="usage"] .token-heading {
+  margin-top: 14px;
+}
+
+body[data-view="usage"] .token-card {
+  padding: 12px;
+}
+
+body[data-view="usage"] .token-summary {
+  margin-bottom: 10px;
+}
+
+body[data-view="usage"] .token-detail {
+  margin-top: 9px;
+}
+
+body[data-view="usage"] footer {
+  display: none;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -845,6 +910,71 @@ footer {
 
   .iq-item {
     grid-template-columns: minmax(0, 1fr) 58px;
+  }
+}
+
+@media (max-height: 700px) {
+  body[data-view="usage"] .app-shell {
+    padding-top: max(9px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  body[data-view="usage"] .app-header {
+    min-height: 43px;
+    margin-bottom: 7px;
+  }
+
+  body[data-view="usage"] .control-deck {
+    margin-bottom: 10px;
+    padding: 4px;
+  }
+
+  body[data-view="usage"] .provider-button {
+    min-height: 32px;
+  }
+
+  body[data-view="usage"] .view-button {
+    min-height: 27px;
+  }
+
+  body[data-view="usage"] .section-head {
+    margin-bottom: 6px;
+  }
+
+  body[data-view="usage"] .quota-card {
+    min-height: 98px;
+    padding: 10px;
+  }
+
+  body[data-view="usage"] .quota-value {
+    margin: 8px 0 7px;
+    font-size: 28px;
+  }
+
+  body[data-view="usage"] .quota-card small {
+    margin-top: 6px;
+  }
+
+  body[data-view="usage"] .token-heading {
+    margin-top: 10px;
+  }
+
+  body[data-view="usage"] .token-card {
+    padding: 10px;
+  }
+
+  body[data-view="usage"] .token-summary {
+    margin-bottom: 8px;
+  }
+
+  body[data-view="usage"] .heatmap {
+    gap: 5px;
+  }
+
+  body[data-view="usage"] .token-detail {
+    min-height: 39px;
+    margin-top: 7px;
+    padding: 7px 9px;
   }
 }
 

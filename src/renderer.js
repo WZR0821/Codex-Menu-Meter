@@ -76,7 +76,9 @@ async function handleProviderClick(provider) {
   setOptionsDisabled(true);
   syncProviderUi(provider);
   const savedTab = tabByProvider[provider] || 'usage';
-  if (els.panel.dataset.activeTab !== savedTab) setActiveTab(savedTab, { provider, animate: false });
+  if (els.panel.dataset.activeTab !== savedTab) {
+    setActiveTab(savedTab, { provider, animate: false, renderContent: false });
+  }
   try {
     const state = await window.codexMeter.setProvider(provider);
     requestRender(state);
@@ -93,7 +95,7 @@ async function handleProviderClick(provider) {
 
 let revealAnimations = [];
 
-function revealActivePanel({ celebrate = false } = {}) {
+function revealActivePanel({ celebrate = false, details = true } = {}) {
   const activePanel = els.panels.find((panel) => panel.classList.contains('active'));
   if (!activePanel || reduceMotion.matches) return;
   revealAnimations.forEach((animation) => animation.cancel());
@@ -107,7 +109,7 @@ function revealActivePanel({ celebrate = false } = {}) {
     easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
     fill: 'backwards'
   })).filter(Boolean);
-  animatePanelDetails(activePanel, { celebrate });
+  if (details) animatePanelDetails(activePanel, { celebrate });
 }
 
 function providerList(state) {
@@ -215,14 +217,19 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentState) requestRender(currentState);
 });
 
-function setActiveTab(tab, { provider = currentProviderKey(), animate = true } = {}) {
+function setActiveTab(tab, {
+  provider = currentProviderKey(),
+  animate = true,
+  renderContent = true
+} = {}) {
   tabByProvider[provider] = tab;
   const changed = els.panel && els.panel.dataset.activeTab !== tab;
   if (els.panel) els.panel.dataset.activeTab = tab;
+  if (changed && renderContent && currentState) renderVisibleContent(currentState, tab);
   els.tabs.forEach((button) => button.classList.toggle('active', button.dataset.tab === tab));
   els.panels.forEach((panel) => panel.classList.toggle('active', panel.id === `${tab}Panel`));
   if (changed && animate) {
-    revealActivePanel();
+    revealActivePanel({ details: false });
     playTabSwitchEffect();
   }
 }
@@ -265,24 +272,35 @@ function render(state) {
   els.panel.classList.toggle('extra-provider', isExtra);
   if (previousProvider && previousProvider !== provider) {
     const savedTab = isExtra ? 'usage' : tabByProvider[provider] || 'usage';
-    setActiveTab(savedTab, { provider, animate: false });
+    setActiveTab(savedTab, { provider, animate: false, renderContent: false });
   } else if (isExtra && els.panel.dataset.activeTab === 'radar') {
-    setActiveTab('usage', { provider, animate: false });
+    setActiveTab('usage', { provider, animate: false, renderContent: false });
   }
   syncProviderUi(provider);
   const slices = activeSlices(state);
   renderHeader(slices);
-  renderMeters(slices.usage, provider);
-  if (!isExtra) {
-    renderTrend(state, slices.usage, provider);
+  renderVisibleContent(state, els.panel.dataset.activeTab || 'usage', slices);
+  if (previousProvider && previousProvider !== provider) {
+    revealActivePanel({ celebrate: true, details: false });
+    playProviderSwitchEffect(previousProvider, provider);
+  }
+}
+
+function renderVisibleContent(stateValue, tab, providedSlices = null) {
+  const provider = stateValue.provider || 'codex';
+  const isExtra = EXTRA_PROVIDER_IDS.includes(provider);
+  const slices = providedSlices || activeSlices(stateValue);
+  if (tab === 'usage') {
+    renderMeters(slices.usage, provider);
+    if (isExtra) return;
+    renderTrend(stateValue, slices.usage, provider);
     renderTokenActivity(slices.activity);
+    return;
+  }
+  if (!isExtra) {
     renderIq(slices.radar, provider);
     renderQuota(slices.radar, provider);
-    renderResetCards(state, provider);
-  }
-  if (previousProvider && previousProvider !== provider) {
-    revealActivePanel({ celebrate: true });
-    playProviderSwitchEffect(previousProvider, provider);
+    renderResetCards(stateValue, provider);
   }
 }
 
@@ -516,6 +534,7 @@ let pendingRenderState = null;
 let renderFrame = null;
 let panelMotionAnimation = null;
 let accentAnimations = [];
+let rendererReadySent = false;
 
 function requestRender(state) {
   pendingRenderState = state;
@@ -524,7 +543,14 @@ function requestRender(state) {
     renderFrame = null;
     const nextState = pendingRenderState;
     pendingRenderState = null;
-    if (nextState) render(nextState);
+    if (!nextState) return;
+    render(nextState);
+    if (!rendererReadySent) {
+      rendererReadySent = true;
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => window.codexMeter.markPanelReady());
+      });
+    }
   });
 }
 
@@ -563,9 +589,7 @@ function playPanelOpeningSequence() {
     { opacity: 0, transform: 'scaleX(0.82)' },
     { opacity: 1, transform: 'scaleX(1)' }
   ], { duration: 340, delay: 95, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' });
-  revealActivePanel({ celebrate: true });
-  emitEnergySparks(els.providerSwitch.querySelector('.provider-option.active'), 6);
-  window.setTimeout(playStatusComet, 170);
+  revealActivePanel({ celebrate: true, details: false });
 }
 
 function playProviderSwitchEffect(previousProvider, provider) {
@@ -589,8 +613,6 @@ function playProviderSwitchEffect(previousProvider, provider) {
     { transform: 'scale(1)', opacity: 1 }
   ], { duration: 390, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
   emitProviderTrail(previousProvider, provider);
-  emitEnergySparks(activeButton, 8);
-  playStatusComet();
 }
 
 function playRefreshEffect() {
@@ -608,13 +630,12 @@ function playRefreshEffect() {
 function playTabSwitchEffect() {
   if (reduceMotion.matches || document.hidden) return;
   const activeTab = els.tabs.find((tab) => tab.classList.contains('active'));
+  playAccentSweep({ strength: 0.52 });
   animateOne(activeTab, [
     { transform: 'scale(0.92)', opacity: 0.62 },
     { transform: 'scale(1.06)', opacity: 1, offset: 0.56 },
     { transform: 'scale(1)', opacity: 1 }
   ], { duration: 360, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
-  emitEnergySparks(activeTab, 4);
-  playStatusComet();
 }
 
 function playAccentSweep({ strength = 1 } = {}) {
@@ -761,7 +782,7 @@ function emitProviderTrail(previousProvider, provider) {
   const dx = toBounds.left - fromBounds.left;
   const dy = toBounds.top - fromBounds.top;
 
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < 2; index += 1) {
     const echo = document.createElement('i');
     echo.className = 'provider-echo';
     echo.style.left = `${fromBounds.left - panelBounds.left}px`;

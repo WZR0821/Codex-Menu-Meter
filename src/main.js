@@ -155,6 +155,8 @@ let cursorOutsideSince = 0;
 let panelAnimationTimer = null;
 let panelBlurTimer = null;
 let panelOpenedFromTopEdge = false;
+let panelRendererReady = false;
+let pendingPanelShow = false;
 let touchBarHelper = null;
 let touchBarStateTimer = null;
 let touchBarHelperOutput = '';
@@ -223,6 +225,8 @@ function createTray() {
 }
 
 function createPanel() {
+  if (panel && !panel.isDestroyed()) return;
+  panelRendererReady = false;
   panel = new BrowserWindow({
     width: PANEL_WIDTH,
     height: PANEL_HEIGHT,
@@ -243,13 +247,18 @@ function createPanel() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      backgroundThrottling: true
+      backgroundThrottling: false
     }
   });
 
   preparePanelForFullScreen();
   panel.loadFile(path.join(__dirname, 'index.html'));
   panel.on('blur', handlePanelBlur);
+  panel.on('closed', () => {
+    panel = null;
+    panelRendererReady = false;
+    pendingPanelShow = false;
+  });
 }
 
 function preparePanelForFullScreen() {
@@ -301,6 +310,11 @@ function togglePanel() {
 
 function showPanelAnimated() {
   if (!panel) return;
+  if (!panelRendererReady) {
+    pendingPanelShow = true;
+    return;
+  }
+  pendingPanelShow = false;
   clearPanelBlurTimer();
   const targetBounds = positionPanel();
   if (!targetBounds) return;
@@ -2516,6 +2530,8 @@ app.whenReady().then(async () => {
   }
   app.dock?.hide();
   createTray();
+  // 提前完成 Chromium、页面和首帧数据的冷启动，第一次点击只负责显示窗口。
+  createPanel();
   await syncMobileServer();
   queueTouchBarStateWrite();
   setTimeout(() => {
@@ -2567,6 +2583,11 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => {});
 
 ipcMain.handle('state:get', () => state);
+ipcMain.on('panel:renderer-ready', (event) => {
+  if (!panel || panel.isDestroyed() || event.sender !== panel.webContents) return;
+  panelRendererReady = true;
+  if (pendingPanelShow) showPanelAnimated();
+});
 ipcMain.handle('state:refresh', async () => {
   if (state.provider === 'claude') invalidateClaudeEntrySnapshot();
   else if (state.provider === 'codex') invalidateCodexEntrySnapshot();

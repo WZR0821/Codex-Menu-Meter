@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('codexMeter', {
     ipcRenderer.on('panel:motion', listener);
     return () => ipcRenderer.removeListener('panel:motion', listener);
   },
+  markPanelReady: () => ipcRenderer.send('panel:renderer-ready'),
   onSettings: (callback) => {
     const listener = (_event, settings) => callback(settings);
     ipcRenderer.on('settings:update', listener);
