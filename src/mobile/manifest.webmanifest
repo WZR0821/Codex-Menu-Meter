@@ -1,0 +1,17 @@
+{
+  "name": "Codex Menu Meter Mobile",
+  "short_name": "AI 用量",
+  "description": "Secure mobile view for GPT and Claude usage.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#050806",
+  "theme_color": "#07110d",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

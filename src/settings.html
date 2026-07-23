@@ -121,6 +121,52 @@
           </label>
         </section>
 
+        <section class="settings-section mobile-section">
+          <p class="section-label" data-i18n="mobileSection">手机联动</p>
+
+          <label class="setting-row switch-row" for="mobileEnabled">
+            <span>
+              <strong data-i18n="mobileEnabled">启用手机面板</strong>
+              <small data-i18n="mobileEnabledHint">在本机启动只读、安全的移动端页面</small>
+            </span>
+            <input id="mobileEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <div class="mobile-details" id="mobileDetails" hidden>
+            <div class="mobile-pairing">
+              <div class="mobile-qr-wrap">
+                <img id="mobileQr" alt="手机联动二维码" />
+                <span id="mobileQrPlaceholder">LOCAL</span>
+              </div>
+              <div class="mobile-copy">
+                <strong id="mobileStatus">正在启动</strong>
+                <small id="mobileStatusHint">仅限本机预览</small>
+                <span class="mobile-security" data-i18n="mobileSecurity">只传输脱敏后的只读数据</span>
+              </div>
+            </div>
+
+            <label class="mobile-link-row" for="mobileLink">
+              <span data-i18n="mobileAddress">访问地址</span>
+              <input id="mobileLink" type="text" readonly />
+            </label>
+
+            <div class="mobile-actions">
+              <button id="openMobile" type="button" data-i18n="mobilePreview">预览</button>
+              <button id="copyMobileLink" type="button" data-i18n="mobileCopy">复制链接</button>
+              <button id="rotateMobileToken" type="button" data-i18n="mobileRotate">更换密钥</button>
+            </div>
+
+            <button class="tailscale-row" id="tailscaleAction" type="button">
+              <span>
+                <strong id="tailscaleTitle">安装 Tailscale</strong>
+                <small id="tailscaleHint">安装后可在外网安全访问</small>
+              </span>
+              <span class="tailscale-state" id="tailscaleState">未安装</span>
+            </button>
+          </div>
+        </section>
+
         <section class="settings-section action-section">
           <button class="action-row" id="refreshData" type="button">
             <span>

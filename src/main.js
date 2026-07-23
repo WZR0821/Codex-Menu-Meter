@@ -1,11 +1,13 @@
-const { app, BrowserWindow, Tray, ipcMain, nativeImage, screen, shell, globalShortcut, Notification } = require('electron');
+const { app, BrowserWindow, Tray, ipcMain, nativeImage, screen, shell, globalShortcut, Notification, clipboard } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
+const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
+const { createAccessToken, createMobileServer } = require('./mobile-server');
 const {
   PROVIDER_BY_ID,
   OPTIONAL_PROVIDER_IDS,
@@ -64,6 +66,10 @@ const USAGE_HISTORY_VIEW_POINTS = 200;
 const PANEL_HOTKEY = 'Alt+Command+U';
 const TOUCHBAR_STATE_PATH = path.join(app.getPath('userData'), 'touchbar-state.json');
 const TOUCHBAR_LOG_PATH = path.join(app.getPath('userData'), 'touchbar-helper.log');
+const MOBILE_ASSETS_DIR = path.join(__dirname, 'mobile');
+const MOBILE_HOST = '127.0.0.1';
+const MOBILE_PORT = 43821;
+const TAILSCALE_DOWNLOAD_URL = 'https://tailscale.com/download/mac';
 
 const USAGE_REFRESH_MS = 120_000;
 const CLAUDE_USAGE_REFRESH_MS = 5 * 60_000;
@@ -109,6 +115,8 @@ const defaultSettings = {
   autoHideWithMenuBar: true,
   notificationsEnabled: true,
   hotkeyEnabled: true,
+  mobileEnabled: false,
+  mobileAccessToken: createAccessToken(),
   provider: 'codex',
   providerSettings: defaultProviderSettings()
 };
@@ -147,6 +155,15 @@ let panelOpenedFromTopEdge = false;
 let touchBarHelper = null;
 let touchBarStateTimer = null;
 let touchBarHelperOutput = '';
+let mobileServer = null;
+let mobileRuntime = {
+  running: false,
+  localBaseUrl: null,
+  remoteBaseUrl: null,
+  tailscaleInstalled: false,
+  tailscaleState: 'not-installed',
+  error: null
+};
 const refreshJobs = new Map();
 
 function runRefreshOnce(key, task) {
@@ -522,6 +539,8 @@ async function saveSettings(nextSettings) {
   await fs.writeFile(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
   if (previous.openAtLogin !== settings.openAtLogin) applySystemSettings();
   if (previous.hotkeyEnabled !== settings.hotkeyEnabled) applyPanelHotkey();
+  if (previous.mobileEnabled !== settings.mobileEnabled) await syncMobileServer();
+  if (previous.mobileAccessToken !== settings.mobileAccessToken) mobileServer?.disconnectClients();
   if (previous.language !== settings.language && settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.setTitle(tr('settingsTitle'));
   }
@@ -556,6 +575,12 @@ function normalizeSettings(value) {
     hotkeyEnabled: value?.hotkeyEnabled === undefined
       ? defaultSettings.hotkeyEnabled
       : Boolean(value.hotkeyEnabled),
+    mobileEnabled: value?.mobileEnabled === undefined
+      ? defaultSettings.mobileEnabled
+      : Boolean(value.mobileEnabled),
+    mobileAccessToken: /^[A-Za-z0-9_-]{24,128}$/.test(String(value?.mobileAccessToken || ''))
+      ? String(value.mobileAccessToken)
+      : defaultSettings.mobileAccessToken,
     provider: normalizeProviderId(value?.provider, providerSettings),
     providerSettings
   };
@@ -580,9 +605,21 @@ function applySystemSettings() {
 }
 
 function getSettingsSnapshot() {
+  const localAccessUrl = mobileRuntime.localBaseUrl
+    ? createMobileAccessUrl(mobileRuntime.localBaseUrl)
+    : null;
+  const remoteAccessUrl = mobileRuntime.remoteBaseUrl
+    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
+    : null;
   return {
     ...settings,
-    loginItemOpenAtLogin: app.getLoginItemSettings().openAtLogin
+    loginItemOpenAtLogin: app.getLoginItemSettings().openAtLogin,
+    mobileRuntime: {
+      ...mobileRuntime,
+      localAccessUrl,
+      remoteAccessUrl,
+      preferredAccessUrl: remoteAccessUrl || localAccessUrl
+    }
   };
 }
 
@@ -590,6 +627,187 @@ function sendSettings() {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.webContents.send('settings:update', getSettingsSnapshot());
   }
+}
+
+function createMobileAccessUrl(baseUrl) {
+  if (!baseUrl || !settings.mobileAccessToken) return null;
+  return `${String(baseUrl).replace(/\/+$/, '')}/mobile/#${settings.mobileAccessToken}`;
+}
+
+async function syncMobileServer() {
+  if (!settings.mobileEnabled) {
+    if (mobileServer) await mobileServer.stop();
+    mobileRuntime = {
+      ...mobileRuntime,
+      running: false,
+      localBaseUrl: null,
+      error: null
+    };
+    sendSettings();
+    return mobileRuntime;
+  }
+
+  if (!mobileServer) {
+    mobileServer = createMobileServer({
+      assetsDir: MOBILE_ASSETS_DIR,
+      getAccessToken: () => settings.mobileAccessToken,
+      getState: () => state,
+      onRefresh: refreshAllForMobile,
+      host: MOBILE_HOST,
+      port: MOBILE_PORT
+    });
+  }
+
+  try {
+    const address = await mobileServer.start();
+    const activePort = typeof address === 'object' && address ? address.port : MOBILE_PORT;
+    mobileRuntime = {
+      ...mobileRuntime,
+      running: true,
+      localBaseUrl: `http://${MOBILE_HOST}:${activePort}`,
+      error: null
+    };
+    refreshAllForMobile().catch(() => {});
+  } catch (error) {
+    mobileRuntime = {
+      ...mobileRuntime,
+      running: false,
+      localBaseUrl: null,
+      error: error.code === 'EADDRINUSE'
+        ? `端口 ${MOBILE_PORT} 已被其他程序占用`
+        : error.message
+    };
+  }
+  await refreshTailscaleRuntime();
+  sendSettings();
+  return mobileRuntime;
+}
+
+async function findTailscaleBinary() {
+  try {
+    const { stdout } = await execFileAsync('/usr/bin/which', ['tailscale'], { timeout: 3000 });
+    const binary = stdout.trim();
+    if (binary) return binary;
+  } catch {
+    // 继续检查常见安装位置。
+  }
+
+  const candidates = [
+    '/opt/homebrew/bin/tailscale',
+    '/usr/local/bin/tailscale',
+    '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
+  ];
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // 检查下一个候选位置。
+    }
+  }
+  return null;
+}
+
+async function refreshTailscaleRuntime() {
+  const binary = await findTailscaleBinary();
+  if (!binary) {
+    mobileRuntime = {
+      ...mobileRuntime,
+      remoteBaseUrl: null,
+      tailscaleInstalled: false,
+      tailscaleState: 'not-installed'
+    };
+    return mobileRuntime;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(binary, ['status', '--json'], { timeout: 5000 });
+    const status = JSON.parse(stdout);
+    const dnsName = String(status?.Self?.DNSName || '').replace(/\.$/, '');
+    if (status?.BackendState !== 'Running' || !dnsName) {
+      mobileRuntime = {
+        ...mobileRuntime,
+        remoteBaseUrl: null,
+        tailscaleInstalled: true,
+        tailscaleState: 'disconnected'
+      };
+      return mobileRuntime;
+    }
+
+    let configured = false;
+    try {
+      const result = await execFileAsync(binary, ['serve', 'status', '--json'], { timeout: 5000 });
+      const raw = String(result.stdout || '');
+      configured = raw.includes(`127.0.0.1:${MOBILE_PORT}`)
+        || raw.includes(`localhost:${MOBILE_PORT}`);
+    } catch {
+      configured = false;
+    }
+    mobileRuntime = {
+      ...mobileRuntime,
+      remoteBaseUrl: configured ? `https://${dnsName}` : null,
+      tailscaleInstalled: true,
+      tailscaleState: configured ? 'ready' : 'not-configured'
+    };
+  } catch (error) {
+    mobileRuntime = {
+      ...mobileRuntime,
+      remoteBaseUrl: null,
+      tailscaleInstalled: true,
+      tailscaleState: 'error',
+      error: mobileRuntime.error || error.message
+    };
+  }
+  return mobileRuntime;
+}
+
+async function configureTailscaleServe() {
+  if (!settings.mobileEnabled || !mobileRuntime.running) {
+    return { ok: false, error: '请先启用手机联动' };
+  }
+  const binary = await findTailscaleBinary();
+  if (!binary) {
+    shell.openExternal(TAILSCALE_DOWNLOAD_URL);
+    return { ok: false, error: 'Tailscale 尚未安装', openedDownload: true };
+  }
+
+  try {
+    await execFileAsync(
+      binary,
+      ['serve', '--bg', '--yes', `http://${MOBILE_HOST}:${MOBILE_PORT}`],
+      { timeout: 30_000 }
+    );
+    await refreshTailscaleRuntime();
+    sendSettings();
+    return {
+      ok: mobileRuntime.tailscaleState === 'ready',
+      settings: getSettingsSnapshot(),
+      error: mobileRuntime.tailscaleState === 'ready' ? null : 'Tailscale Serve 尚未就绪'
+    };
+  } catch (error) {
+    const output = [error.stdout, error.stderr, error.message].filter(Boolean).join('\n');
+    const consentUrl = output.match(/https:\/\/[^\s]+/)?.[0];
+    if (consentUrl) shell.openExternal(consentUrl);
+    mobileRuntime = {
+      ...mobileRuntime,
+      tailscaleInstalled: true,
+      tailscaleState: consentUrl ? 'needs-consent' : 'error',
+      error: consentUrl ? '请在浏览器完成 Tailscale HTTPS 授权' : error.message
+    };
+    sendSettings();
+    return { ok: false, error: mobileRuntime.error, openedConsent: Boolean(consentUrl) };
+  }
+}
+
+function createMobileQrDataUrl() {
+  const accessUrl = mobileRuntime.remoteBaseUrl
+    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
+    : null;
+  if (!accessUrl) return null;
+  const qr = qrcode(0, 'M');
+  qr.addData(accessUrl);
+  qr.make();
+  return qr.createDataURL(5, 4);
 }
 
 async function getCodexAccessToken() {
@@ -2018,6 +2236,7 @@ async function getTouchBarHelperPath() {
 
 async function ensureTouchBarHelper() {
   if (process.platform !== 'darwin') return;
+  if (process.env.CMM_DISABLE_TOUCHBAR === '1') return;
   if (touchBarHelper && !touchBarHelper.killed) return;
 
   const helperPath = await getTouchBarHelperPath();
@@ -2213,6 +2432,7 @@ function createTransparentTrayImage() {
 
 function sendState() {
   queueTouchBarStateWrite();
+  mobileServer?.broadcast(state);
   if (panel && !panel.isDestroyed()) {
     panel.webContents.send('state:update', state);
   }
@@ -2252,6 +2472,19 @@ function refreshAll() {
   return Promise.all(jobs);
 }
 
+function refreshAllForMobile() {
+  const jobs = [
+    refreshUsage(),
+    refreshRadar(),
+    refreshTokenActivity(),
+    refreshEnabledExtras()
+  ];
+  if (isProviderEnabled('claude', settings.providerSettings)) {
+    jobs.push(refreshClaudeUsage(), refreshClaudeRadar(), refreshClaudeActivity());
+  }
+  return Promise.all(jobs);
+}
+
 app.whenReady().then(async () => {
   await loadSettings();
   await loadUsageHistory();
@@ -2263,6 +2496,7 @@ app.whenReady().then(async () => {
   }
   app.dock?.hide();
   createTray();
+  await syncMobileServer();
   queueTouchBarStateWrite();
   setTimeout(() => {
     queueTouchBarStateWrite();
@@ -2307,6 +2541,7 @@ app.on('before-quit', () => {
   }
   globalShortcut.unregisterAll();
   stopTouchBarHelper();
+  if (mobileServer) mobileServer.stop().catch(() => {});
 });
 
 app.on('window-all-closed', () => {});
@@ -2322,6 +2557,32 @@ ipcMain.handle('provider:set', (_event, provider) => selectProvider(provider));
 ipcMain.handle('settings:get', () => getSettingsSnapshot());
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('settings:update', (_event, nextSettings) => saveSettings(nextSettings));
+ipcMain.handle('mobile:open', () => {
+  const url = mobileRuntime.remoteBaseUrl
+    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
+    : createMobileAccessUrl(mobileRuntime.localBaseUrl);
+  if (url) shell.openExternal(url);
+  return Boolean(url);
+});
+ipcMain.handle('mobile:copy-link', () => {
+  const url = mobileRuntime.remoteBaseUrl
+    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
+    : createMobileAccessUrl(mobileRuntime.localBaseUrl);
+  if (url) clipboard.writeText(url);
+  return Boolean(url);
+});
+ipcMain.handle('mobile:rotate-token', async () => {
+  await saveSettings({ mobileAccessToken: createAccessToken() });
+  return getSettingsSnapshot();
+});
+ipcMain.handle('mobile:get-qr', () => createMobileQrDataUrl());
+ipcMain.handle('mobile:tailscale-status', async () => {
+  await refreshTailscaleRuntime();
+  sendSettings();
+  return getSettingsSnapshot();
+});
+ipcMain.handle('mobile:tailscale-configure', () => configureTailscaleServe());
+ipcMain.handle('mobile:tailscale-install', () => shell.openExternal(TAILSCALE_DOWNLOAD_URL));
 ipcMain.handle('app:open-radar', () => shell.openExternal(state.provider === 'claude' ? CLAUDE_RADAR_HOME : RADAR_HOME));
 ipcMain.handle('app:show-in-folder', () => shell.showItemInFolder(app.getPath('exe')));
 ipcMain.handle('app:quit', () => app.quit());

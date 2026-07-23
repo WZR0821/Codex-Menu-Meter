@@ -7,6 +7,20 @@ const els = {
   autoHideWithMenuBar: document.getElementById('autoHideWithMenuBar'),
   notificationsEnabled: document.getElementById('notificationsEnabled'),
   hotkeyEnabled: document.getElementById('hotkeyEnabled'),
+  mobileEnabled: document.getElementById('mobileEnabled'),
+  mobileDetails: document.getElementById('mobileDetails'),
+  mobileQr: document.getElementById('mobileQr'),
+  mobileQrPlaceholder: document.getElementById('mobileQrPlaceholder'),
+  mobileStatus: document.getElementById('mobileStatus'),
+  mobileStatusHint: document.getElementById('mobileStatusHint'),
+  mobileLink: document.getElementById('mobileLink'),
+  openMobile: document.getElementById('openMobile'),
+  copyMobileLink: document.getElementById('copyMobileLink'),
+  rotateMobileToken: document.getElementById('rotateMobileToken'),
+  tailscaleAction: document.getElementById('tailscaleAction'),
+  tailscaleTitle: document.getElementById('tailscaleTitle'),
+  tailscaleHint: document.getElementById('tailscaleHint'),
+  tailscaleState: document.getElementById('tailscaleState'),
   saveState: document.getElementById('saveState'),
   appMeta: document.getElementById('appMeta'),
   refreshData: document.getElementById('refreshData'),
@@ -26,6 +40,7 @@ const providerEls = Object.fromEntries(PROVIDERS.OPTIONAL_PROVIDER_IDS.map((id) 
 let currentSettings = null;
 let appVersion = '';
 let scrollEdgeLock = null;
+let mobileRenderToken = 0;
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 function T(key, params) {
@@ -37,6 +52,7 @@ els.openAtLogin.addEventListener('change', () => updateSetting({ openAtLogin: el
 els.autoHideWithMenuBar.addEventListener('change', () => updateSetting({ autoHideWithMenuBar: els.autoHideWithMenuBar.checked }));
 els.notificationsEnabled.addEventListener('change', () => updateSetting({ notificationsEnabled: els.notificationsEnabled.checked }));
 els.hotkeyEnabled.addEventListener('change', () => updateSetting({ hotkeyEnabled: els.hotkeyEnabled.checked }));
+els.mobileEnabled.addEventListener('change', () => updateSetting({ mobileEnabled: els.mobileEnabled.checked }));
 for (const id of PROVIDERS.OPTIONAL_PROVIDER_IDS) {
   const controls = providerEls[id];
   controls.enabled?.addEventListener('change', () => updateProvider(id, { enabled: controls.enabled.checked }));
@@ -56,6 +72,10 @@ els.refreshData.addEventListener('click', refreshData);
 els.openRadar.addEventListener('click', () => runAction('opened', () => window.codexMeter.openRadar()));
 els.showApp.addEventListener('click', () => runAction('opened', () => window.codexMeter.showAppInFolder()));
 els.quitApp.addEventListener('click', () => window.codexMeter.quitApp());
+els.openMobile.addEventListener('click', () => runAction('opened', () => window.codexMeter.openMobile()));
+els.copyMobileLink.addEventListener('click', () => runAction('mobileCopied', () => window.codexMeter.copyMobileLink()));
+els.rotateMobileToken.addEventListener('click', rotateMobileToken);
+els.tailscaleAction.addEventListener('click', handleTailscaleAction);
 els.scroll.addEventListener('wheel', handleSettingsWheel, { passive: true });
 
 window.codexMeter.onSettings(render);
@@ -72,6 +92,7 @@ function render(settings) {
   els.autoHideWithMenuBar.checked = Boolean(settings.autoHideWithMenuBar);
   els.notificationsEnabled.checked = Boolean(settings.notificationsEnabled);
   els.hotkeyEnabled.checked = Boolean(settings.hotkeyEnabled);
+  els.mobileEnabled.checked = Boolean(settings.mobileEnabled);
   const providerSettings = settings.providerSettings || {};
   for (const id of PROVIDERS.OPTIONAL_PROVIDER_IDS) {
     const controls = providerEls[id];
@@ -81,6 +102,7 @@ function render(settings) {
     if (controls.keyRow) controls.keyRow.hidden = !controls.enabled.checked;
   }
   applyLanguage(els.language.value);
+  renderMobile(settings);
 }
 
 async function updateSetting(patch) {
@@ -105,6 +127,91 @@ async function runAction(statusKey, action) {
   window.setTimeout(() => {
     els.saveState.textContent = T('synced');
   }, 1200);
+}
+
+async function rotateMobileToken() {
+  els.saveState.textContent = T('saving');
+  currentSettings = await window.codexMeter.rotateMobileToken();
+  render(currentSettings);
+  els.saveState.textContent = T('mobileKeyRotated');
+  window.setTimeout(() => {
+    els.saveState.textContent = T('synced');
+  }, 1400);
+}
+
+async function handleTailscaleAction() {
+  const runtime = currentSettings?.mobileRuntime || {};
+  els.saveState.textContent = T('refreshing');
+  if (!runtime.tailscaleInstalled) {
+    await window.codexMeter.installTailscale();
+    els.saveState.textContent = T('opened');
+    return;
+  }
+  if (runtime.tailscaleState === 'ready') {
+    currentSettings = await window.codexMeter.refreshTailscaleStatus();
+  } else {
+    const result = await window.codexMeter.configureTailscale();
+    if (result?.settings) currentSettings = result.settings;
+    else currentSettings = await window.codexMeter.refreshTailscaleStatus();
+  }
+  render(currentSettings);
+  els.saveState.textContent = T('synced');
+}
+
+async function renderMobile(settings) {
+  const token = ++mobileRenderToken;
+  const enabled = Boolean(settings.mobileEnabled);
+  const runtime = settings.mobileRuntime || {};
+  els.mobileDetails.hidden = !enabled;
+  if (!enabled) return;
+
+  const remoteReady = runtime.tailscaleState === 'ready' && runtime.remoteAccessUrl;
+  els.mobileStatus.textContent = runtime.error
+    ? T('mobileError')
+    : runtime.running
+      ? T(remoteReady ? 'mobileRemoteReady' : 'mobileLocalReady')
+      : T('mobileStopped');
+  els.mobileStatusHint.textContent = runtime.error
+    || T(remoteReady ? 'mobileRemoteHint' : 'mobileLocalHint');
+  els.mobileLink.value = runtime.preferredAccessUrl || '';
+  els.openMobile.disabled = !runtime.preferredAccessUrl;
+  els.copyMobileLink.disabled = !runtime.preferredAccessUrl;
+
+  applyTailscaleState(runtime);
+  const dataUrl = await window.codexMeter.getMobileQr();
+  if (token !== mobileRenderToken) return;
+  if (dataUrl) {
+    els.mobileQr.src = dataUrl;
+    els.mobileQr.hidden = false;
+    els.mobileQrPlaceholder.hidden = true;
+  } else {
+    els.mobileQr.removeAttribute('src');
+    els.mobileQr.hidden = true;
+    els.mobileQrPlaceholder.hidden = false;
+  }
+}
+
+function applyTailscaleState(runtime) {
+  const state = runtime.tailscaleState || 'not-installed';
+  const ready = state === 'ready';
+  els.tailscaleAction.classList.toggle('ready', ready);
+  if (!runtime.tailscaleInstalled) {
+    els.tailscaleTitle.textContent = T('tailscaleInstall');
+    els.tailscaleHint.textContent = T('tailscaleInstallHint');
+    els.tailscaleState.textContent = T('tailscaleNotInstalled');
+    return;
+  }
+
+  els.tailscaleTitle.textContent = ready ? T('mobileRemoteReady') : T('tailscaleConfigure');
+  els.tailscaleHint.textContent = ready ? T('mobileRemoteHint') : T('tailscaleConfigureHint');
+  const labels = {
+    ready: 'tailscaleReady',
+    disconnected: 'tailscaleDisconnected',
+    'needs-consent': 'tailscaleConsent',
+    'not-configured': 'tailscaleNotConfigured',
+    error: 'tailscaleError'
+  };
+  els.tailscaleState.textContent = T(labels[state] || 'tailscaleNotConfigured');
 }
 
 function applyLanguage(language) {
