@@ -4,7 +4,7 @@ const EXTRA_PROVIDER_IDS = PROVIDERS.USAGE_ONLY_PROVIDER_IDS;
 const PROVIDER_LABELS = Object.fromEntries(PROVIDERS.PROVIDERS.map((provider) => [provider.id, provider.switchLabel]));
 const EXTRA_PROVIDER_NAMES = Object.fromEntries(EXTRA_PROVIDER_IDS.map((id) => [id, PROVIDERS.PROVIDER_BY_ID[id].label]));
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-const MOTION_TIME_SCALE = 1.28;
+const MOTION_TIME_SCALE = 0.94;
 
 const els = {
   panel: document.querySelector('.panel'),
@@ -98,12 +98,12 @@ function revealActivePanel({ celebrate = false } = {}) {
   if (!activePanel || reduceMotion.matches) return;
   revealAnimations.forEach((animation) => animation.cancel());
   revealAnimations = [...activePanel.querySelectorAll(':scope > .section')].map((section, index) => animateOne(section, [
-    { opacity: 0.08, transform: `translateY(${celebrate ? 16 : 9}px) scale(${celebrate ? 0.965 : 0.985})` },
-    { opacity: 1, transform: 'translateY(-2px) scale(1.008)', offset: 0.72 },
-    { opacity: 1, transform: 'translateY(0)' }
+    { opacity: 0.08, transform: `translate3d(0, ${celebrate ? 13 : 8}px, 0) scale(${celebrate ? 0.975 : 0.988})` },
+    { opacity: 1, transform: 'translate3d(0, -1px, 0) scale(1.004)', offset: 0.72 },
+    { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' }
   ], {
-    duration: celebrate ? 460 : 330,
-    delay: index * (celebrate ? 70 : 45),
+    duration: celebrate ? 390 : 290,
+    delay: index * (celebrate ? 54 : 36),
     easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
     fill: 'backwards'
   })).filter(Boolean);
@@ -537,15 +537,15 @@ function animatePanelMotion(motion) {
   const closing = motion === 'closing';
   panelMotionAnimation = animateOne(els.panel, closing
     ? [
-        { opacity: 1, transform: 'translateY(0) scale(1)' },
-        { opacity: 0, transform: 'translateY(-8px) scale(0.965)' }
+        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
+        { opacity: 0, transform: 'translate3d(0, -7px, 0) scale(0.97)' }
       ]
     : [
-        { opacity: 0, transform: 'translateY(-14px) scale(0.93)' },
-        { opacity: 1, transform: 'translateY(2px) scale(1.016)', offset: 0.68 },
-        { opacity: 1, transform: 'translateY(0) scale(1)' }
+        { opacity: 0, transform: 'translate3d(0, -12px, 0) scale(0.945)' },
+        { opacity: 1, transform: 'translate3d(0, 1px, 0) scale(1.01)', offset: 0.68 },
+        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' }
       ], {
-    duration: closing ? 170 : 480,
+    duration: closing ? 160 : 410,
     easing: closing ? 'ease-in' : 'cubic-bezier(0.16, 1, 0.3, 1)',
     fill: closing ? 'forwards' : 'none'
   });
@@ -556,16 +556,16 @@ function playPanelOpeningSequence() {
   if (reduceMotion.matches || document.hidden) return;
   playAccentSweep({ strength: 1 });
   animateOne(els.toolbar, [
-    { opacity: 0, transform: 'translateY(-12px) scale(0.98)' },
-    { opacity: 1, transform: 'translateY(0) scale(1)' }
-  ], { duration: 380, delay: 45, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' });
+    { opacity: 0, transform: 'translate3d(0, -10px, 0) scale(0.985)' },
+    { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' }
+  ], { duration: 330, delay: 35, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' });
   animateOne(els.statusLine, [
     { opacity: 0, transform: 'scaleX(0.82)' },
     { opacity: 1, transform: 'scaleX(1)' }
-  ], { duration: 390, delay: 130, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' });
+  ], { duration: 340, delay: 95, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' });
   revealActivePanel({ celebrate: true });
-  emitEnergySparks(els.providerSwitch.querySelector('.provider-option.active'), 12);
-  window.setTimeout(playStatusComet, 230);
+  emitEnergySparks(els.providerSwitch.querySelector('.provider-option.active'), 6);
+  window.setTimeout(playStatusComet, 170);
 }
 
 function playProviderSwitchEffect(previousProvider, provider) {
@@ -574,22 +574,22 @@ function playProviderSwitchEffect(previousProvider, provider) {
   const activeButton = els.providerSwitch.querySelector('.provider-option.active');
   playAccentSweep({ strength: 0.9 });
   animateOne(els.providerSwitch, [
-    { boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 rgba(var(--motion-rgb), 0)' },
-    { boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 28px rgba(var(--motion-rgb), 0.46)', offset: 0.42 },
-    { boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 rgba(var(--motion-rgb), 0)' }
-  ], { duration: 520, easing: 'ease-out' });
+    { transform: 'scale(0.992)', opacity: 0.82 },
+    { transform: 'scale(1.012)', opacity: 1, offset: 0.48 },
+    { transform: 'scale(1)', opacity: 1 }
+  ], { duration: 430, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
   animateOne(thumb, [
     { scale: '0.72', opacity: 0.45 },
     { scale: '1.12', opacity: 1, offset: 0.62 },
     { scale: '1', opacity: 1 }
   ], { duration: 430, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
   animateOne(activeButton, [
-    { transform: 'scale(0.84)', textShadow: '0 0 0 rgba(var(--motion-rgb), 0)' },
-    { transform: 'scale(1.12)', textShadow: '0 0 16px rgba(var(--motion-rgb), 0.9)', offset: 0.58 },
-    { transform: 'scale(1)', textShadow: '0 0 0 rgba(var(--motion-rgb), 0)' }
-  ], { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+    { transform: 'scale(0.88)', opacity: 0.62 },
+    { transform: 'scale(1.08)', opacity: 1, offset: 0.58 },
+    { transform: 'scale(1)', opacity: 1 }
+  ], { duration: 390, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
   emitProviderTrail(previousProvider, provider);
-  emitEnergySparks(activeButton, 14);
+  emitEnergySparks(activeButton, 8);
   playStatusComet();
 }
 
@@ -597,11 +597,11 @@ function playRefreshEffect() {
   if (reduceMotion.matches || document.hidden) return;
   playAccentSweep({ strength: 0.72 });
   animateOne(els.refresh, [
-    { transform: 'scale(0.84)', boxShadow: '0 0 0 rgba(var(--motion-rgb), 0)' },
-    { transform: 'scale(1.13)', boxShadow: '0 0 26px rgba(var(--motion-rgb), 0.62)', offset: 0.48 },
-    { transform: 'scale(1)', boxShadow: '0 0 0 rgba(var(--motion-rgb), 0)' }
-  ], { duration: 560, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
-  emitEnergySparks(els.refresh, 10);
+    { transform: 'scale(0.84)', opacity: 0.62 },
+    { transform: 'scale(1.11)', opacity: 1, offset: 0.48 },
+    { transform: 'scale(1)', opacity: 1 }
+  ], { duration: 450, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+  emitEnergySparks(els.refresh, 6);
   playStatusComet();
 }
 
@@ -609,11 +609,11 @@ function playTabSwitchEffect() {
   if (reduceMotion.matches || document.hidden) return;
   const activeTab = els.tabs.find((tab) => tab.classList.contains('active'));
   animateOne(activeTab, [
-    { transform: 'scale(0.9)', boxShadow: '0 0 0 rgba(var(--motion-rgb), 0)' },
-    { transform: 'scale(1.07)', boxShadow: '0 0 24px rgba(var(--motion-rgb), 0.52)', offset: 0.56 },
-    { transform: 'scale(1)', boxShadow: '0 0 0 rgba(var(--motion-rgb), 0)' }
-  ], { duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
-  emitEnergySparks(activeTab, 8);
+    { transform: 'scale(0.92)', opacity: 0.62 },
+    { transform: 'scale(1.06)', opacity: 1, offset: 0.56 },
+    { transform: 'scale(1)', opacity: 1 }
+  ], { duration: 360, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+  emitEnergySparks(activeTab, 4);
   playStatusComet();
 }
 
@@ -648,39 +648,29 @@ function playAccentSweep({ strength = 1 } = {}) {
 
 function animatePanelDetails(activePanel, { celebrate = false } = {}) {
   const detailSelector = '.quota-card, .token-card, .trend-card, .iq-card, .quota-table, .reset-item, .empty';
-  const details = [...activePanel.querySelectorAll(detailSelector)].slice(0, 18);
+  const details = [...activePanel.querySelectorAll(detailSelector)].slice(0, 8);
   details.forEach((element, index) => {
     const animation = animateOne(element, [
-      { opacity: 0, transform: `translateY(${celebrate ? 13 : 8}px) scale(0.94)` },
-      { opacity: 1, transform: 'translateY(-2px) scale(1.018)', offset: 0.68 },
-      { opacity: 1, transform: 'translateY(0) scale(1)' }
+      { opacity: 0, transform: `translate3d(0, ${celebrate ? 10 : 7}px, 0) scale(0.965)` },
+      { opacity: 1, transform: 'translate3d(0, -1px, 0) scale(1.008)', offset: 0.68 },
+      { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' }
     ], {
-      duration: celebrate ? 420 : 310,
-      delay: 75 + index * (celebrate ? 42 : 28),
+      duration: celebrate ? 360 : 280,
+      delay: 58 + index * (celebrate ? 34 : 24),
       easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
       fill: 'backwards'
     });
     if (animation) revealAnimations.push(animation);
-    const glow = animateOne(element, [
-      { boxShadow: '0 0 0 rgba(var(--motion-rgb), 0)' },
-      { boxShadow: '0 0 24px rgba(var(--motion-rgb), 0.34)', offset: 0.5 },
-      { boxShadow: '0 0 0 rgba(var(--motion-rgb), 0)' }
-    ], {
-      duration: 560,
-      delay: 95 + index * (celebrate ? 42 : 28),
-      easing: 'ease-out'
-    });
-    if (glow) revealAnimations.push(glow);
   });
 
-  [...activePanel.querySelectorAll('.quota-card strong')].forEach((number, index) => {
+  [...activePanel.querySelectorAll('.quota-card strong')].slice(0, 2).forEach((number, index) => {
     const animation = animateOne(number, [
-      { transform: 'scale(0.82)', textShadow: '0 0 0 rgba(var(--motion-rgb), 0)' },
-      { transform: 'scale(1.1)', textShadow: '0 0 18px rgba(var(--motion-rgb), 0.78)', offset: 0.62 },
-      { transform: 'scale(1)', textShadow: '0 0 0 rgba(var(--motion-rgb), 0)' }
+      { transform: 'scale(0.86)', opacity: 0.55 },
+      { transform: 'scale(1.06)', opacity: 1, offset: 0.62 },
+      { transform: 'scale(1)', opacity: 1 }
     ], {
-      duration: 520,
-      delay: 145 + index * 95,
+      duration: 420,
+      delay: 120 + index * 75,
       easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
       fill: 'backwards'
     });
@@ -708,19 +698,19 @@ function animatePanelDetails(activePanel, { celebrate = false } = {}) {
     if (flareAnimation) revealAnimations.push(flareAnimation);
   });
 
-  [...activePanel.querySelectorAll('.token-heatmap-cell')].forEach((cell, index) => {
-    const animation = animateOne(cell, [
-      { opacity: 0.15, transform: 'scale(0.45) rotate(-8deg)' },
-      { opacity: 1, transform: 'scale(1.12) rotate(2deg)', offset: 0.66 },
-      { opacity: 1, transform: 'scale(1) rotate(0)' }
+  const heatmap = activePanel.querySelector('.token-heatmap');
+  if (heatmap) {
+    const animation = animateOne(heatmap, [
+      { opacity: 0.2, transform: 'translate3d(0, 5px, 0) scale(0.985)' },
+      { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' }
     ], {
-      duration: 280,
-      delay: 170 + index * 9,
+      duration: 360,
+      delay: 150,
       easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
       fill: 'backwards'
     });
     if (animation) revealAnimations.push(animation);
-  });
+  }
 
   [...activePanel.querySelectorAll('.trend-five, .trend-week')].forEach((line, index) => {
     const animation = animateOne(line, [
@@ -804,6 +794,7 @@ function playStatusComet() {
     { opacity: 0, transform: 'translateX(720%) skewX(-18deg)' }
   ], { duration: 720, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
   animation.finished.catch(() => {}).finally(() => comet.remove());
+  window.setTimeout(() => comet.remove(), 900);
 }
 
 function animateOne(element, keyframes, options) {

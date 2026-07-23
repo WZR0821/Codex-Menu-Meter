@@ -25,8 +25,6 @@ const {
 
 const execFileAsync = promisify(execFile);
 
-app.disableHardwareAcceleration();
-
 if (process.env.CMM_USER_DATA_DIR) {
   app.setPath('userData', process.env.CMM_USER_DATA_DIR);
 }
@@ -314,20 +312,16 @@ function showPanelAnimated() {
   cursorOutsideSince = 0;
   panelOpenedFromTopEdge = isCursorInTopMenuArea();
   panel.show();
-  preparePanelForFullScreen();
   panel.focus();
   panel.webContents.send('panel:motion', 'opening');
   startPanelFollowMonitor();
   panel.moveTop();
-  // 全屏空间下 show 后窗口层级偶尔没立刻生效，延迟再置顶两次兜底。
-  for (const delay of [40, 220]) {
-    setTimeout(() => {
-      if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
-      preparePanelForFullScreen();
-      panel.moveTop();
-    }, delay);
-  }
-  sendState();
+  // 全屏空间下 show 后窗口层级偶尔晚一拍生效，保留一次轻量兜底即可。
+  setTimeout(() => {
+    if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
+    preparePanelForFullScreen();
+    panel.moveTop();
+  }, 120);
   // Let the renderer own the visual transition. Native opacity is only used to
   // avoid a fully rendered frame before the opening IPC reaches the page.
   panelAnimationTimer = setTimeout(() => {
@@ -449,9 +443,7 @@ function positionPanel() {
     display.bounds.y,
     workArea.y + workArea.height - height - 8
   );
-  const bounds = { x, y, width, height: currentBounds.height === height ? currentBounds.height : height };
-  panel.setBounds(bounds);
-  return bounds;
+  return { x, y, width, height: currentBounds.height === height ? currentBounds.height : height };
 }
 
 function clamp(value, min, max) {

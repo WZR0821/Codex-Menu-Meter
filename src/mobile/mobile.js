@@ -136,6 +136,7 @@ let activeView = 'usage';
 let eventSource = null;
 let reconnectTimer = null;
 let toastTimer = null;
+let motionTimer = null;
 let lang = 'zh-CN';
 
 function T(key, params = {}) {
@@ -209,6 +210,22 @@ function applyState(state) {
   renderStaticText();
   renderProviders(providerIds);
   render();
+  if (!document.body.classList.contains('ready')) {
+    window.requestAnimationFrame(() => {
+      document.body.classList.add('ready');
+      playMotionBurst();
+    });
+  }
+}
+
+function playMotionBurst() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  clearTimeout(motionTimer);
+  document.body.classList.remove('motion-burst');
+  window.requestAnimationFrame(() => {
+    document.body.classList.add('motion-burst');
+    motionTimer = window.setTimeout(() => document.body.classList.remove('motion-burst'), 700);
+  });
 }
 
 function renderStaticText() {
@@ -238,6 +255,7 @@ function renderProviders(providerIds) {
 function render() {
   const providerData = currentState?.providers?.[provider];
   document.body.dataset.provider = provider;
+  document.body.dataset.view = activeView;
   if (!providerData) return;
   els.usageHeading.textContent = T('usageTitle', { name: providerData.label });
   renderUsage(providerData.usage);
@@ -433,10 +451,14 @@ function claudeRadarTemplate(quota) {
 }
 
 function selectView(view) {
+  if (view !== 'usage' && view !== 'radar') return;
+  const changed = activeView !== view;
   activeView = view;
+  document.body.dataset.view = view;
   els.viewSwitch.dataset.view = view;
   els.viewButtons.forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   els.views.forEach((node) => node.classList.toggle('active', node.id === `${view}View`));
+  if (changed) playMotionBurst();
 }
 
 function showToast(message) {
@@ -533,6 +555,7 @@ els.providerSwitch.addEventListener('click', (event) => {
   provider = button.dataset.provider;
   renderProviders(Object.keys(currentState.providers || {}));
   render();
+  playMotionBurst();
 });
 
 els.viewButtons.forEach((button) => {
@@ -547,11 +570,16 @@ els.tokenCard.addEventListener('click', (event) => {
   if (!day) return;
   els.tokenCard.querySelectorAll('.heat-cell').forEach((node) => node.classList.toggle('active', node === cell));
   const detail = document.getElementById('tokenDetail');
-  if (detail) detail.innerHTML = tokenDetailTemplate(day);
+  if (detail) {
+    detail.innerHTML = tokenDetailTemplate(day);
+    detail.classList.remove('detail-pop');
+    window.requestAnimationFrame(() => detail.classList.add('detail-pop'));
+  }
 });
 
 els.refreshButton.addEventListener('click', async () => {
   els.refreshButton.classList.add('loading');
+  playMotionBurst();
   showToast(T('refreshing'));
   try {
     await api('/api/refresh', { method: 'POST' });

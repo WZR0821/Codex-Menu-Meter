@@ -55,6 +55,8 @@ button {
   background-size: 28px 28px, 28px 28px, 100% 100%;
   box-shadow: none;
   transform-origin: top center;
+  isolation: isolate;
+  will-change: transform, opacity;
 }
 
 .motion-layer {
@@ -64,6 +66,7 @@ button {
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
+  contain: strict;
 }
 
 .motion-scan {
@@ -164,9 +167,8 @@ button {
   padding: 8px 12px 7px;
   border-bottom: 1px solid rgba(159, 221, 241, 0.13);
   background:
-    linear-gradient(180deg, rgba(12, 22, 25, 0.98), rgba(12, 18, 23, 0.9)),
-    rgba(12, 18, 23, 0.94);
-  backdrop-filter: blur(22px);
+    linear-gradient(180deg, rgba(12, 22, 25, 0.995), rgba(12, 18, 23, 0.98)),
+    #0c1217;
 }
 
 .provider-row {
@@ -592,8 +594,7 @@ h2 {
   pointer-events: none;
 }
 
-/* 静态极光：radial-gradient 本身就是柔和渐隐，绝不能用 filter:blur —
-   应用是软件渲染（disableHardwareAcceleration），持续模糊+动画会把 CPU 拉满。 */
+/* 静态渐隐比持续 filter: blur 更稳定，也避免动画时触发大面积重绘。 */
 .panel-aurora::before,
 .panel-aurora::after {
   content: "";

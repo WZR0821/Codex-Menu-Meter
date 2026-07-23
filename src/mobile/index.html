@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#07110d" />
+    <meta name="theme-color" content="#0a0f13" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>AI 用量</title>
@@ -13,6 +13,11 @@
   </head>
   <body>
     <div class="ambient" aria-hidden="true"></div>
+    <div class="mobile-motion" aria-hidden="true">
+      <i class="mobile-scan"></i>
+      <i class="mobile-edge mobile-edge-top"></i>
+      <i class="mobile-edge mobile-edge-bottom"></i>
+    </div>
     <main class="app-shell">
       <header class="app-header">
         <div>
@@ -26,13 +31,14 @@
         </button>
       </header>
 
-      <nav class="provider-switch" id="providerSwitch" aria-label="模型平台"></nav>
-
-      <nav class="view-switch" aria-label="视图">
-        <button class="view-button active" type="button" data-view="usage">用量</button>
-        <button class="view-button" type="button" data-view="radar">雷达</button>
-        <span class="view-thumb" aria-hidden="true"></span>
-      </nav>
+      <div class="control-deck">
+        <nav class="provider-switch" id="providerSwitch" aria-label="模型平台"></nav>
+        <nav class="view-switch" aria-label="视图">
+          <button class="view-button active" type="button" data-view="usage">用量</button>
+          <button class="view-button" type="button" data-view="radar">雷达</button>
+          <span class="view-thumb" aria-hidden="true"></span>
+        </nav>
+      </div>
 
       <section class="view active" id="usageView">
         <div class="section-head">

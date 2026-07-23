@@ -314,7 +314,9 @@ function createMobileServer({
         }
       }
       response.writeHead(200, {
-        'Cache-Control': extension === '.html' ? 'no-store' : 'public, max-age=3600',
+        'Cache-Control': ['.html', '.css', '.js', '.webmanifest'].includes(extension)
+          ? 'no-cache'
+          : 'public, max-age=3600',
         'Content-Security-Policy': "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; manifest-src 'self'; base-uri 'none'; frame-ancestors 'none'",
         'Content-Type': CONTENT_TYPES[extension] || 'application/octet-stream',
         'Referrer-Policy': 'no-referrer',
