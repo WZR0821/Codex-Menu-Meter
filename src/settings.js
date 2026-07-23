@@ -166,13 +166,14 @@ async function renderMobile(settings) {
   if (!enabled) return;
 
   const remoteReady = runtime.tailscaleState === 'ready' && runtime.remoteAccessUrl;
+  const lanReady = !remoteReady && Boolean(runtime.lanAccessUrl);
   els.mobileStatus.textContent = runtime.error
     ? T('mobileError')
     : runtime.running
-      ? T(remoteReady ? 'mobileRemoteReady' : 'mobileLocalReady')
+      ? T(remoteReady ? 'mobileRemoteReady' : lanReady ? 'mobileLanReady' : 'mobileLocalReady')
       : T('mobileStopped');
   els.mobileStatusHint.textContent = runtime.error
-    || T(remoteReady ? 'mobileRemoteHint' : 'mobileLocalHint');
+    || T(remoteReady ? 'mobileRemoteHint' : lanReady ? 'mobileLanHint' : 'mobileLocalHint');
   els.mobileLink.value = runtime.preferredAccessUrl || '';
   els.openMobile.disabled = !runtime.preferredAccessUrl;
   els.copyMobileLink.disabled = !runtime.preferredAccessUrl;

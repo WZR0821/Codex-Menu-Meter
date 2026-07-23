@@ -26,6 +26,37 @@ function createAccessToken() {
   return crypto.randomBytes(24).toString('base64url');
 }
 
+function findPreferredLanAddress(networkInterfaces) {
+  const candidates = [];
+  for (const [name, entries] of Object.entries(networkInterfaces || {})) {
+    for (const entry of entries || []) {
+      const family = entry.family === 4 ? 'IPv4' : entry.family;
+      const address = String(entry.address || '');
+      if (family !== 'IPv4' || entry.internal || !address || address.startsWith('169.254.')) continue;
+      const interfaceRank = name === 'en0'
+        ? 0
+        : /^en\d+$/.test(name)
+          ? 1
+          : /^bridge\d+$/.test(name)
+            ? 2
+            : /^utun\d+$/.test(name)
+              ? 5
+              : 3;
+      const privateRank = /^(10\.|192\.168\.)/.test(address)
+        || /^172\.(1[6-9]|2\d|3[01])\./.test(address)
+        ? 0
+        : 1;
+      candidates.push({ address, interfaceRank, privateRank });
+    }
+  }
+  candidates.sort((left, right) => (
+    left.interfaceRank - right.interfaceRank
+    || left.privateRank - right.privateRank
+    || left.address.localeCompare(right.address)
+  ));
+  return candidates[0]?.address || null;
+}
+
 function safeNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const number = Number(value);
@@ -356,5 +387,6 @@ function createMobileServer({
 module.exports = {
   createAccessToken,
   createMobilePayload,
-  createMobileServer
+  createMobileServer,
+  findPreferredLanAddress
 };

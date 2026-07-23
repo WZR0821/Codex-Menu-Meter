@@ -7,7 +7,11 @@ const { promisify } = require('util');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
-const { createAccessToken, createMobileServer } = require('./mobile-server');
+const {
+  createAccessToken,
+  createMobileServer,
+  findPreferredLanAddress
+} = require('./mobile-server');
 const {
   PROVIDER_BY_ID,
   OPTIONAL_PROVIDER_IDS,
@@ -67,7 +71,8 @@ const PANEL_HOTKEY = 'Alt+Command+U';
 const TOUCHBAR_STATE_PATH = path.join(app.getPath('userData'), 'touchbar-state.json');
 const TOUCHBAR_LOG_PATH = path.join(app.getPath('userData'), 'touchbar-helper.log');
 const MOBILE_ASSETS_DIR = path.join(__dirname, 'mobile');
-const MOBILE_HOST = '127.0.0.1';
+const MOBILE_HOST = '0.0.0.0';
+const MOBILE_LOOPBACK_HOST = '127.0.0.1';
 const MOBILE_PORT = 43821;
 const TAILSCALE_DOWNLOAD_URL = 'https://tailscale.com/download/mac';
 
@@ -158,6 +163,7 @@ let touchBarHelperOutput = '';
 let mobileServer = null;
 let mobileRuntime = {
   running: false,
+  port: null,
   localBaseUrl: null,
   remoteBaseUrl: null,
   tailscaleInstalled: false,
@@ -605,8 +611,12 @@ function applySystemSettings() {
 }
 
 function getSettingsSnapshot() {
+  const lanBaseUrl = getMobileLanBaseUrl();
   const localAccessUrl = mobileRuntime.localBaseUrl
     ? createMobileAccessUrl(mobileRuntime.localBaseUrl)
+    : null;
+  const lanAccessUrl = lanBaseUrl
+    ? createMobileAccessUrl(lanBaseUrl)
     : null;
   const remoteAccessUrl = mobileRuntime.remoteBaseUrl
     ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
@@ -616,9 +626,11 @@ function getSettingsSnapshot() {
     loginItemOpenAtLogin: app.getLoginItemSettings().openAtLogin,
     mobileRuntime: {
       ...mobileRuntime,
+      lanBaseUrl,
       localAccessUrl,
+      lanAccessUrl,
       remoteAccessUrl,
-      preferredAccessUrl: remoteAccessUrl || localAccessUrl
+      preferredAccessUrl: remoteAccessUrl || lanAccessUrl || localAccessUrl
     }
   };
 }
@@ -634,12 +646,28 @@ function createMobileAccessUrl(baseUrl) {
   return `${String(baseUrl).replace(/\/+$/, '')}/mobile/#${settings.mobileAccessToken}`;
 }
 
+function getMobileLanBaseUrl() {
+  if (!mobileRuntime.running || !mobileRuntime.port) return null;
+  const address = findPreferredLanAddress(os.networkInterfaces());
+  return address ? `http://${address}:${mobileRuntime.port}` : null;
+}
+
+function getPreferredMobileAccessUrl() {
+  const remoteUrl = mobileRuntime.remoteBaseUrl
+    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
+    : null;
+  const lanBaseUrl = getMobileLanBaseUrl();
+  const lanUrl = lanBaseUrl ? createMobileAccessUrl(lanBaseUrl) : null;
+  return remoteUrl || lanUrl || createMobileAccessUrl(mobileRuntime.localBaseUrl);
+}
+
 async function syncMobileServer() {
   if (!settings.mobileEnabled) {
     if (mobileServer) await mobileServer.stop();
     mobileRuntime = {
       ...mobileRuntime,
       running: false,
+      port: null,
       localBaseUrl: null,
       error: null
     };
@@ -664,7 +692,8 @@ async function syncMobileServer() {
     mobileRuntime = {
       ...mobileRuntime,
       running: true,
-      localBaseUrl: `http://${MOBILE_HOST}:${activePort}`,
+      port: activePort,
+      localBaseUrl: `http://${MOBILE_LOOPBACK_HOST}:${activePort}`,
       error: null
     };
     refreshAllForMobile().catch(() => {});
@@ -672,6 +701,7 @@ async function syncMobileServer() {
     mobileRuntime = {
       ...mobileRuntime,
       running: false,
+      port: null,
       localBaseUrl: null,
       error: error.code === 'EADDRINUSE'
         ? `端口 ${MOBILE_PORT} 已被其他程序占用`
@@ -774,7 +804,7 @@ async function configureTailscaleServe() {
   try {
     await execFileAsync(
       binary,
-      ['serve', '--bg', '--yes', `http://${MOBILE_HOST}:${MOBILE_PORT}`],
+      ['serve', '--bg', '--yes', `http://${MOBILE_LOOPBACK_HOST}:${MOBILE_PORT}`],
       { timeout: 30_000 }
     );
     await refreshTailscaleRuntime();
@@ -800,9 +830,7 @@ async function configureTailscaleServe() {
 }
 
 function createMobileQrDataUrl() {
-  const accessUrl = mobileRuntime.remoteBaseUrl
-    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
-    : null;
+  const accessUrl = getPreferredMobileAccessUrl();
   if (!accessUrl) return null;
   const qr = qrcode(0, 'M');
   qr.addData(accessUrl);
@@ -2558,16 +2586,12 @@ ipcMain.handle('settings:get', () => getSettingsSnapshot());
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('settings:update', (_event, nextSettings) => saveSettings(nextSettings));
 ipcMain.handle('mobile:open', () => {
-  const url = mobileRuntime.remoteBaseUrl
-    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
-    : createMobileAccessUrl(mobileRuntime.localBaseUrl);
+  const url = getPreferredMobileAccessUrl();
   if (url) shell.openExternal(url);
   return Boolean(url);
 });
 ipcMain.handle('mobile:copy-link', () => {
-  const url = mobileRuntime.remoteBaseUrl
-    ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
-    : createMobileAccessUrl(mobileRuntime.localBaseUrl);
+  const url = getPreferredMobileAccessUrl();
   if (url) clipboard.writeText(url);
   return Boolean(url);
 });
