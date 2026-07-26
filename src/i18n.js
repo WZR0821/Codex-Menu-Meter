@@ -46,7 +46,7 @@
     windowUnavailable: ['窗口数据不可用', 'Window data unavailable', 'ウィンドウデータなし'],
     label5h: ['5 小时', '5h', '5時間'],
     labelWeek: ['一周', 'Weekly', '週間'],
-    remainingTitle: ['{label} 剩余用量', '{label} left', '{label} 残量'],
+    remainingTitle: ['{label} 剩余', '{label} left', '{label} 残量'],
     inactiveFooter: ['使用后开始计时', 'Timer starts after first use', '使用開始後にカウント'],
     noResetFooter: ['重置时间暂未提供', 'Reset time not provided', 'リセット時刻は未提供'],
     notStarted: ['未开始', 'Not started', '未開始'],

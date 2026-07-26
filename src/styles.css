@@ -874,10 +874,10 @@ h2 {
 }
 
 .quota-card-top {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
 }
 
 .quota-card-top span,
@@ -887,12 +887,21 @@ h2 {
   font-weight: 650;
 }
 
+.quota-card-top span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quota-card-top em {
   color: #63e5c8;
-  font-size: 12px;
+  font-size: 11.5px;
   font-style: normal;
   font-weight: 820;
+  font-variant-numeric: tabular-nums;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .quota-card strong {
