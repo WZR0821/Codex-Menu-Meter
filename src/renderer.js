@@ -855,7 +855,7 @@ function activityNotice(activity) {
   if (!activity) return '';
   if (activity.source === 'claude_local') return T('noticeLocal', { dir: '~/.claude' });
   if (activity.source === 'codex_local') return T('noticeLocal', { dir: '~/.codex' });
-  return activity.units === 'percent' ? T('noticePercent') : T('noticeBackend');
+  return '';
 }
 
 function renderTokenActivity(tokenState) {
@@ -869,54 +869,37 @@ function renderTokenActivity(tokenState) {
     els.tokenActivity.innerHTML = emptyBlock(tokenState.error || T('noTokenData'));
     return;
   }
+  if (activity.units !== 'tokens' || !isLocalActivitySource(activity.source)) {
+    els.tokenActivity.innerHTML = emptyBlock(T('noTokenData'));
+    return;
+  }
 
   const heatmap = createTokenHeatmap(activity.days || []);
   const today = heatmap.today;
-  const isLocal = isLocalActivitySource(activity.source);
   const windowDays = Number(activity.windowDays) || 30;
-
-  let statsHtml;
-  let detailText;
-  if (isLocal) {
-    const totalIo = heatmap.days.reduce((sum, day) => sum + Number(day.ioTokens || 0), 0);
-    const totalTokens = heatmap.days.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
-    statsHtml = `
-      <div>
-        <span>${escapeHtml(T('todayUsed'))}</span>
-        <strong>${escapeHtml(formatTokenCount(today.tokens))}</strong>
-        <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}</small>
-      </div>
-      <div>
-        <span>${escapeHtml(T('windowUsed', { n: windowDays }))}</span>
-        <strong>${escapeHtml(formatTokenCount(totalTokens))}</strong>
-        <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(totalIo, { withUnit: false }) }))}</small>
-      </div>
-    `;
-    detailText = `${today.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(today.tokens) })} · ${T('sessionsCount', { n: Number(today.threads || 0) })}`;
-    const totalCost = heatmap.days.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
-    statsHtml += `
-      <div class="token-cost" title="${escapeHtml(T('costHint'))}">${escapeHtml(T('costLine', {
-        today: formatCostUsd(today.costUsd),
-        n: windowDays,
-        total: formatCostUsd(totalCost)
-      }))}</div>
-    `;
-  } else {
-    const total = heatmap.days.reduce((sum, day) => sum + Number(day.value || 0), 0);
-    statsHtml = `
-      <div>
-        <span>${escapeHtml(T('todayLabel'))}</span>
-        <strong>${escapeHtml(formatUsageValue(today.value, activity))}</strong>
-        <small>${escapeHtml(T('backendValueLabel'))}</small>
-      </div>
-      <div>
-        <span>${escapeHtml(T('lastNDays', { n: windowDays }))}</span>
-        <strong>${escapeHtml(formatUsageValue(total, activity))}</strong>
-        <small>${escapeHtml(T('backendSource'))}</small>
-      </div>
-    `;
-    detailText = `${today.day}${T('colonSep')}${formatUsageValue(today.value, activity)}`;
-  }
+  const totalIo = heatmap.days.reduce((sum, day) => sum + Number(day.ioTokens || 0), 0);
+  const totalTokens = heatmap.days.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
+  let statsHtml = `
+    <div>
+      <span>${escapeHtml(T('todayUsed'))}</span>
+      <strong>${escapeHtml(formatTokenCount(today.tokens))}</strong>
+      <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}</small>
+    </div>
+    <div>
+      <span>${escapeHtml(T('windowUsed', { n: windowDays }))}</span>
+      <strong>${escapeHtml(formatTokenCount(totalTokens))}</strong>
+      <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(totalIo, { withUnit: false }) }))}</small>
+    </div>
+  `;
+  const detailText = `${today.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(today.tokens) })} · ${T('sessionsCount', { n: Number(today.threads || 0) })}`;
+  const totalCost = heatmap.days.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
+  statsHtml += `
+    <div class="token-cost" title="${escapeHtml(T('costHint'))}">${escapeHtml(T('costLine', {
+      today: formatCostUsd(today.costUsd),
+      n: windowDays,
+      total: formatCostUsd(totalCost)
+    }))}</div>
+  `;
 
   els.tokenActivity.innerHTML = `
     <section class="token-card">
@@ -932,10 +915,10 @@ function renderTokenActivity(tokenState) {
               class="token-heatmap-cell${day.future ? ' future' : ''}"
               data-level="${day.level}"
               data-day="${escapeHtml(day.day)}"
-              data-tokens="${escapeHtml(cellPrimaryText(day, activity, isLocal))}"
-              data-cost="${escapeHtml(cellSecondaryText(day, isLocal))}"
-              data-threads="${escapeHtml(cellMetaText(day, isLocal))}"
-              title="${escapeHtml(`${day.day}${T('colonSep')}${cellPrimaryText(day, activity, isLocal)}`)}"
+              data-tokens="${escapeHtml(T('usedAmount', { v: formatTokenCount(day.tokens) }))}"
+              data-cost="${escapeHtml(cellSecondaryText(day))}"
+              data-threads="${escapeHtml(cellMetaText(day))}"
+              title="${escapeHtml(`${day.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(day.tokens) })}`)}"
             >
               <span class="token-day-number">${escapeHtml(day.dayNumber)}</span>
             </span>
@@ -1344,50 +1327,16 @@ function formatCostUsd(value) {
   return `$${number.toFixed(2)}`;
 }
 
-function formatUsageValue(value, activity = {}) {
-  if (activity.units === 'tokens') return formatTokenCount(value);
-  const number = Number(value);
-  if (!Number.isFinite(number)) return '-';
-  if (activity.units === 'percent') {
-    return `${number.toFixed(number >= 10 ? 1 : 2)}%`;
-  }
-  if (activity.units === 'credits') {
-    return `${number.toFixed(number >= 10 ? 1 : 2)} credits`;
-  }
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: number >= 10 ? 1 : 2
-  }).format(number);
-}
-
-function cellPrimaryText(day, activity, isLocal) {
-  if (isLocal) return T('usedAmount', { v: formatTokenCount(day.tokens) });
-  return formatUsageValue(day.value, activity);
-}
-
-function cellSecondaryText(day, isLocal) {
-  if (!isLocal) return '';
+function cellSecondaryText(day) {
   return Number(day.ioTokens || 0) > 0 ? T('ioAmount', { v: formatTokenCount(day.ioTokens) }) : '';
 }
 
-function cellMetaText(day, isLocal) {
-  if (!isLocal) return formatModelSummary(day);
+function cellMetaText(day) {
   const sessions = T('sessionsCount', { n: Number(day.threads || 0) });
   const models = Array.isArray(day.models) && day.models.length > 0
     ? day.models.slice(0, 2).map((model) => formatModelName(model.model)).join(' / ')
     : '';
   return models ? `${sessions} · ${models}` : sessions;
-}
-
-function formatModelSummary(day) {
-  if (Array.isArray(day.models) && day.models.length > 0) {
-    return day.models
-      .slice()
-      .sort((a, b) => Number(b.value || 0) - Number(a.value || 0))
-      .slice(0, 2)
-      .map((model) => `${formatModelName(model.model)}${model.speed ? ` ${model.speed}` : ''}`)
-      .join(' / ');
-  }
-  return T('backendRecord');
 }
 
 function formatModelName(value) {

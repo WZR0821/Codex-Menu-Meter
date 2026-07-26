@@ -68,27 +68,12 @@
     usedAmount: ['已使用 {v}', 'Used {v}', '使用済み {v}'],
     ioAmount: ['读写 {v}', 'I/O {v}', '読み書き {v}'],
     sessionsCount: ['{n} 个会话', '{n} sessions', '{n} セッション'],
-    todayLabel: ['今天', 'Today', '今日'],
-    lastNDays: ['近 {n} 天', 'Last {n} days', '直近{n}日'],
-    backendValueLabel: ['今日后台用量指数', "Today's backend usage index", '本日のバックエンド使用指数'],
-    backendSource: ['Codex 后台官方口径', 'Codex backend (official)', 'Codex バックエンド公式'],
-    backendRecord: ['后台记录', 'Backend record', 'バックエンド記録'],
     noTokenData: ['暂无 Token 活动数据', 'No token activity yet', 'トークン活動データがありません'],
     heatmapAria: ['每日用量热力图', 'Daily usage heatmap', '日次使用量ヒートマップ'],
     noticeLocal: [
       '统计自 {dir} 本地会话记录',
       'Computed from local session logs in {dir}',
       '{dir} のローカル記録から集計'
-    ],
-    noticePercent: [
-      '官方接口仅提供百分比，可能延迟最多 6 小时',
-      'Official API provides percentages only; may lag up to 6 hours',
-      '公式 API は百分率のみ提供、最大6時間の遅延あり'
-    ],
-    noticeBackend: [
-      'Codex 后台数据可能延迟最多 6 小时',
-      'Codex backend data may lag up to 6 hours',
-      'Codex バックエンドのデータは最大6時間遅延'
     ],
     colonSep: ['：', ': ', '：'],
     costLine: ['折算 API 成本：今天 ≈ {today} · 近 {n} 天 ≈ {total}', 'Est. API cost: today ≈ {today} · {n}-day ≈ {total}', 'API 換算コスト：本日 ≈ {today} · 直近{n}日 ≈ {total}'],

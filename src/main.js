@@ -7,6 +7,7 @@ const { promisify } = require('util');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
+const { readTranscriptFile } = require('./transcript-reader');
 const {
   createAccessToken,
   createMobileServer,
@@ -32,7 +33,6 @@ if (process.env.CMM_USER_DATA_DIR) {
 const CHATGPT_BASE_URL = 'https://chatgpt.com/backend-api';
 const CODEX_USAGE_URL = `${CHATGPT_BASE_URL}/wham/usage`;
 const RESET_CREDITS_URL = `${CHATGPT_BASE_URL}/wham/rate-limit-reset-credits`;
-const DAILY_TOKEN_USAGE_URL = `${CHATGPT_BASE_URL}/wham/usage/daily-token-usage-breakdown`;
 const RADAR_URL = 'https://codexradar.com/current.json';
 const RADAR_HOME = 'https://codexradar.com/';
 const AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
@@ -997,49 +997,12 @@ function refreshTokenActivity() {
 }
 
 async function readTokenActivity() {
-  // 优先本地精确 token 统计；这台机器没有本地记录时才退回后台的百分比口径。
-  const local = await readCodexLocalActivity().catch(() => null);
-  if (local && local.days.some((day) => (Number(day.tokens) || 0) > 0)) return local;
-
-  const token = await getCodexAccessToken();
-  const raw = await fetchJson(DAILY_TOKEN_USAGE_URL, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  return normalizeBackendTokenActivity(raw);
+  return readCodexLocalActivity();
 }
 
 async function readCodexLocalActivity() {
   const entries = await collectCodexEntries();
-  if (!entries.length) throw new Error(tr('errNoLocalCodex'));
   return buildLocalActivity(entries, 'codex_local');
-}
-
-function normalizeBackendTokenActivity(raw) {
-  const rows = Array.isArray(raw?.data) ? raw.data : [];
-  const days = rows.map((row) => {
-    const surfaces = row?.product_surface_usage_values || {};
-    const value = Object.values(surfaces)
-      .map((entry) => Number(entry) || 0)
-      .reduce((sum, entry) => sum + entry, 0);
-    const models = Array.isArray(row?.models)
-      ? row.models
-          .map((model) => ({
-            model: String(model?.model || '').trim(),
-            speed: String(model?.speed || '').trim(),
-            value: Number(model?.credits) || 0
-          }))
-          .filter((model) => model.model && model.value > 0)
-      : [];
-
-    return { day: row?.date, value, tokens: value, models };
-  }).filter((day) => /^\d{4}-\d{2}-\d{2}$/.test(day.day));
-
-  return {
-    source: 'codex_backend',
-    units: raw?.units || 'usage',
-    windowDays: days.length || ACTIVITY_WINDOW_DAYS,
-    days
-  };
 }
 
 function normalizeRadar(raw) {
@@ -1450,61 +1413,6 @@ async function findClaudeTranscripts(dir) {
 
 async function readClaudeTranscript(file) {
   return readTranscriptFile(file, claudeTranscriptCache, parseClaudeTranscriptLines);
-}
-
-async function readTranscriptFile(file, cache, parseLines) {
-  let stat;
-  try {
-    stat = await fs.stat(file);
-  } catch {
-    return [];
-  }
-  const cached = cache.get(file);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.fileSize === stat.size) return cached.entries;
-
-  const canAppend = cached
-    && stat.size > cached.fileSize
-    && stat.mtimeMs >= cached.mtimeMs
-    && cached.offset <= cached.fileSize;
-  const start = canAppend ? cached.offset : 0;
-  let buffer;
-  try {
-    buffer = await readFileRange(file, start, Math.max(0, stat.size - start));
-  } catch {
-    return [];
-  }
-
-  // parseState 让解析器跨增量追加保留上下文（例如 Codex 回放里最近一次 turn_context 的模型名）。
-  const parseState = canAppend ? cached.parseState || {} : {};
-  const entries = canAppend ? cached.entries.slice() : [];
-  const lastNewline = buffer.lastIndexOf(0x0a);
-  let offset = start;
-  if (lastNewline >= 0) {
-    entries.push(...parseLines(buffer.subarray(0, lastNewline + 1).toString('utf8'), parseState));
-    offset += lastNewline + 1;
-  }
-
-  cache.set(file, {
-    mtimeMs: stat.mtimeMs,
-    fileSize: stat.size,
-    offset,
-    entries,
-    parseState
-  });
-  return entries;
-}
-
-async function readFileRange(file, start, length) {
-  if (start === 0) return fs.readFile(file);
-  if (length <= 0) return Buffer.alloc(0);
-  const handle = await fs.open(file, 'r');
-  try {
-    const buffer = Buffer.allocUnsafe(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, start);
-    return buffer.subarray(0, bytesRead);
-  } finally {
-    await handle.close();
-  }
 }
 
 function parseClaudeTranscriptLines(raw) {
