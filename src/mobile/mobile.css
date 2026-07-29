@@ -141,10 +141,10 @@ body.motion-burst .mobile-edge {
   min-height: 100vh;
   margin: 0 auto;
   padding:
-    max(12px, env(safe-area-inset-top))
-    max(12px, env(safe-area-inset-right))
-    max(18px, env(safe-area-inset-bottom))
-    max(12px, env(safe-area-inset-left));
+    max(17px, env(safe-area-inset-top))
+    max(15px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom))
+    max(15px, env(safe-area-inset-left));
   opacity: 0;
   transform: translate3d(0, -8px, 0) scale(0.985);
   transition:
@@ -168,16 +168,16 @@ footer {
 }
 
 .app-header {
-  min-height: 40px;
-  margin-bottom: 9px;
-  padding: 0 1px;
+  min-height: 54px;
+  margin-bottom: 13px;
+  padding: 0 2px;
 }
 
 .header-copy {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .eyebrow {
@@ -185,10 +185,10 @@ footer {
   min-width: 0;
   overflow: hidden;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin: 0;
   color: rgb(var(--provider-rgb));
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 730;
   white-space: nowrap;
 }
@@ -200,8 +200,8 @@ footer {
 
 .live-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: currentColor;
   box-shadow: 0 0 10px currentColor;
@@ -220,13 +220,13 @@ p {
 
 h1 {
   flex: none;
-  font-size: 21px;
+  font-size: 27px;
   font-weight: 800;
   line-height: 1;
 }
 
 h2 {
-  font-size: 15.5px;
+  font-size: 18px;
   font-weight: 780;
   line-height: 1.2;
 }
@@ -234,8 +234,8 @@ h2 {
 .icon-button {
   position: relative;
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   overflow: hidden;
   place-items: center;
@@ -272,7 +272,7 @@ h2 {
 }
 
 .icon-button svg {
-  width: 18px;
+  width: 22px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -288,8 +288,8 @@ h2 {
   position: sticky;
   z-index: 8;
   top: max(8px, env(safe-area-inset-top));
-  margin: 0 0 12px;
-  padding: 4px;
+  margin: 0 0 17px;
+  padding: 7px;
   border: 1px solid rgba(159, 221, 241, 0.13);
   border-radius: 8px;
   background:
@@ -303,7 +303,7 @@ h2 {
   position: relative;
   display: grid;
   gap: 4px;
-  padding: 3px;
+  padding: 4px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: rgba(8, 13, 17, 0.88);
@@ -330,10 +330,10 @@ h2 {
 }
 
 .provider-button {
-  min-height: 33px;
+  min-height: 42px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -362,10 +362,10 @@ h2 {
 .provider-switch::before {
   position: absolute;
   z-index: 0;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc((100% - 6px - (var(--provider-count, 1) - 1) * 4px) / var(--provider-count, 1));
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px - (var(--provider-count, 1) - 1) * 4px) / var(--provider-count, 1));
   border: 1px solid rgba(var(--provider-rgb), 0.66);
   border-radius: 5px;
   background: linear-gradient(180deg, rgba(var(--provider-rgb), 0.25), rgba(var(--provider-rgb), 0.09));
@@ -381,13 +381,13 @@ h2 {
 
 .view-switch {
   grid-template-columns: 1fr 1fr;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .view-button {
-  min-height: 28px;
+  min-height: 36px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .view-button.active {
@@ -397,10 +397,10 @@ h2 {
 .view-thumb {
   position: absolute;
   z-index: 0;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc(50% - 5px);
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 6px);
   border: 1px solid rgba(var(--view-rgb), 0.34);
   border-radius: 5px;
   background: rgba(var(--view-rgb), 0.1);
@@ -426,19 +426,19 @@ h2 {
 }
 
 .section-head {
-  margin: 0 1px 7px;
+  margin: 0 2px 10px;
 }
 
 .section-head span {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .quota-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 7px;
+  gap: 10px;
 }
 
 .quota-card,
@@ -457,8 +457,8 @@ h2 {
 
 .quota-card {
   min-width: 0;
-  min-height: 96px;
-  padding: 10px;
+  min-height: 140px;
+  padding: 15px;
   overflow: hidden;
   animation: card-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
@@ -468,9 +468,9 @@ h2 {
 }
 
 .quota-top {
-  gap: 5px;
+  gap: 7px;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 680;
 }
 
@@ -492,14 +492,14 @@ h2 {
 
 .quota-value {
   display: block;
-  margin: 8px 0 7px;
-  font-size: 27px;
+  margin: 13px 0 11px;
+  font-size: 36px;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
 }
 
 .quota-progress {
-  height: 4px;
+  height: 6px;
   overflow: hidden;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.09);
@@ -518,31 +518,31 @@ h2 {
 
 .quota-card small {
   display: block;
-  margin-top: 6px;
+  margin-top: 10px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .token-heading,
 .radar-heading {
-  margin-top: 13px;
+  margin-top: 22px;
 }
 
 .token-card,
 .radar-card {
-  padding: 11px;
+  padding: 16px;
   animation: card-in 390ms 70ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .token-summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding-bottom: 9px;
+  gap: 12px;
+  margin-bottom: 15px;
+  padding-bottom: 14px;
   border-bottom: 1px dashed rgba(var(--view-rgb), 0.18);
 }
 
@@ -555,16 +555,16 @@ h2 {
   display: block;
   overflow: hidden;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .token-summary strong {
   display: block;
-  margin: 3px 0 1px;
+  margin: 5px 0 2px;
   overflow: hidden;
-  font-size: 18px;
+  font-size: 23px;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
@@ -574,20 +574,20 @@ h2 {
 .heatmap {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 5px;
+  gap: 7px;
 }
 
 .heat-cell {
   display: grid;
   min-width: 0;
-  aspect-ratio: 1.28;
+  height: 38px;
   padding: 0;
   place-items: center;
   border: 1px solid rgba(var(--view-rgb), calc(0.08 + var(--level) * 0.085));
   border-radius: 4px;
   background: rgba(var(--view-rgb), calc(0.035 + var(--level) * 0.1));
   color: rgba(236, 247, 240, calc(0.48 + var(--level) * 0.09));
-  font-size: 9.5px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition:
@@ -607,9 +607,9 @@ h2 {
 }
 
 .token-detail {
-  min-height: 39px;
-  margin-top: 9px;
-  padding: 7px 9px;
+  min-height: 58px;
+  margin-top: 14px;
+  padding: 11px 13px;
   overflow: hidden;
   border-left: 3px solid rgb(var(--view-rgb));
   border-radius: 5px;
@@ -629,32 +629,32 @@ h2 {
 }
 
 .token-detail strong {
-  font-size: 11.5px;
+  font-size: 14px;
   line-height: 1.25;
 }
 
 .token-detail span {
-  margin-top: 3px;
+  margin-top: 5px;
   color: var(--muted);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .iq-list {
   display: grid;
-  gap: 6px;
+  gap: 9px;
   animation: card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .iq-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 58px;
-  min-height: 61px;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  min-height: 82px;
   overflow: hidden;
 }
 
 .iq-copy {
   min-width: 0;
-  padding: 8px 10px;
+  padding: 13px 14px;
 }
 
 .iq-top {
@@ -667,8 +667,8 @@ h2 {
   display: -webkit-box;
   min-width: 0;
   overflow: hidden;
-  font-size: 12.5px;
-  line-height: 1.2;
+  font-size: 14px;
+  line-height: 1.25;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -679,18 +679,18 @@ h2 {
   border-radius: 4px;
   background: rgba(var(--view-rgb), 0.12);
   color: rgb(var(--view-rgb));
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 730;
 }
 
 .iq-meta {
   display: flex;
   min-width: 0;
-  gap: 6px;
-  margin-top: 5px;
+  gap: 8px;
+  margin-top: 8px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 8.5px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
@@ -704,13 +704,13 @@ h2 {
 
 .iq-score span {
   color: var(--muted);
-  font-size: 8.5px;
+  font-size: 10px;
 }
 
 .iq-score strong {
   margin-top: 2px;
   color: rgb(var(--score-rgb, 55, 223, 145));
-  font-size: 17px;
+  font-size: 21px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -721,11 +721,11 @@ h2 {
 .radar-row {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) 0.7fr 0.7fr;
-  min-height: 31px;
-  gap: 8px;
+  min-height: 40px;
+  gap: 10px;
   align-items: center;
   border-bottom: 1px solid var(--line);
-  font-size: 10.5px;
+  font-size: 12px;
 }
 
 .radar-row:last-child {
@@ -745,9 +745,9 @@ h2 {
 }
 
 .radar-head {
-  min-height: 25px;
+  min-height: 32px;
   color: var(--muted);
-  font-size: 8.5px;
+  font-size: 10px;
   text-transform: uppercase;
 }
 
@@ -761,10 +761,10 @@ h2 {
 }
 
 footer {
-  margin-top: 16px;
+  margin-top: 24px;
   padding: 0 2px 2px;
   color: var(--dim);
-  font-size: 8.5px;
+  font-size: 10px;
 }
 
 .toast {
@@ -810,15 +810,15 @@ body[data-view="usage"] .app-shell {
 
 body[data-view="usage"] .app-header {
   flex: 0 0 auto;
-  min-height: 40px;
-  margin-bottom: 8px;
+  min-height: 54px;
+  margin-bottom: 12px;
 }
 
 body[data-view="usage"] .control-deck {
   position: relative;
   top: auto;
   flex: 0 0 auto;
-  margin-bottom: 11px;
+  margin-bottom: 16px;
 }
 
 body[data-view="usage"] #usageView {
@@ -849,19 +849,20 @@ body[data-view="usage"] .quota-card:only-child {
 }
 
 body[data-view="usage"] .token-heading {
-  margin-top: 12px;
+  margin-top: 21px;
 }
 
 body[data-view="usage"] .token-card {
-  padding: 11px;
+  min-height: 310px;
+  padding: 16px;
 }
 
 body[data-view="usage"] .token-summary {
-  margin-bottom: 9px;
+  margin-bottom: 14px;
 }
 
 body[data-view="usage"] .token-detail {
-  margin-top: 8px;
+  margin-top: 13px;
 }
 
 body[data-view="usage"] footer {
@@ -917,10 +918,6 @@ body[data-view="usage"] footer {
     padding-left: max(11px, env(safe-area-inset-left));
   }
 
-  .quota-card {
-    padding: 9px;
-  }
-
   .header-copy {
     gap: 7px;
   }
@@ -933,28 +930,150 @@ body[data-view="usage"] footer {
     font-size: 9px;
   }
 
-  .quota-value {
-    font-size: 25px;
-  }
-
-  .heatmap {
-    gap: 4px;
-  }
-
   .iq-item {
-    grid-template-columns: minmax(0, 1fr) 58px;
+    grid-template-columns: minmax(0, 1fr) 62px;
   }
 }
 
 @media (max-height: 700px) {
   body[data-view="usage"] .app-shell {
-    padding-top: max(9px, env(safe-area-inset-top));
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-top: max(11px, env(safe-area-inset-top));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  body[data-view="usage"] .app-header {
+    min-height: 44px;
+    margin-bottom: 9px;
+  }
+
+  body[data-view="usage"] h1 {
+    font-size: 23px;
+  }
+
+  body[data-view="usage"] .eyebrow {
+    font-size: 10px;
+  }
+
+  body[data-view="usage"] .icon-button {
+    width: 38px;
+    height: 38px;
+  }
+
+  body[data-view="usage"] .control-deck {
+    margin-bottom: 11px;
+    padding: 5px;
+  }
+
+  body[data-view="usage"] .provider-button {
+    min-height: 36px;
+    font-size: 13.5px;
+  }
+
+  body[data-view="usage"] .view-button {
+    min-height: 30px;
+    font-size: 12.5px;
+  }
+
+  body[data-view="usage"] .section-head {
+    margin-bottom: 7px;
+  }
+
+  body[data-view="usage"] h2 {
+    font-size: 16.5px;
+  }
+
+  body[data-view="usage"] .section-head span {
+    font-size: 11px;
+  }
+
+  body[data-view="usage"] .quota-card {
+    min-height: 112px;
+    padding: 11px;
+  }
+
+  body[data-view="usage"] .quota-top {
+    font-size: 11px;
+  }
+
+  body[data-view="usage"] .quota-value {
+    margin: 9px 0 8px;
+    font-size: 30px;
+  }
+
+  body[data-view="usage"] .quota-card small {
+    margin-top: 7px;
+    font-size: 10px;
+  }
+
+  body[data-view="usage"] .token-heading {
+    margin-top: 14px;
+  }
+
+  body[data-view="usage"] .token-card {
+    min-height: 270px;
+    padding: 12px;
+  }
+
+  body[data-view="usage"] .token-summary {
+    margin-bottom: 10px;
+    padding-bottom: 9px;
+  }
+
+  body[data-view="usage"] .token-summary span,
+  body[data-view="usage"] .token-summary small {
+    font-size: 11px;
+  }
+
+  body[data-view="usage"] .token-summary strong {
+    font-size: 20px;
+  }
+
+  body[data-view="usage"] .heatmap {
+    gap: 5px;
+  }
+
+  body[data-view="usage"] .heat-cell {
+    height: 30px;
+    font-size: 10px;
+  }
+
+  body[data-view="usage"] .token-detail {
+    min-height: 48px;
+    margin-top: 10px;
+    padding: 8px 10px;
+  }
+
+  body[data-view="usage"] .token-detail strong {
+    font-size: 12.5px;
+  }
+
+  body[data-view="usage"] .token-detail span {
+    font-size: 10px;
+  }
+}
+
+@media (max-height: 600px) {
+  body[data-view="usage"] .app-shell {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(7px, env(safe-area-inset-bottom));
   }
 
   body[data-view="usage"] .app-header {
     min-height: 36px;
     margin-bottom: 6px;
+  }
+
+  body[data-view="usage"] h1 {
+    font-size: 19px;
+  }
+
+  body[data-view="usage"] .eyebrow {
+    font-size: 9px;
+  }
+
+  body[data-view="usage"] .icon-button {
+    width: 34px;
+    height: 34px;
   }
 
   body[data-view="usage"] .control-deck {
@@ -964,18 +1083,24 @@ body[data-view="usage"] footer {
 
   body[data-view="usage"] .provider-button {
     min-height: 30px;
+    font-size: 12.5px;
   }
 
   body[data-view="usage"] .view-button {
     min-height: 26px;
+    font-size: 11.5px;
   }
 
   body[data-view="usage"] .section-head {
     margin-bottom: 6px;
   }
 
+  body[data-view="usage"] h2 {
+    font-size: 15.5px;
+  }
+
   body[data-view="usage"] .quota-card {
-    min-height: 91px;
+    min-height: 96px;
     padding: 9px;
   }
 
@@ -986,13 +1111,15 @@ body[data-view="usage"] footer {
 
   body[data-view="usage"] .quota-card small {
     margin-top: 6px;
+    font-size: 9.5px;
   }
 
   body[data-view="usage"] .token-heading {
-    margin-top: 8px;
+    margin-top: 9px;
   }
 
   body[data-view="usage"] .token-card {
+    min-height: 0;
     padding: 9px;
   }
 
@@ -1001,14 +1128,32 @@ body[data-view="usage"] footer {
     padding-bottom: 7px;
   }
 
+  body[data-view="usage"] .token-summary strong {
+    font-size: 18px;
+  }
+
   body[data-view="usage"] .heatmap {
     gap: 4px;
   }
 
+  body[data-view="usage"] .heat-cell {
+    height: 23px;
+    font-size: 9.5px;
+  }
+
   body[data-view="usage"] .token-detail {
-    min-height: 36px;
-    margin-top: 6px;
+    min-height: 38px;
+    margin-top: 7px;
     padding: 6px 8px;
+  }
+
+  body[data-view="usage"] .token-detail strong {
+    font-size: 11.5px;
+  }
+
+  body[data-view="usage"] .token-detail span {
+    margin-top: 3px;
+    font-size: 9.5px;
   }
 }
 

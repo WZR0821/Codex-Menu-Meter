@@ -5,6 +5,7 @@ const els = {
   language: document.getElementById('language'),
   openAtLogin: document.getElementById('openAtLogin'),
   autoHideWithMenuBar: document.getElementById('autoHideWithMenuBar'),
+  autoSwitchProvider: document.getElementById('autoSwitchProvider'),
   notificationsEnabled: document.getElementById('notificationsEnabled'),
   hotkeyEnabled: document.getElementById('hotkeyEnabled'),
   mobileEnabled: document.getElementById('mobileEnabled'),
@@ -50,6 +51,7 @@ function T(key, params) {
 els.language.addEventListener('change', () => updateSetting({ language: els.language.value }));
 els.openAtLogin.addEventListener('change', () => updateSetting({ openAtLogin: els.openAtLogin.checked }));
 els.autoHideWithMenuBar.addEventListener('change', () => updateSetting({ autoHideWithMenuBar: els.autoHideWithMenuBar.checked }));
+els.autoSwitchProvider.addEventListener('change', () => updateSetting({ autoSwitchProvider: els.autoSwitchProvider.checked }));
 els.notificationsEnabled.addEventListener('change', () => updateSetting({ notificationsEnabled: els.notificationsEnabled.checked }));
 els.hotkeyEnabled.addEventListener('change', () => updateSetting({ hotkeyEnabled: els.hotkeyEnabled.checked }));
 els.mobileEnabled.addEventListener('change', () => updateSetting({ mobileEnabled: els.mobileEnabled.checked }));
@@ -90,6 +92,7 @@ function render(settings) {
   els.language.value = I18N.normalizeLanguage(settings.language);
   els.openAtLogin.checked = Boolean(settings.openAtLogin);
   els.autoHideWithMenuBar.checked = Boolean(settings.autoHideWithMenuBar);
+  els.autoSwitchProvider.checked = Boolean(settings.autoSwitchProvider);
   els.notificationsEnabled.checked = Boolean(settings.notificationsEnabled);
   els.hotkeyEnabled.checked = Boolean(settings.hotkeyEnabled);
   els.mobileEnabled.checked = Boolean(settings.mobileEnabled);

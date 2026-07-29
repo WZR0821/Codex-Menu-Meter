@@ -245,6 +245,12 @@
     openAtLoginHint: ['登录后自动启动菜单栏工具', 'Start the menu bar app after login', 'ログイン後にメニューバーツールを起動'],
     autoHide: ['跟随菜单栏收起', 'Follow menu bar', 'メニューバーに追従'],
     autoHideHint: ['菜单栏隐藏时自动收起面板', 'Hide the panel when the menu bar hides', 'メニューバー非表示時にパネルを閉じる'],
+    autoSwitchProvider: ['跟随前台应用', 'Follow frontmost app', '最前面のアプリに追従'],
+    autoSwitchProviderHint: [
+      '打开 Codex / Claude Code 时自动切换，仍可手动选择',
+      'Switch for Codex / Claude Code; manual selection stays available',
+      'Codex / Claude Code に自動切替。手動選択も利用可能'
+    ],
     notifications: ['额度提醒通知', 'Quota notifications', 'クォータ通知'],
     notificationsHint: ['剩余 20% / 5% 时提醒，重置后通知满血复活', 'Alert at 20% / 5% remaining; notify when the window resets', '残り 20% / 5% で通知、リセット時にもお知らせ'],
     hotkey: ['全局快捷键 ⌥⌘U', 'Global hotkey ⌥⌘U', 'グローバルショートカット ⌥⌘U'],

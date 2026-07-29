@@ -7,6 +7,7 @@ const { promisify } = require('util');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
+const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
 const {
   createAccessToken,
@@ -116,6 +117,7 @@ const defaultSettings = {
   language: 'zh-CN',
   openAtLogin: false,
   autoHideWithMenuBar: true,
+  autoSwitchProvider: true,
   notificationsEnabled: true,
   hotkeyEnabled: true,
   mobileEnabled: false,
@@ -160,6 +162,7 @@ let pendingPanelShow = false;
 let touchBarHelper = null;
 let touchBarStateTimer = null;
 let touchBarHelperOutput = '';
+const foregroundProviderTracker = new ForegroundProviderTracker();
 let mobileServer = null;
 let mobileRuntime = {
   running: false,
@@ -569,6 +572,10 @@ async function saveSettings(nextSettings) {
   updateTrayTitle();
   sendState();
   sendSettings();
+  if (!previous.autoSwitchProvider && settings.autoSwitchProvider) {
+    foregroundProviderTracker.clearManualOverride();
+    setImmediate(applyForegroundProvider);
+  }
   return getSettingsSnapshot();
 }
 
@@ -581,6 +588,9 @@ function normalizeSettings(value) {
     autoHideWithMenuBar: value?.autoHideWithMenuBar === undefined
       ? defaultSettings.autoHideWithMenuBar
       : Boolean(value.autoHideWithMenuBar),
+    autoSwitchProvider: value?.autoSwitchProvider === undefined
+      ? defaultSettings.autoSwitchProvider
+      : Boolean(value.autoSwitchProvider),
     notificationsEnabled: value?.notificationsEnabled === undefined
       ? defaultSettings.notificationsEnabled
       : Boolean(value.notificationsEnabled),
@@ -2216,11 +2226,33 @@ function handleTouchBarHelperOutput(chunk) {
     if (message === 'pointer-down') handleGlobalPointerDown();
     if (message.startsWith('touchbar-provider:')) {
       touchBarLog(message);
-      selectProvider(message.slice('touchbar-provider:'.length)).catch((error) => {
+      selectProvider(message.slice('touchbar-provider:'.length), { source: 'manual' }).catch((error) => {
         touchBarLog(`provider sync failed: ${error.message}`);
       });
     }
+    if (message.startsWith('foreground-app:')) {
+      const [bundleId = '', name = '', bundlePath = '', pid = ''] = message
+        .slice('foreground-app:'.length)
+        .split('\t');
+      handleForegroundApplication({ bundleId, name, bundlePath, pid });
+    }
   }
+}
+
+function handleForegroundApplication(identity) {
+  foregroundProviderTracker.update(identity);
+  applyForegroundProvider();
+}
+
+function applyForegroundProvider() {
+  if (!settings.autoSwitchProvider) return;
+  const provider = foregroundProviderTracker.recommendedProvider();
+  if (!provider || !isProviderEnabled(provider, settings.providerSettings)) return;
+  if (provider === state.provider) return;
+  touchBarLog(`foreground-provider:${provider}`);
+  selectProvider(provider, { source: 'foreground' }).catch((error) => {
+    touchBarLog(`foreground sync failed: ${error.message}`);
+  });
 }
 
 function handleGlobalPointerDown() {
@@ -2390,7 +2422,8 @@ function refreshProvider(provider) {
   return Promise.all([refreshUsage(), refreshRadar(), refreshTokenActivity()]);
 }
 
-async function selectProvider(provider) {
+async function selectProvider(provider, { source = 'manual' } = {}) {
+  if (source === 'manual') foregroundProviderTracker.markManualOverride();
   if (!isProviderEnabled(provider, settings.providerSettings)) return state;
   if (provider === state.provider) return state;
 
@@ -2502,7 +2535,7 @@ ipcMain.handle('state:refresh', async () => {
   await refreshProvider(state.provider);
   return state;
 });
-ipcMain.handle('provider:set', (_event, provider) => selectProvider(provider));
+ipcMain.handle('provider:set', (_event, provider) => selectProvider(provider, { source: 'manual' }));
 ipcMain.handle('settings:get', () => getSettingsSnapshot());
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('settings:update', (_event, nextSettings) => saveSettings(nextSettings));
