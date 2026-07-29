@@ -295,6 +295,37 @@ select:focus {
   display: none;
 }
 
+.cloud-sync-setup {
+  padding: 0 13px 13px;
+  border-top: 1px solid rgba(159, 221, 241, 0.1);
+  background: rgba(6, 10, 14, 0.26);
+}
+
+.cloud-sync-setup .mobile-link-row {
+  margin-top: 0;
+  padding-top: 11px;
+}
+
+.cloud-sync-setup input:not(:focus) {
+  border-color: rgba(92, 213, 164, 0.2);
+}
+
+.cloud-sync-details {
+  border-top-color: rgba(92, 213, 164, 0.13);
+}
+
+.cloud-sync-qr {
+  border-color: rgba(92, 213, 164, 0.34);
+}
+
+.cloud-sync-qr span {
+  color: #176a4c;
+}
+
+.cloud-secondary-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .mobile-pairing {
   display: grid;
   grid-template-columns: 86px minmax(0, 1fr);

@@ -11,9 +11,19 @@ const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
 const {
   createAccessToken,
+  createMobilePayload,
   createMobileServer,
   findPreferredLanAddress
 } = require('./mobile-server');
+const {
+  createCredentials: createCloudSyncCredentials,
+  createPairingUrl: createCloudSyncPairingUrl,
+  createRecoveryCode: createCloudSyncRecoveryCode,
+  deriveMaterial: deriveCloudSyncMaterial,
+  encryptPayload: encryptCloudSyncPayload,
+  normalizeServerUrl: normalizeCloudSyncServerUrl,
+  validateCredentials: validateCloudSyncCredentials
+} = require('./mobile/cloud-sync-crypto');
 const {
   PROVIDER_BY_ID,
   OPTIONAL_PROVIDER_IDS,
@@ -74,6 +84,10 @@ const MOBILE_HOST = '0.0.0.0';
 const MOBILE_LOOPBACK_HOST = '127.0.0.1';
 const MOBILE_PORT = 43821;
 const TAILSCALE_DOWNLOAD_URL = 'https://tailscale.com/download/mac';
+const DEFAULT_CLOUD_SYNC_SERVER_URL = '';
+const CLOUD_SYNC_KEYCHAIN_SERVICE = 'Codex Menu Meter Cloud Sync';
+const CLOUD_SYNC_PUSH_DELAY_MS = 1800;
+const CLOUD_SYNC_RETRY_MS = 5 * 60_000;
 
 const USAGE_REFRESH_MS = 120_000;
 const CLAUDE_USAGE_REFRESH_MS = 5 * 60_000;
@@ -122,6 +136,9 @@ const defaultSettings = {
   hotkeyEnabled: true,
   mobileEnabled: false,
   mobileAccessToken: createAccessToken(),
+  cloudSyncEnabled: false,
+  cloudSyncServerUrl: process.env.CMM_SYNC_SERVER_URL || DEFAULT_CLOUD_SYNC_SERVER_URL,
+  cloudSyncAccountId: '',
   provider: 'codex',
   providerSettings: defaultProviderSettings()
 };
@@ -173,6 +190,17 @@ let mobileRuntime = {
   tailscaleState: 'not-installed',
   error: null
 };
+let cloudSyncRuntime = {
+  status: 'disabled',
+  lastSyncedAt: null,
+  lastAttemptAt: null,
+  error: null
+};
+let cloudSyncSecretCache = null;
+let cloudSyncPushTimer = null;
+let cloudSyncRetryTimer = null;
+let cloudSyncInFlight = null;
+let cloudSyncPushPending = false;
 const refreshJobs = new Map();
 
 function runRefreshOnce(key, task) {
@@ -556,6 +584,13 @@ async function saveSettings(nextSettings) {
   if (previous.hotkeyEnabled !== settings.hotkeyEnabled) applyPanelHotkey();
   if (previous.mobileEnabled !== settings.mobileEnabled) await syncMobileServer();
   if (previous.mobileAccessToken !== settings.mobileAccessToken) mobileServer?.disconnectClients();
+  const cloudSyncChanged = previous.cloudSyncEnabled !== settings.cloudSyncEnabled
+    || previous.cloudSyncServerUrl !== settings.cloudSyncServerUrl
+    || previous.cloudSyncAccountId !== settings.cloudSyncAccountId;
+  if (cloudSyncChanged) {
+    if (settings.cloudSyncEnabled) queueCloudSyncPush(0);
+    else disableCloudSyncRuntime();
+  }
   if (previous.language !== settings.language && settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.setTitle(tr('settingsTitle'));
   }
@@ -603,6 +638,15 @@ function normalizeSettings(value) {
     mobileAccessToken: /^[A-Za-z0-9_-]{24,128}$/.test(String(value?.mobileAccessToken || ''))
       ? String(value.mobileAccessToken)
       : defaultSettings.mobileAccessToken,
+    cloudSyncEnabled: value?.cloudSyncEnabled === undefined
+      ? defaultSettings.cloudSyncEnabled
+      : Boolean(value.cloudSyncEnabled),
+    cloudSyncServerUrl: typeof value?.cloudSyncServerUrl === 'string'
+      ? value.cloudSyncServerUrl.trim().slice(0, 2048)
+      : defaultSettings.cloudSyncServerUrl,
+    cloudSyncAccountId: /^[A-Za-z0-9_-]{20,64}$/.test(String(value?.cloudSyncAccountId || ''))
+      ? String(value.cloudSyncAccountId)
+      : '',
     provider: normalizeProviderId(value?.provider, providerSettings),
     providerSettings
   };
@@ -647,6 +691,12 @@ function getSettingsSnapshot() {
       lanAccessUrl,
       remoteAccessUrl,
       preferredAccessUrl: remoteAccessUrl || lanAccessUrl || localAccessUrl
+    },
+    cloudSyncRuntime: {
+      ...cloudSyncRuntime,
+      configured: Boolean(settings.cloudSyncServerUrl && settings.cloudSyncAccountId),
+      serverUrl: settings.cloudSyncServerUrl || null,
+      accountId: settings.cloudSyncAccountId || null
     }
   };
 }
@@ -852,6 +902,265 @@ function createMobileQrDataUrl() {
   qr.addData(accessUrl);
   qr.make();
   return qr.createDataURL(5, 4);
+}
+
+function cloudSyncErrorMessage(error) {
+  const code = String(error?.message || error || 'sync_failed');
+  const known = {
+    invalid_server_url: '同步服务器地址无效',
+    insecure_server_url: '同步服务器必须使用 HTTPS',
+    keychain_missing: '同步密钥在钥匙串中不存在',
+    unauthorized: '同步凭证已失效，请重置配对',
+    snapshot_not_found: '云端尚无同步数据',
+    stale_snapshot: '云端已有更新的数据',
+    request_timeout: '连接同步服务器超时'
+  };
+  if (known[code]) return known[code];
+  if (/^http_\d+$/.test(code)) return `同步服务器请求失败（${code.slice(5)}）`;
+  return code;
+}
+
+function disableCloudSyncRuntime() {
+  if (cloudSyncPushTimer) clearTimeout(cloudSyncPushTimer);
+  cloudSyncPushTimer = null;
+  cloudSyncPushPending = false;
+  cloudSyncRuntime = {
+    ...cloudSyncRuntime,
+    status: 'disabled',
+    error: null
+  };
+}
+
+async function readCloudSyncSecret(accountId) {
+  if (!accountId) throw new Error('keychain_missing');
+  if (cloudSyncSecretCache?.accountId === accountId) return cloudSyncSecretCache.secret;
+  try {
+    const { stdout } = await execFileAsync('/usr/bin/security', [
+      'find-generic-password',
+      '-s', CLOUD_SYNC_KEYCHAIN_SERVICE,
+      '-a', accountId,
+      '-w'
+    ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+    const secret = stdout.trim();
+    validateCloudSyncCredentials({ accountId, secret });
+    cloudSyncSecretCache = { accountId, secret };
+    return secret;
+  } catch {
+    throw new Error('keychain_missing');
+  }
+}
+
+async function writeCloudSyncSecret(credentials) {
+  validateCloudSyncCredentials(credentials);
+  await execFileAsync('/usr/bin/security', [
+    'add-generic-password',
+    '-U',
+    '-s', CLOUD_SYNC_KEYCHAIN_SERVICE,
+    '-a', credentials.accountId,
+    '-w', credentials.secret
+  ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+  cloudSyncSecretCache = {
+    accountId: credentials.accountId,
+    secret: credentials.secret
+  };
+}
+
+async function deleteCloudSyncSecret(accountId) {
+  if (!accountId) return;
+  try {
+    await execFileAsync('/usr/bin/security', [
+      'delete-generic-password',
+      '-s', CLOUD_SYNC_KEYCHAIN_SERVICE,
+      '-a', accountId
+    ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+  } catch {
+    // The key may already be gone; resetting should still continue.
+  }
+  if (cloudSyncSecretCache?.accountId === accountId) cloudSyncSecretCache = null;
+}
+
+async function getCloudSyncCredentials() {
+  const accountId = settings.cloudSyncAccountId;
+  const secret = await readCloudSyncSecret(accountId);
+  return validateCloudSyncCredentials({ accountId, secret });
+}
+
+async function createAndStoreCloudSyncCredentials() {
+  const credentials = createCloudSyncCredentials();
+  await writeCloudSyncSecret(credentials);
+  return credentials;
+}
+
+async function cloudSyncFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('request_timeout');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function cloudSyncSnapshotUrl(serverUrl, accountId) {
+  return `${normalizeCloudSyncServerUrl(serverUrl)}/v1/snapshots/${encodeURIComponent(accountId)}`;
+}
+
+async function uploadCloudSyncSnapshot({ force = false } = {}) {
+  if (!settings.cloudSyncEnabled) return null;
+  if (cloudSyncInFlight) {
+    cloudSyncPushPending = true;
+    return cloudSyncInFlight;
+  }
+  cloudSyncInFlight = (async () => {
+    cloudSyncRuntime = {
+      ...cloudSyncRuntime,
+      status: 'syncing',
+      lastAttemptAt: Date.now(),
+      error: null
+    };
+    sendSettings();
+    try {
+      const serverUrl = normalizeCloudSyncServerUrl(settings.cloudSyncServerUrl);
+      const credentials = await getCloudSyncCredentials();
+      const payload = createMobilePayload(state);
+      payload.sync = {
+        source: 'mac',
+        generatedAt: Date.now()
+      };
+      const envelope = await encryptCloudSyncPayload(payload, credentials, payload.sync.generatedAt);
+      const { authToken } = await deriveCloudSyncMaterial(credentials);
+      const response = await cloudSyncFetch(cloudSyncSnapshotUrl(serverUrl, credentials.accountId), {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(envelope)
+      });
+      if (!response.ok) {
+        let code = `http_${response.status}`;
+        try {
+          code = (await response.json()).error || code;
+        } catch {
+          // Keep the HTTP fallback code.
+        }
+        throw new Error(code);
+      }
+      cloudSyncRuntime = {
+        status: 'ready',
+        lastSyncedAt: envelope.updatedAt,
+        lastAttemptAt: Date.now(),
+        error: null
+      };
+      return envelope;
+    } catch (error) {
+      cloudSyncRuntime = {
+        ...cloudSyncRuntime,
+        status: 'error',
+        lastAttemptAt: Date.now(),
+        error: cloudSyncErrorMessage(error)
+      };
+      if (force) throw error;
+      return null;
+    } finally {
+      sendSettings();
+    }
+  })();
+  try {
+    return await cloudSyncInFlight;
+  } finally {
+    cloudSyncInFlight = null;
+    if (cloudSyncPushPending) {
+      cloudSyncPushPending = false;
+      queueCloudSyncPush(CLOUD_SYNC_PUSH_DELAY_MS);
+    }
+  }
+}
+
+function queueCloudSyncPush(delay = CLOUD_SYNC_PUSH_DELAY_MS) {
+  if (!settings.cloudSyncEnabled) return;
+  if (cloudSyncPushTimer) clearTimeout(cloudSyncPushTimer);
+  cloudSyncPushTimer = setTimeout(() => {
+    cloudSyncPushTimer = null;
+    uploadCloudSyncSnapshot().catch(() => {});
+  }, delay);
+  cloudSyncPushTimer.unref?.();
+}
+
+async function configureCloudSync({ enabled, serverUrl } = {}) {
+  if (!enabled) {
+    await saveSettings({ cloudSyncEnabled: false });
+    return getSettingsSnapshot();
+  }
+  const normalizedServerUrl = normalizeCloudSyncServerUrl(serverUrl || settings.cloudSyncServerUrl);
+  let credentials;
+  try {
+    credentials = await getCloudSyncCredentials();
+  } catch {
+    credentials = await createAndStoreCloudSyncCredentials();
+  }
+  await saveSettings({
+    cloudSyncEnabled: true,
+    cloudSyncServerUrl: normalizedServerUrl,
+    cloudSyncAccountId: credentials.accountId
+  });
+  await uploadCloudSyncSnapshot({ force: true });
+  return getSettingsSnapshot();
+}
+
+async function getCloudSyncPairingInfo() {
+  if (!settings.cloudSyncEnabled) return null;
+  const credentials = await getCloudSyncCredentials();
+  const pairingUrl = createCloudSyncPairingUrl(settings.cloudSyncServerUrl, credentials);
+  return {
+    pairingUrl,
+    recoveryCode: createCloudSyncRecoveryCode(credentials),
+    accountId: credentials.accountId
+  };
+}
+
+async function createCloudSyncQrDataUrl() {
+  try {
+    const info = await getCloudSyncPairingInfo();
+    if (!info) return null;
+    const qr = qrcode(0, 'M');
+    qr.addData(info.pairingUrl);
+    qr.make();
+    return qr.createDataURL(5, 4);
+  } catch {
+    return null;
+  }
+}
+
+async function deleteCloudSnapshot(credentials, serverUrl) {
+  if (!credentials || !serverUrl) return;
+  try {
+    const { authToken } = await deriveCloudSyncMaterial(credentials);
+    await cloudSyncFetch(cloudSyncSnapshotUrl(serverUrl, credentials.accountId), {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${authToken}` }
+    });
+  } catch {
+    // Rotation must work even when the old server is unavailable.
+  }
+}
+
+async function resetCloudSyncPairing() {
+  let previousCredentials = null;
+  try {
+    previousCredentials = await getCloudSyncCredentials();
+  } catch {
+    // A missing old key is one of the reasons to reset.
+  }
+  await deleteCloudSnapshot(previousCredentials, settings.cloudSyncServerUrl);
+  await deleteCloudSyncSecret(settings.cloudSyncAccountId);
+  const credentials = await createAndStoreCloudSyncCredentials();
+  await saveSettings({ cloudSyncAccountId: credentials.accountId });
+  await uploadCloudSyncSnapshot({ force: true });
+  return getSettingsSnapshot();
 }
 
 async function getCodexAccessToken() {
@@ -2406,6 +2715,7 @@ function createTransparentTrayImage() {
 
 function sendState() {
   queueTouchBarStateWrite();
+  queueCloudSyncPush();
   mobileServer?.broadcast(state);
   if (panel && !panel.isDestroyed()) {
     panel.webContents.send('state:update', state);
@@ -2474,6 +2784,11 @@ app.whenReady().then(async () => {
   // 提前完成 Chromium、页面和首帧数据的冷启动，第一次点击只负责显示窗口。
   createPanel();
   await syncMobileServer();
+  if (settings.cloudSyncEnabled) queueCloudSyncPush(0);
+  cloudSyncRetryTimer = setInterval(() => {
+    if (settings.cloudSyncEnabled && cloudSyncRuntime.status !== 'syncing') queueCloudSyncPush(0);
+  }, CLOUD_SYNC_RETRY_MS);
+  cloudSyncRetryTimer.unref?.();
   queueTouchBarStateWrite();
   setTimeout(() => {
     queueTouchBarStateWrite();
@@ -2503,6 +2818,8 @@ app.on('before-quit', () => {
   if (radarTimer) clearInterval(radarTimer);
   if (tokenActivityTimer) clearInterval(tokenActivityTimer);
   if (extraUsageTimer) clearInterval(extraUsageTimer);
+  if (cloudSyncPushTimer) clearTimeout(cloudSyncPushTimer);
+  if (cloudSyncRetryTimer) clearInterval(cloudSyncRetryTimer);
   stopPanelFollowMonitor();
   stopPanelAnimation();
   clearPanelBlurTimer();
@@ -2561,6 +2878,28 @@ ipcMain.handle('mobile:tailscale-status', async () => {
 });
 ipcMain.handle('mobile:tailscale-configure', () => configureTailscaleServe());
 ipcMain.handle('mobile:tailscale-install', () => shell.openExternal(TAILSCALE_DOWNLOAD_URL));
+ipcMain.handle('cloud-sync:configure', (_event, options) => configureCloudSync(options));
+ipcMain.handle('cloud-sync:push', async () => {
+  await uploadCloudSyncSnapshot({ force: true });
+  return getSettingsSnapshot();
+});
+ipcMain.handle('cloud-sync:get-qr', () => createCloudSyncQrDataUrl());
+ipcMain.handle('cloud-sync:copy-link', async () => {
+  const info = await getCloudSyncPairingInfo();
+  if (info?.pairingUrl) clipboard.writeText(info.pairingUrl);
+  return Boolean(info?.pairingUrl);
+});
+ipcMain.handle('cloud-sync:copy-recovery', async () => {
+  const info = await getCloudSyncPairingInfo();
+  if (info?.recoveryCode) clipboard.writeText(info.recoveryCode);
+  return Boolean(info?.recoveryCode);
+});
+ipcMain.handle('cloud-sync:open', async () => {
+  const info = await getCloudSyncPairingInfo();
+  if (info?.pairingUrl) shell.openExternal(info.pairingUrl);
+  return Boolean(info?.pairingUrl);
+});
+ipcMain.handle('cloud-sync:reset', () => resetCloudSyncPairing());
 ipcMain.handle('app:open-radar', () => shell.openExternal(state.provider === 'claude' ? CLAUDE_RADAR_HOME : RADAR_HOME));
 ipcMain.handle('app:show-in-folder', () => shell.showItemInFolder(app.getPath('exe')));
 ipcMain.handle('app:quit', () => app.quit());

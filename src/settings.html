@@ -176,6 +176,50 @@
           </div>
         </section>
 
+        <section class="settings-section cloud-sync-section">
+          <p class="section-label" data-i18n="cloudSyncSection">加密云同步</p>
+
+          <label class="setting-row switch-row" for="cloudSyncEnabled">
+            <span>
+              <strong data-i18n="cloudSyncEnabled">启用网页云同步</strong>
+              <small data-i18n="cloudSyncEnabledHint">Mac 本地加密，云端只保存密文</small>
+            </span>
+            <input id="cloudSyncEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <div class="cloud-sync-setup">
+            <label class="mobile-link-row" for="cloudSyncServerUrl">
+              <span data-i18n="cloudSyncServer">同步服务地址</span>
+              <input id="cloudSyncServerUrl" type="url" placeholder="https://your-worker.workers.dev" />
+            </label>
+          </div>
+
+          <div class="mobile-details cloud-sync-details" id="cloudSyncDetails" hidden>
+            <div class="mobile-pairing">
+              <div class="mobile-qr-wrap cloud-sync-qr">
+                <img id="cloudSyncQr" alt="加密云同步二维码" />
+                <span id="cloudSyncQrPlaceholder">E2EE</span>
+              </div>
+              <div class="mobile-copy">
+                <strong id="cloudSyncStatus">等待首次同步</strong>
+                <small id="cloudSyncStatusHint">--</small>
+                <span class="mobile-security" data-i18n="cloudSyncSecurity">解密密钥不会上传到服务器</span>
+              </div>
+            </div>
+
+            <div class="mobile-actions">
+              <button id="openCloudSync" type="button" data-i18n="cloudSyncPreview">打开网页</button>
+              <button id="copyCloudSyncLink" type="button" data-i18n="cloudSyncCopy">复制配对链接</button>
+              <button id="copyCloudSyncRecovery" type="button" data-i18n="cloudSyncRecovery">复制恢复码</button>
+            </div>
+            <div class="mobile-actions cloud-secondary-actions">
+              <button id="pushCloudSync" type="button" data-i18n="cloudSyncNow">立即同步</button>
+              <button id="resetCloudSync" type="button" data-i18n="cloudSyncReset">重置配对</button>
+            </div>
+          </div>
+        </section>
+
         <section class="settings-section action-section">
           <button class="action-row" id="refreshData" type="button">
             <span>

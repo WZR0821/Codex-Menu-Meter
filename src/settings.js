@@ -22,6 +22,18 @@ const els = {
   tailscaleTitle: document.getElementById('tailscaleTitle'),
   tailscaleHint: document.getElementById('tailscaleHint'),
   tailscaleState: document.getElementById('tailscaleState'),
+  cloudSyncEnabled: document.getElementById('cloudSyncEnabled'),
+  cloudSyncServerUrl: document.getElementById('cloudSyncServerUrl'),
+  cloudSyncDetails: document.getElementById('cloudSyncDetails'),
+  cloudSyncQr: document.getElementById('cloudSyncQr'),
+  cloudSyncQrPlaceholder: document.getElementById('cloudSyncQrPlaceholder'),
+  cloudSyncStatus: document.getElementById('cloudSyncStatus'),
+  cloudSyncStatusHint: document.getElementById('cloudSyncStatusHint'),
+  openCloudSync: document.getElementById('openCloudSync'),
+  copyCloudSyncLink: document.getElementById('copyCloudSyncLink'),
+  copyCloudSyncRecovery: document.getElementById('copyCloudSyncRecovery'),
+  pushCloudSync: document.getElementById('pushCloudSync'),
+  resetCloudSync: document.getElementById('resetCloudSync'),
   saveState: document.getElementById('saveState'),
   appMeta: document.getElementById('appMeta'),
   refreshData: document.getElementById('refreshData'),
@@ -42,6 +54,7 @@ let currentSettings = null;
 let appVersion = '';
 let scrollEdgeLock = null;
 let mobileRenderToken = 0;
+let cloudSyncRenderToken = 0;
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 function T(key, params) {
@@ -55,6 +68,8 @@ els.autoSwitchProvider.addEventListener('change', () => updateSetting({ autoSwit
 els.notificationsEnabled.addEventListener('change', () => updateSetting({ notificationsEnabled: els.notificationsEnabled.checked }));
 els.hotkeyEnabled.addEventListener('change', () => updateSetting({ hotkeyEnabled: els.hotkeyEnabled.checked }));
 els.mobileEnabled.addEventListener('change', () => updateSetting({ mobileEnabled: els.mobileEnabled.checked }));
+els.cloudSyncEnabled.addEventListener('change', handleCloudSyncToggle);
+els.cloudSyncServerUrl.addEventListener('change', handleCloudSyncServerChange);
 for (const id of PROVIDERS.OPTIONAL_PROVIDER_IDS) {
   const controls = providerEls[id];
   controls.enabled?.addEventListener('change', () => updateProvider(id, { enabled: controls.enabled.checked }));
@@ -78,6 +93,14 @@ els.openMobile.addEventListener('click', () => runAction('opened', () => window.
 els.copyMobileLink.addEventListener('click', () => runAction('mobileCopied', () => window.codexMeter.copyMobileLink()));
 els.rotateMobileToken.addEventListener('click', rotateMobileToken);
 els.tailscaleAction.addEventListener('click', handleTailscaleAction);
+els.openCloudSync.addEventListener('click', () => runCloudSyncAction('opened', () => window.codexMeter.openCloudSync()));
+els.copyCloudSyncLink.addEventListener('click', () => runCloudSyncAction('cloudSyncCopied', () => window.codexMeter.copyCloudSyncLink()));
+els.copyCloudSyncRecovery.addEventListener('click', () => runCloudSyncAction('cloudSyncCopied', () => window.codexMeter.copyCloudSyncRecovery()));
+els.pushCloudSync.addEventListener('click', () => runCloudSyncAction('synced', async () => {
+  currentSettings = await window.codexMeter.pushCloudSync();
+  render(currentSettings);
+}));
+els.resetCloudSync.addEventListener('click', resetCloudSyncPairing);
 els.scroll.addEventListener('wheel', handleSettingsWheel, { passive: true });
 
 window.codexMeter.onSettings(render);
@@ -96,6 +119,10 @@ function render(settings) {
   els.notificationsEnabled.checked = Boolean(settings.notificationsEnabled);
   els.hotkeyEnabled.checked = Boolean(settings.hotkeyEnabled);
   els.mobileEnabled.checked = Boolean(settings.mobileEnabled);
+  els.cloudSyncEnabled.checked = Boolean(settings.cloudSyncEnabled);
+  if (document.activeElement !== els.cloudSyncServerUrl) {
+    els.cloudSyncServerUrl.value = settings.cloudSyncServerUrl || '';
+  }
   const providerSettings = settings.providerSettings || {};
   for (const id of PROVIDERS.OPTIONAL_PROVIDER_IDS) {
     const controls = providerEls[id];
@@ -106,6 +133,65 @@ function render(settings) {
   }
   applyLanguage(els.language.value);
   renderMobile(settings);
+  renderCloudSync(settings);
+}
+
+async function handleCloudSyncToggle() {
+  const enabled = els.cloudSyncEnabled.checked;
+  if (enabled && !els.cloudSyncServerUrl.value.trim()) {
+    els.cloudSyncEnabled.checked = false;
+    els.saveState.textContent = T('cloudSyncUnconfigured');
+    return;
+  }
+  els.saveState.textContent = T('saving');
+  try {
+    currentSettings = await window.codexMeter.configureCloudSync({
+      enabled,
+      serverUrl: els.cloudSyncServerUrl.value.trim()
+    });
+    render(currentSettings);
+    els.saveState.textContent = T('synced');
+  } catch (error) {
+    els.cloudSyncEnabled.checked = Boolean(currentSettings?.cloudSyncEnabled);
+    els.saveState.textContent = error.message || T('cloudSyncError');
+  }
+}
+
+async function handleCloudSyncServerChange() {
+  const serverUrl = els.cloudSyncServerUrl.value.trim();
+  if (!currentSettings?.cloudSyncEnabled) {
+    await updateSetting({ cloudSyncServerUrl: serverUrl });
+    return;
+  }
+  els.saveState.textContent = T('saving');
+  try {
+    currentSettings = await window.codexMeter.configureCloudSync({ enabled: true, serverUrl });
+    render(currentSettings);
+    els.saveState.textContent = T('synced');
+  } catch (error) {
+    els.saveState.textContent = error.message || T('cloudSyncError');
+  }
+}
+
+async function runCloudSyncAction(statusKey, action) {
+  els.saveState.textContent = T('refreshing');
+  try {
+    await action();
+    els.saveState.textContent = T(statusKey);
+  } catch (error) {
+    els.saveState.textContent = error.message || T('cloudSyncError');
+  }
+  window.setTimeout(() => {
+    els.saveState.textContent = T('synced');
+  }, 1600);
+}
+
+async function resetCloudSyncPairing() {
+  if (!window.confirm(T('cloudSyncResetConfirm'))) return;
+  await runCloudSyncAction('synced', async () => {
+    currentSettings = await window.codexMeter.resetCloudSync();
+    render(currentSettings);
+  });
 }
 
 async function updateSetting(patch) {
@@ -193,6 +279,53 @@ async function renderMobile(settings) {
     els.mobileQr.hidden = true;
     els.mobileQrPlaceholder.hidden = false;
   }
+}
+
+async function renderCloudSync(settings) {
+  const token = ++cloudSyncRenderToken;
+  const enabled = Boolean(settings.cloudSyncEnabled);
+  const runtime = settings.cloudSyncRuntime || {};
+  els.cloudSyncDetails.hidden = !enabled;
+  if (!enabled) return;
+
+  const statusKeys = {
+    syncing: 'cloudSyncSyncing',
+    ready: 'cloudSyncReady',
+    error: 'cloudSyncError',
+    disabled: 'cloudSyncDisabled'
+  };
+  els.cloudSyncStatus.textContent = T(statusKeys[runtime.status] || 'cloudSyncNever');
+  els.cloudSyncStatusHint.textContent = runtime.error
+    || (runtime.lastSyncedAt
+      ? T('cloudSyncLast', { time: formatSettingsDateTime(runtime.lastSyncedAt) })
+      : T('cloudSyncNever'));
+  const configured = Boolean(runtime.configured);
+  for (const button of [els.openCloudSync, els.copyCloudSyncLink, els.copyCloudSyncRecovery, els.pushCloudSync, els.resetCloudSync]) {
+    button.disabled = !configured || runtime.status === 'syncing';
+  }
+
+  const dataUrl = await window.codexMeter.getCloudSyncQr();
+  if (token !== cloudSyncRenderToken) return;
+  if (dataUrl) {
+    els.cloudSyncQr.src = dataUrl;
+    els.cloudSyncQr.hidden = false;
+    els.cloudSyncQrPlaceholder.hidden = true;
+  } else {
+    els.cloudSyncQr.removeAttribute('src');
+    els.cloudSyncQr.hidden = true;
+    els.cloudSyncQrPlaceholder.hidden = false;
+  }
+}
+
+function formatSettingsDateTime(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return '--';
+  return new Intl.DateTimeFormat(els.language.value, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
 }
 
 function applyTailscaleState(runtime) {

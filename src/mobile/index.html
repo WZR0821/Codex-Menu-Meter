@@ -18,17 +18,38 @@
       <i class="mobile-edge mobile-edge-top"></i>
       <i class="mobile-edge mobile-edge-bottom"></i>
     </div>
+    <section class="pairing-gate" id="pairingGate" hidden>
+      <div class="pairing-panel">
+        <p class="pairing-kicker" id="pairingKicker">端到端加密</p>
+        <h1 id="pairingTitle">连接用量面板</h1>
+        <p class="pairing-copy" id="pairingCopy">扫描电脑设置中的二维码，或输入恢复码。</p>
+        <label class="pairing-input-wrap" for="pairingInput">
+          <span id="pairingInputLabel">恢复码</span>
+          <input id="pairingInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </label>
+        <button class="pairing-submit" id="pairingSubmit" type="button">连接</button>
+        <small class="pairing-note" id="pairingNote">密钥只保存在这个浏览器中</small>
+      </div>
+    </section>
     <main class="app-shell">
       <header class="app-header">
         <div class="header-copy">
           <h1>AI 用量</h1>
           <p class="eyebrow"><span class="live-dot"></span><span id="connectionLabel">正在连接 Mac</span></p>
         </div>
-        <button class="icon-button" id="refreshButton" type="button" aria-label="刷新" title="刷新">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7" />
-          </svg>
-        </button>
+        <div class="header-actions">
+          <button class="icon-button" id="syncDeviceButton" type="button" aria-label="同步设备" title="同步设备" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+          </button>
+          <button class="icon-button" id="refreshButton" type="button" aria-label="刷新" title="刷新">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <div class="control-deck">
@@ -75,6 +96,8 @@
     </main>
 
     <div class="toast" id="toast" role="status"></div>
+    <script src="./runtime-config.js"></script>
+    <script src="./cloud-sync-crypto.js"></script>
     <script src="./mobile.js"></script>
   </body>
 </html>

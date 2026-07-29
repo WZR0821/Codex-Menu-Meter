@@ -17,6 +17,8 @@ const STATIC_FILES = new Map([
   ['/mobile/', 'index.html'],
   ['/mobile/index.html', 'index.html'],
   ['/mobile/mobile.css', 'mobile.css'],
+  ['/mobile/runtime-config.js', 'runtime-config.js'],
+  ['/mobile/cloud-sync-crypto.js', 'cloud-sync-crypto.js'],
   ['/mobile/mobile.js', 'mobile.js'],
   ['/mobile/manifest.webmanifest', 'manifest.webmanifest'],
   ['/mobile/icon.svg', 'icon.svg']

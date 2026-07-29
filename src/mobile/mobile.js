@@ -3,6 +3,20 @@ const TEXT = {
     connecting: '正在连接 Mac',
     live: 'Mac 在线 · 实时同步',
     offline: 'Mac 已离线',
+    cloudConnecting: '正在读取加密快照',
+    cloudLive: '加密同步 · {time}',
+    cloudOffline: '云端暂不可用 · 上次 {time}',
+    cloudReadOnly: '端到端加密 · 只读同步',
+    pairingKicker: '端到端加密',
+    pairingTitle: '连接用量面板',
+    pairingCopy: '扫描电脑设置中的二维码，或输入恢复码。',
+    pairingInput: '恢复码',
+    pairingSubmit: '连接',
+    pairingNote: '密钥只保存在这个浏览器中',
+    pairingInvalid: '恢复码无效，请从电脑端重新复制',
+    pairingFailed: '连接失败，请稍后重试',
+    unpair: '解除此设备',
+    unpairConfirm: '解除后需要重新扫描二维码才能查看。确定继续吗？',
     usage: '用量',
     radar: '雷达',
     usageTitle: '{name} 额度',
@@ -39,6 +53,20 @@ const TEXT = {
     connecting: 'Connecting to Mac',
     live: 'Mac online · Live sync',
     offline: 'Mac offline',
+    cloudConnecting: 'Reading encrypted snapshot',
+    cloudLive: 'Encrypted sync · {time}',
+    cloudOffline: 'Cloud unavailable · Last {time}',
+    cloudReadOnly: 'End-to-end encrypted · Read only',
+    pairingKicker: 'End-to-end encrypted',
+    pairingTitle: 'Connect usage dashboard',
+    pairingCopy: 'Scan the QR code in Mac settings or enter the recovery code.',
+    pairingInput: 'Recovery code',
+    pairingSubmit: 'Connect',
+    pairingNote: 'The key stays in this browser only',
+    pairingInvalid: 'Invalid recovery code. Copy a new one from the Mac.',
+    pairingFailed: 'Unable to connect. Try again shortly.',
+    unpair: 'Unpair this device',
+    unpairConfirm: 'You will need to scan the QR code again. Continue?',
     usage: 'Usage',
     radar: 'Radar',
     usageTitle: '{name} quota',
@@ -75,6 +103,20 @@ const TEXT = {
     connecting: 'Mac に接続中',
     live: 'Mac オンライン · ライブ同期',
     offline: 'Mac オフライン',
+    cloudConnecting: '暗号化スナップショットを取得中',
+    cloudLive: '暗号化同期 · {time}',
+    cloudOffline: 'クラウド接続不可 · 最終 {time}',
+    cloudReadOnly: 'エンドツーエンド暗号化 · 読み取り専用',
+    pairingKicker: 'エンドツーエンド暗号化',
+    pairingTitle: '使用量パネルを接続',
+    pairingCopy: 'Mac設定のQRコードを読み取るか、復旧コードを入力してください。',
+    pairingInput: '復旧コード',
+    pairingSubmit: '接続',
+    pairingNote: 'キーはこのブラウザ内だけに保存されます',
+    pairingInvalid: '復旧コードが無効です。Macから再度コピーしてください。',
+    pairingFailed: '接続できません。しばらくしてから再試行してください。',
+    unpair: 'この端末の連携を解除',
+    unpairConfirm: '再度QRコードの読み取りが必要になります。続行しますか？',
     usage: '使用量',
     radar: 'レーダー',
     usageTitle: '{name} クォータ',
@@ -126,9 +168,23 @@ const els = {
   radarSource: document.getElementById('radarSource'),
   radarCard: document.getElementById('radarCard'),
   footerStatus: document.getElementById('footerStatus'),
-  toast: document.getElementById('toast')
+  toast: document.getElementById('toast'),
+  pairingGate: document.getElementById('pairingGate'),
+  pairingKicker: document.getElementById('pairingKicker'),
+  pairingTitle: document.getElementById('pairingTitle'),
+  pairingCopy: document.getElementById('pairingCopy'),
+  pairingInputLabel: document.getElementById('pairingInputLabel'),
+  pairingInput: document.getElementById('pairingInput'),
+  pairingSubmit: document.getElementById('pairingSubmit'),
+  pairingNote: document.getElementById('pairingNote'),
+  syncDeviceButton: document.getElementById('syncDeviceButton')
 };
 
+const SYNC_DATABASE = 'cmm-mobile-sync';
+const SYNC_STORE = 'private';
+const SYNC_CREDENTIAL_KEY = 'credentials';
+const SYNC_ENVELOPE_KEY = 'last-envelope';
+const CLOUD_POLL_MS = 30_000;
 let accessToken = '';
 let currentState = null;
 let provider = 'codex';
@@ -138,6 +194,12 @@ let reconnectTimer = null;
 let toastTimer = null;
 let motionTimer = null;
 let lang = 'zh-CN';
+let connectionMode = 'local';
+let syncCredentials = null;
+let syncEtag = '';
+let syncUpdatedAt = null;
+let syncPollTimer = null;
+let pairingFragmentInvalid = false;
 
 function T(key, params = {}) {
   const table = TEXT[lang] || TEXT['zh-CN'];
@@ -153,9 +215,72 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
+function openSyncDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(SYNC_DATABASE, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(SYNC_STORE)) {
+        request.result.createObjectStore(SYNC_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('indexeddb_failed'));
+  });
+}
+
+async function readPrivateValue(key) {
+  const database = await openSyncDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(SYNC_STORE, 'readonly');
+    const request = transaction.objectStore(SYNC_STORE).get(key);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error || new Error('indexeddb_failed'));
+    transaction.oncomplete = () => database.close();
+  });
+}
+
+async function writePrivateValue(key, value) {
+  const database = await openSyncDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(SYNC_STORE, 'readwrite');
+    transaction.objectStore(SYNC_STORE).put(value, key);
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => reject(transaction.error || new Error('indexeddb_failed'));
+  });
+}
+
+async function clearPrivateValues() {
+  const database = await openSyncDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(SYNC_STORE, 'readwrite');
+    transaction.objectStore(SYNC_STORE).clear();
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => reject(transaction.error || new Error('indexeddb_failed'));
+  });
+}
+
+function pairingCodeFromHash() {
+  const hash = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  if (!hash) return '';
+  const params = new URLSearchParams(hash);
+  return params.get('pair') || '';
+}
+
+function clearPairingFragment() {
+  if (!location.hash) return;
+  history.replaceState(null, '', `${location.pathname}${location.search}`);
+}
+
 function readAccessToken() {
   const queryToken = new URLSearchParams(location.search).get('token') || '';
-  const hashToken = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  const rawHash = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  const hashToken = rawHash && !rawHash.includes('=') ? rawHash : '';
   const urlToken = queryToken || hashToken;
   if (urlToken) {
     localStorage.setItem('cmm-mobile-token', urlToken);
@@ -163,6 +288,29 @@ function readAccessToken() {
     if (manifest) manifest.href = `/mobile/manifest.webmanifest?token=${encodeURIComponent(urlToken)}`;
   }
   return urlToken || localStorage.getItem('cmm-mobile-token') || '';
+}
+
+function renderPairingText(messageKey = 'pairingNote', error = false) {
+  els.pairingKicker.textContent = T('pairingKicker');
+  els.pairingTitle.textContent = T('pairingTitle');
+  els.pairingCopy.textContent = T('pairingCopy');
+  els.pairingInputLabel.textContent = T('pairingInput');
+  els.pairingSubmit.textContent = T('pairingSubmit');
+  els.pairingNote.textContent = T(messageKey);
+  els.pairingNote.classList.toggle('error', error);
+}
+
+function showPairingGate(messageKey = 'pairingNote', error = false) {
+  document.body.classList.add('unpaired');
+  document.body.classList.remove('ready');
+  els.pairingGate.hidden = false;
+  renderPairingText(messageKey, error);
+}
+
+function hidePairingGate() {
+  document.body.classList.remove('unpaired');
+  els.pairingGate.hidden = true;
+  els.pairingNote.classList.remove('error');
 }
 
 async function api(path, options = {}) {
@@ -176,6 +324,13 @@ async function api(path, options = {}) {
 
 function setConnection(connected) {
   document.body.classList.toggle('offline', !connected);
+  if (connectionMode === 'cloud') {
+    const time = syncUpdatedAt ? formatClock(syncUpdatedAt) : '--';
+    els.connectionLabel.textContent = connected
+      ? T('cloudLive', { time })
+      : T('cloudOffline', { time });
+    return;
+  }
   els.connectionLabel.textContent = connected ? T('live') : T('offline');
 }
 
@@ -199,6 +354,124 @@ function connectEvents() {
     eventSource?.close();
     reconnectTimer = window.setTimeout(connectEvents, 5000);
   };
+}
+
+async function refreshCloudState() {
+  if (!syncCredentials) throw new Error('unpaired');
+  const { authToken } = await window.CMM_SYNC_CRYPTO.deriveMaterial(syncCredentials);
+  const headers = new Headers({ Authorization: `Bearer ${authToken}` });
+  if (syncEtag) headers.set('If-None-Match', syncEtag);
+  const response = await fetch(`/v1/snapshots/${encodeURIComponent(syncCredentials.accountId)}`, {
+    headers,
+    cache: 'no-store'
+  });
+  if (response.status === 304) {
+    setConnection(true);
+    return currentState;
+  }
+  if (response.status === 401) throw new Error('unauthorized');
+  if (!response.ok) throw new Error(`http_${response.status}`);
+  const envelope = await response.json();
+  const payload = await window.CMM_SYNC_CRYPTO.decryptPayload(envelope, syncCredentials);
+  if (Number(payload?.version) !== 1 || !payload?.providers) throw new Error('invalid_snapshot');
+  syncEtag = response.headers.get('etag') || '';
+  syncUpdatedAt = Number(envelope.updatedAt) || null;
+  await writePrivateValue(SYNC_ENVELOPE_KEY, envelope);
+  applyState(payload);
+  hidePairingGate();
+  setConnection(true);
+  return payload;
+}
+
+async function applyCachedCloudState() {
+  const envelope = await readPrivateValue(SYNC_ENVELOPE_KEY);
+  if (!envelope || !syncCredentials) return false;
+  try {
+    const payload = await window.CMM_SYNC_CRYPTO.decryptPayload(envelope, syncCredentials);
+    syncUpdatedAt = Number(envelope.updatedAt) || null;
+    applyState(payload);
+    setConnection(false);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function scheduleCloudPolling() {
+  clearInterval(syncPollTimer);
+  syncPollTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') refreshCloudState().catch(() => setConnection(false));
+  }, CLOUD_POLL_MS);
+}
+
+async function loadCloudCredentials() {
+  const fragmentCode = pairingCodeFromHash();
+  if (fragmentCode) {
+    try {
+      const credentials = window.CMM_SYNC_CRYPTO.parsePairingCode(fragmentCode);
+      await writePrivateValue(SYNC_CREDENTIAL_KEY, credentials);
+      clearPairingFragment();
+      return credentials;
+    } catch {
+      pairingFragmentInvalid = true;
+      clearPairingFragment();
+      return null;
+    }
+  }
+  return readPrivateValue(SYNC_CREDENTIAL_KEY);
+}
+
+async function startCloudMode() {
+  connectionMode = 'cloud';
+  document.body.classList.add('cloud-mode');
+  els.syncDeviceButton.hidden = false;
+  els.connectionLabel.textContent = T('cloudConnecting');
+  selectView(activeView);
+  syncCredentials = await loadCloudCredentials();
+  if (!syncCredentials) {
+    showPairingGate(pairingFragmentInvalid ? 'pairingInvalid' : 'pairingNote', pairingFragmentInvalid);
+    return;
+  }
+  hidePairingGate();
+  const cached = await applyCachedCloudState();
+  scheduleCloudPolling();
+  try {
+    await refreshCloudState();
+  } catch {
+    if (!cached) showPairingGate('pairingFailed', true);
+    else setConnection(false);
+  }
+}
+
+async function submitPairingCode() {
+  const value = els.pairingInput.value.trim();
+  try {
+    const credentials = window.CMM_SYNC_CRYPTO.parsePairingCode(value);
+    await writePrivateValue(SYNC_CREDENTIAL_KEY, credentials);
+    syncCredentials = credentials;
+    els.pairingInput.value = '';
+    hidePairingGate();
+    els.connectionLabel.textContent = T('cloudConnecting');
+    scheduleCloudPolling();
+    await refreshCloudState();
+  } catch (error) {
+    showPairingGate(
+      error.message === 'invalid_pairing_code' ? 'pairingInvalid' : 'pairingFailed',
+      true
+    );
+  }
+}
+
+async function unpairCloudDevice() {
+  if (!window.confirm(T('unpairConfirm'))) return;
+  clearInterval(syncPollTimer);
+  syncPollTimer = null;
+  syncCredentials = null;
+  syncEtag = '';
+  syncUpdatedAt = null;
+  currentState = null;
+  await clearPrivateValues();
+  showPairingGate();
 }
 
 function applyState(state) {
@@ -231,7 +504,9 @@ function playMotionBurst() {
 function renderStaticText() {
   els.viewButtons[0].textContent = T('usage');
   els.viewButtons[1].textContent = T('radar');
-  els.footerStatus.textContent = T('readOnly');
+  els.footerStatus.textContent = T(connectionMode === 'cloud' ? 'cloudReadOnly' : 'readOnly');
+  els.syncDeviceButton.title = T('unpair');
+  els.syncDeviceButton.setAttribute('aria-label', T('unpair'));
   document.querySelector('.token-heading h2').textContent = T('tokenTitle');
   document.querySelector('#radarView .section-head h2').textContent = T('iqTitle');
   document.querySelector('.radar-heading h2').textContent = T('radarTitle');
@@ -584,9 +859,10 @@ els.tokenCard.addEventListener('click', (event) => {
 els.refreshButton.addEventListener('click', async () => {
   els.refreshButton.classList.add('loading');
   playMotionBurst();
-  showToast(T('refreshing'));
+  showToast(connectionMode === 'cloud' ? T('cloudConnecting') : T('refreshing'));
   try {
-    await api('/api/refresh', { method: 'POST' });
+    if (connectionMode === 'cloud') await refreshCloudState();
+    else await api('/api/refresh', { method: 'POST' });
   } catch (error) {
     showToast(error.message === 'unauthorized' ? T('unauthorized') : T('refreshFailed'));
   } finally {
@@ -594,7 +870,27 @@ els.refreshButton.addEventListener('click', async () => {
   }
 });
 
+els.pairingSubmit.addEventListener('click', submitPairingCode);
+els.pairingInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') submitPairingCode();
+});
+els.syncDeviceButton.addEventListener('click', unpairCloudDevice);
+
+document.addEventListener('visibilitychange', () => {
+  if (connectionMode === 'cloud' && document.visibilityState === 'visible' && syncCredentials) {
+    refreshCloudState().catch(() => setConnection(false));
+  }
+});
+
 async function start() {
+  if (window.CMM_MOBILE_MODE === 'cloud') {
+    try {
+      await startCloudMode();
+    } catch {
+      showPairingGate('pairingFailed', true);
+    }
+    return;
+  }
   accessToken = readAccessToken();
   els.connectionLabel.textContent = T('connecting');
   selectView(activeView);

@@ -1,12 +1,12 @@
-# 历史快照 v0.9.9
+# 历史快照 v0.10.0
 
 本提交于 2026-11-18T00:33:59+09:00 根据本机应用备份补录。
 
-- 快照日期：2026-07-29T14:00:50+09:00（Asia/Tokyo），由项目维护者核实确认。
-- 原始备份：`Codex Menu Meter 0.9.9 before encrypted cloud sync 20260730-004551.app`。
-- 原始 app.asar SHA-256：`12afcbcea34eccd631b5cb1ff758cb20fc0ce79319f714ff6ac9295e00b8e512`。
+- 快照日期：2026-07-30T00:35:28+09:00（Asia/Tokyo），由项目维护者核实确认。
+- 原始备份：`Codex Menu Meter 0.10.0 before cache hit rate 20260802-1415.app`。
+- 原始 app.asar SHA-256：`d4c82ee0bc3c398e5b45dfa58bde2a601f2a137f5f4367ffdcb0cc708b8995cc`。
 - 作者与提交者日期均采用已确认的快照日期；该日期不代表上传 GitHub 的时间。
-- 还原范围：包内 `package.json`、`src/` 和 `assets/icon.icns`，共 21 个文件。
+- 还原范围：包内 `package.json`、`src/` 和 `assets/icon.icns`，共 23 个文件。
 - 这是安装包中保留的应用源码快照，不是完整的原始开发仓库；未保存于包内的测试、构建脚本、原生助手源码和云端源码没有从新版本补入。
-- 发布清理：无需清理私人云同步服务地址。
+- 发布清理：已清空原先内置的私人云同步服务地址，需自行配置。
 - 本快照用于追溯开发历史；当前安装包与完整构建步骤见 main 分支。
