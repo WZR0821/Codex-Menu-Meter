@@ -32,9 +32,13 @@ const TEXT = {
     resetAt: '{time} 重置',
     today: '今日 Token',
     total: '近 30 天',
-    io: 'I/O {value}',
+    io: '读写 {value}',
     cacheHit: '缓存命中率 {value}',
-    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例',
+    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例；>99% 绿色，95–99% 黄色，<95% 红色',
+    windowUsage5h: '5h Token',
+    windowUsageWeek: '周 Token',
+    totalShort: '总 {value}',
+    cacheHitShort: '命中 {value}',
     sessions: '{count} 个会话',
     cost: '约 {value}',
     noData: '暂无数据',
@@ -86,7 +90,11 @@ const TEXT = {
     total: 'Last 30 days',
     io: 'I/O {value}',
     cacheHit: 'Cache hit {value}',
-    cacheHitHint: 'Cached input tokens as a share of all input tokens',
+    cacheHitHint: 'Cached input as a share of all input; green above 99%, yellow at 95–99%, red below 95%',
+    windowUsage5h: '5h Token',
+    windowUsageWeek: 'Week Token',
+    totalShort: 'Total {value}',
+    cacheHitShort: 'Hit {value}',
     sessions: '{count} sessions',
     cost: 'Approx. {value}',
     noData: 'No data yet',
@@ -136,9 +144,13 @@ const TEXT = {
     resetAt: '{time} リセット',
     today: '今日の Token',
     total: '直近 30 日',
-    io: 'I/O {value}',
+    io: '読み書き {value}',
     cacheHit: 'キャッシュヒット率 {value}',
-    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合',
+    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合。>99% は緑、95–99% は黄、<95% は赤',
+    windowUsage5h: '5h Token',
+    windowUsageWeek: '週間 Token',
+    totalShort: '合計 {value}',
+    cacheHitShort: 'ヒット {value}',
     sessions: '{count} セッション',
     cost: '約 {value}',
     noData: 'データがありません',
@@ -540,34 +552,37 @@ function render() {
   if (!providerData) return;
   if (activeView === 'usage') {
     els.usageHeading.textContent = T('usageTitle', { name: providerData.label });
-    renderUsage(providerData.usage);
+    renderUsage(providerData.usage, providerData.activity);
     renderActivity(providerData.activity);
     return;
   }
   renderRadar(providerData.radar);
 }
 
-function renderUsage(usageSlice) {
+function renderUsage(usageSlice, activitySlice) {
   els.usageUpdated.textContent = formatUpdated(usageSlice?.fetchedAt);
   const usage = usageSlice?.data;
   if (!usage) {
     els.quotaGrid.innerHTML = empty(usageSlice?.error);
     return;
   }
+  const activityWindows = activitySlice?.data?.windows || {};
   const cards = [];
   if (usage.fiveHourUnlimited) {
-    cards.push(quotaTemplate({ remainingPercent: 100 }, T('label5h'), true));
+    cards.push(quotaTemplate({ remainingPercent: 100 }, T('label5h'), true, activityWindows.fiveHour, 'fiveHour'));
   } else if (usage.primaryWindow) {
-    cards.push(quotaTemplate(usage.primaryWindow, T('label5h')));
+    cards.push(quotaTemplate(usage.primaryWindow, T('label5h'), false, activityWindows.fiveHour, 'fiveHour'));
   }
-  if (usage.secondaryWindow) cards.push(quotaTemplate(usage.secondaryWindow, T('labelWeek')));
+  if (usage.secondaryWindow) {
+    cards.push(quotaTemplate(usage.secondaryWindow, T('labelWeek'), false, activityWindows.week, 'week'));
+  }
   for (const windowValue of usage.extraWindows || []) {
     cards.push(quotaTemplate(windowValue, windowValue.name || T('labelWeek')));
   }
   els.quotaGrid.innerHTML = cards.length ? cards.join('') : empty(usageSlice?.error);
 }
 
-function quotaTemplate(windowValue, label, unlimited = false) {
+function quotaTemplate(windowValue, label, unlimited = false, activityWindow = null, activityWindowKey = null) {
   const remaining = unlimited ? 100 : clamp(Math.round(Number(windowValue.remainingPercent) || 0), 0, 100);
   const color = remaining <= 20 ? '#ff5f6d' : remaining <= 50 ? '#efc54b' : 'var(--accent)';
   const reset = unlimited ? '∞' : windowValue.resetAt ? formatClock(windowValue.resetAt) : '--';
@@ -583,7 +598,28 @@ function quotaTemplate(windowValue, label, unlimited = false) {
       <strong class="quota-value">${unlimited ? '∞' : `${remaining}%`}</strong>
       <div class="quota-progress"><i></i></div>
       <small>${escapeHtml(footer)}</small>
+      ${quotaActivityTemplate(activityWindowKey, activityWindow)}
     </article>
+  `;
+}
+
+function quotaActivityTemplate(windowKey, activityWindow) {
+  if (!activityWindow) return '';
+  const tone = cacheHitTone(activityWindow.cachedInputTokens, activityWindow.inputTokens);
+  const titleKey = windowKey === 'fiveHour' ? 'windowUsage5h' : 'windowUsageWeek';
+  return `
+    <div class="quota-activity">
+      <div class="quota-activity-head">
+        <span>${escapeHtml(T(titleKey))}</span>
+        <b>${escapeHtml(T('totalShort', { value: formatTokens(activityWindow.tokens, false) }))}</b>
+      </div>
+      <small>
+        <span>${escapeHtml(T('io', { value: formatTokens(activityWindow.ioTokens, false) }))}</span>
+        <em class="cache-hit-rate ${tone}">${escapeHtml(T('cacheHitShort', {
+          value: formatCacheHitRate(activityWindow.cachedInputTokens, activityWindow.inputTokens)
+        }))}</em>
+      </small>
+    </div>
   `;
 }
 
@@ -600,6 +636,8 @@ function renderActivity(activitySlice) {
   const totalIo = days.reduce((sum, day) => sum + day.ioTokens, 0);
   const totalInput = days.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
   const totalCachedInput = days.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
+  const todayCacheTone = cacheHitTone(today.cachedInputTokens, today.inputTokens);
+  const totalCacheTone = cacheHitTone(totalCachedInput, totalInput);
   const max = Math.max(1, ...days.map((day) => day.tokens));
 
   els.tokenCard.innerHTML = `
@@ -608,13 +646,13 @@ function renderActivity(activitySlice) {
         <span>${escapeHtml(T('today'))}</span>
         <strong>${escapeHtml(formatTokens(today.tokens))}</strong>
         <small>${escapeHtml(T('io', { value: formatTokens(today.ioTokens, false) }))}</small>
-        <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHit', { value: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}</small>
+        <small class="cache-hit-rate ${todayCacheTone}" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHit', { value: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}</small>
       </div>
       <div>
         <span>${escapeHtml(T('total'))}</span>
         <strong>${escapeHtml(formatTokens(total))}</strong>
         <small>${escapeHtml(T('io', { value: formatTokens(totalIo, false) }))}</small>
-        <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHit', { value: formatCacheHitRate(totalCachedInput, totalInput) }))}</small>
+        <small class="cache-hit-rate ${totalCacheTone}" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHit', { value: formatCacheHitRate(totalCachedInput, totalInput) }))}</small>
       </div>
     </div>
     <div class="heatmap">
@@ -660,11 +698,11 @@ function normalizeDays(rawDays) {
 }
 
 function tokenDetailTemplate(day) {
+  const detailMeta = `${T('sessions', { count: day.threads })} · ${T('cost', { value: formatUsd(day.costUsd) })}`;
+  const cacheText = T('cacheHit', { value: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) });
   return `
     <strong>${escapeHtml(`${formatDay(day.day)} · ${formatTokens(day.tokens)}`)}</strong>
-    <span>${escapeHtml(`${T('sessions', { count: day.threads })} · ${T('cost', { value: formatUsd(day.costUsd) })} · ${T('cacheHit', {
-      value: formatCacheHitRate(day.cachedInputTokens, day.inputTokens)
-    })}`)}</span>
+    <span>${escapeHtml(detailMeta)} · <em class="cache-hit-rate ${cacheHitTone(day.cachedInputTokens, day.inputTokens)}">${escapeHtml(cacheText)}</em></span>
   `;
 }
 
@@ -826,12 +864,25 @@ function formatPercent(value) {
   return Number.isFinite(number) ? `${Math.round(number)}%` : '--';
 }
 
-function formatCacheHitRate(cachedInputTokens, inputTokens) {
+function cacheHitPercent(cachedInputTokens, inputTokens) {
   const cached = Number(cachedInputTokens);
   const input = Number(inputTokens);
-  if (!Number.isFinite(cached) || !Number.isFinite(input) || input <= 0) return '--';
-  const rate = clamp((cached / input) * 100, 0, 100);
+  if (!Number.isFinite(cached) || !Number.isFinite(input) || input <= 0) return null;
+  return clamp((cached / input) * 100, 0, 100);
+}
+
+function formatCacheHitRate(cachedInputTokens, inputTokens) {
+  const rate = cacheHitPercent(cachedInputTokens, inputTokens);
+  if (rate === null) return '--';
   return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(rate)}%`;
+}
+
+function cacheHitTone(cachedInputTokens, inputTokens) {
+  const rate = cacheHitPercent(cachedInputTokens, inputTokens);
+  if (rate === null) return 'cache-hit-neutral';
+  if (rate > 99) return 'cache-hit-good';
+  if (rate >= 95) return 'cache-hit-warning';
+  return 'cache-hit-critical';
 }
 
 function heatLevel(value, max) {

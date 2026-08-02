@@ -7,6 +7,7 @@ const { promisify } = require('util');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
+const { buildActivityWindows } = require('./activity-windows');
 const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
 const {
@@ -1236,6 +1237,7 @@ function refreshUsage() {
   }, {
     formatError: (error) => requestErrorMessage(error, 'Codex'),
     onSettled: () => {
+      syncActivityWindows('codex');
       updateTrayTitle();
       recordUsageSample('codex');
     }
@@ -1321,7 +1323,7 @@ async function readTokenActivity() {
 
 async function readCodexLocalActivity() {
   const entries = await collectCodexEntries();
-  return buildLocalActivity(entries, 'codex_local');
+  return buildLocalActivity(entries, 'codex_local', state.usage?.data);
 }
 
 function normalizeRadar(raw) {
@@ -1546,6 +1548,7 @@ function refreshClaudeUsage() {
   return refreshStateSlice('claude-usage', 'claudeUsage', readClaudeUsage, {
     formatError: claudeUsageErrorMessage,
     onSettled: () => {
+      syncActivityWindows('claude');
       updateTrayTitle();
       recordUsageSample('claude');
     }
@@ -1858,10 +1861,10 @@ function activityWindowStartTs() {
 async function readClaudeActivity() {
   const entries = await collectClaudeEntries();
   if (!entries.length) throw new Error(tr('errNoLocalClaude'));
-  return buildLocalActivity(entries, 'claude_local');
+  return buildLocalActivity(entries, 'claude_local', state.claudeUsage?.data);
 }
 
-function buildLocalActivity(entries, source) {
+function buildLocalActivity(entries, source, usage) {
   const cutoffTs = activityWindowStartTs();
   const dayMap = new Map();
   for (const entry of entries) {
@@ -1916,7 +1919,20 @@ function buildLocalActivity(entries, source) {
     source,
     units: 'tokens',
     windowDays: ACTIVITY_WINDOW_DAYS,
+    windows: buildActivityWindows(entries, usage),
     days
+  };
+}
+
+function syncActivityWindows(provider) {
+  const isClaude = provider === 'claude';
+  const entries = isClaude ? claudeEntriesSnapshot.entries : codexEntriesSnapshot.entries;
+  const activity = isClaude ? state.claudeActivity : state.tokenActivity;
+  const usage = isClaude ? state.claudeUsage?.data : state.usage?.data;
+  if (!Array.isArray(entries) || !activity?.data) return;
+  activity.data = {
+    ...activity.data,
+    windows: buildActivityWindows(entries, usage)
   };
 }
 

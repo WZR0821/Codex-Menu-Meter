@@ -291,7 +291,7 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
   const isExtra = EXTRA_PROVIDER_IDS.includes(provider);
   const slices = providedSlices || activeSlices(stateValue);
   if (tab === 'usage') {
-    renderMeters(slices.usage, provider);
+    renderMeters(slices.usage, provider, slices.activity);
     if (isExtra) return;
     renderTrend(stateValue, slices.usage, provider);
     renderTokenActivity(slices.activity);
@@ -424,8 +424,9 @@ function renderHeader(slices) {
   els.statusLine.textContent = statusParts.join(' · ') || T('statusWaiting');
 }
 
-function renderMeters(usageState, provider) {
+function renderMeters(usageState, provider, activityState) {
   const usage = usageState.data;
+  const activityWindows = activityState?.data?.windows || {};
   const isExtra = EXTRA_PROVIDER_IDS.includes(provider);
   if (els.usageTitle) {
     const planLabel = provider === 'claude' && usage?.planType ? ` · ${formatPlanType(usage.planType)}` : '';
@@ -446,12 +447,20 @@ function renderMeters(usageState, provider) {
 
   const cards = [];
   if (usage.fiveHourUnlimited) {
-    cards.push(unlimitedCardTemplate(T('label5h')));
+    cards.push(unlimitedCardTemplate(T('label5h'), activityWindows.fiveHour, 'fiveHour'));
   } else if (usage.primaryWindow || !isExtra) {
-    cards.push(quotaCardTemplate(usage.primaryWindow, T('label5h'), { provider }));
+    cards.push(quotaCardTemplate(usage.primaryWindow, T('label5h'), {
+      provider,
+      activityWindow: activityWindows.fiveHour,
+      activityWindowKey: 'fiveHour'
+    }));
   }
   if (usage.secondaryWindow || !isExtra) {
-    cards.push(quotaCardTemplate(usage.secondaryWindow, T('labelWeek'), { provider }));
+    cards.push(quotaCardTemplate(usage.secondaryWindow, T('labelWeek'), {
+      provider,
+      activityWindow: activityWindows.week,
+      activityWindowKey: 'week'
+    }));
   }
   (usage.extraWindows || []).forEach((windowValue) => {
     const label = isExtra
@@ -469,7 +478,11 @@ function formatPlanType(value) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function quotaCardTemplate(windowValue, label, { provider = 'codex' } = {}) {
+function quotaCardTemplate(windowValue, label, {
+  provider = 'codex',
+  activityWindow = null,
+  activityWindowKey = null
+} = {}) {
   if (!windowValue) return emptyBlock(T('windowUnavailable'));
   const remaining = Number.isFinite(Number(windowValue.remainingPercent))
     ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
@@ -498,7 +511,30 @@ function quotaCardTemplate(windowValue, label, { provider = 'codex' } = {}) {
         <span class="quota-flare"></span>
       </div>
       <small>${escapeHtml(footer)}</small>
+      ${quotaActivityTemplate(activityWindowKey, activityWindow)}
     </article>
+  `;
+}
+
+function quotaActivityTemplate(windowKey, activityWindow) {
+  if (!activityWindow) return '';
+  const tone = cacheHitTone(activityWindow.cachedInputTokens, activityWindow.inputTokens);
+  const titleKey = windowKey === 'fiveHour' ? 'windowUsage5h' : 'windowUsageWeek';
+  return `
+    <div class="quota-activity">
+      <div class="quota-activity-head">
+        <span>${escapeHtml(T(titleKey))}</span>
+        <b>${escapeHtml(T('totalShort', {
+          v: formatTokenCount(activityWindow.tokens, { withUnit: false })
+        }))}</b>
+      </div>
+      <small>
+        <span>${escapeHtml(T('ioAmount', { v: formatTokenCount(activityWindow.ioTokens, { withUnit: false }) }))}</span>
+        <em class="cache-hit-rate ${tone}">${escapeHtml(T('cacheHitShort', {
+          v: formatCacheHitRate(activityWindow.cachedInputTokens, activityWindow.inputTokens)
+        }))}</em>
+      </small>
+    </div>
   `;
 }
 
@@ -830,7 +866,7 @@ function animateOne(element, keyframes, options) {
   return element.animate(keyframes, scaledOptions);
 }
 
-function unlimitedCardTemplate(label) {
+function unlimitedCardTemplate(label, activityWindow = null, activityWindowKey = null) {
   return `
     <article class="quota-card" style="--quota-percent:100%;">
       <div class="quota-card-top">
@@ -843,6 +879,7 @@ function unlimitedCardTemplate(label) {
         <span class="quota-flare"></span>
       </div>
       <small>${escapeHtml(T('unlimitedFooter'))}</small>
+      ${quotaActivityTemplate(activityWindowKey, activityWindow)}
     </article>
   `;
 }
@@ -881,24 +918,27 @@ function renderTokenActivity(tokenState) {
   const totalTokens = heatmap.days.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
   const totalInput = heatmap.days.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
   const totalCachedInput = heatmap.days.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
+  const todayCacheTone = cacheHitTone(today.cachedInputTokens, today.inputTokens);
+  const totalCacheTone = cacheHitTone(totalCachedInput, totalInput);
   let statsHtml = `
     <div>
       <span>${escapeHtml(T('todayUsed'))}</span>
       <strong>${escapeHtml(formatTokenCount(today.tokens))}</strong>
       <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}</small>
-      <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}</small>
+      <small class="cache-hit-rate ${todayCacheTone}" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}</small>
     </div>
     <div>
       <span>${escapeHtml(T('windowUsed', { n: windowDays }))}</span>
       <strong>${escapeHtml(formatTokenCount(totalTokens))}</strong>
       <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(totalIo, { withUnit: false }) }))}</small>
-      <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(totalCachedInput, totalInput) }))}</small>
+      <small class="cache-hit-rate ${totalCacheTone}" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(totalCachedInput, totalInput) }))}</small>
     </div>
   `;
   const detailText = `${formatMonthDay(today.day)} · ${formatTokenCount(today.tokens)}`;
-  const detailMeta = `${T('sessionsCount', { n: Number(today.threads || 0) })} · ${T('cacheHitRate', {
+  const detailSessions = T('sessionsCount', { n: Number(today.threads || 0) });
+  const detailCache = T('cacheHitRate', {
     v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens)
-  })}`;
+  });
   const totalCost = heatmap.days.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
   statsHtml += `
     <div class="token-cost" title="${escapeHtml(T('costHint'))}">${escapeHtml(T('costLine', {
@@ -924,6 +964,8 @@ function renderTokenActivity(tokenState) {
               data-day="${escapeHtml(day.day)}"
               data-tokens="${escapeHtml(T('usedAmount', { v: formatTokenCount(day.tokens) }))}"
               data-cost="${escapeHtml(cellSecondaryText(day))}"
+              data-cache="${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) }))}"
+              data-cache-tone="${cacheHitTone(day.cachedInputTokens, day.inputTokens)}"
               data-threads="${escapeHtml(cellMetaText(day))}"
               title="${escapeHtml(`${day.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(day.tokens) })}`)}"
             >
@@ -939,7 +981,10 @@ function renderTokenActivity(tokenState) {
       </div>
       <div class="token-detail">
         <strong>${escapeHtml(detailText)}</strong>
-        <span>${escapeHtml(detailMeta)}</span>
+        <div class="token-detail-meta">
+          <span>${escapeHtml(detailSessions)}</span>
+          <span class="cache-hit-rate ${todayCacheTone}">${escapeHtml(detailCache)}</span>
+        </div>
       </div>
     </section>
   `;
@@ -1257,6 +1302,7 @@ function showChartTooltip(bar, event) {
     <strong>${escapeHtml(bar.dataset.day || '-')}</strong>
     <span>${escapeHtml(bar.dataset.tokens || '-')}</span>
     ${bar.dataset.cost ? `<span>${escapeHtml(bar.dataset.cost)}</span>` : ''}
+    ${bar.dataset.cache ? `<span class="cache-hit-rate ${escapeHtml(bar.dataset.cacheTone || 'cache-hit-neutral')}">${escapeHtml(bar.dataset.cache)}</span>` : ''}
     <span>${escapeHtml(bar.dataset.threads || T('sessionsCount', { n: 0 }))}</span>
   `;
   els.chartTooltip.classList.add('visible');
@@ -1353,21 +1399,29 @@ function formatCostUsd(value) {
   return `$${number.toFixed(2)}`;
 }
 
-function formatCacheHitRate(cachedInputTokens, inputTokens) {
+function cacheHitPercent(cachedInputTokens, inputTokens) {
   const cached = Number(cachedInputTokens);
   const input = Number(inputTokens);
-  if (!Number.isFinite(cached) || !Number.isFinite(input) || input <= 0) return '--';
-  const rate = clamp((cached / input) * 100, 0, 100);
+  if (!Number.isFinite(cached) || !Number.isFinite(input) || input <= 0) return null;
+  return clamp((cached / input) * 100, 0, 100);
+}
+
+function formatCacheHitRate(cachedInputTokens, inputTokens) {
+  const rate = cacheHitPercent(cachedInputTokens, inputTokens);
+  if (rate === null) return '--';
   return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(rate)}%`;
 }
 
+function cacheHitTone(cachedInputTokens, inputTokens) {
+  const rate = cacheHitPercent(cachedInputTokens, inputTokens);
+  if (rate === null) return 'cache-hit-neutral';
+  if (rate > 99) return 'cache-hit-good';
+  if (rate >= 95) return 'cache-hit-warning';
+  return 'cache-hit-critical';
+}
+
 function cellSecondaryText(day) {
-  const parts = [];
-  if (Number(day.ioTokens || 0) > 0) parts.push(T('ioAmount', { v: formatTokenCount(day.ioTokens) }));
-  if (day.inputTokens !== null) {
-    parts.push(T('cacheHitRate', { v: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) }));
-  }
-  return parts.join(' · ');
+  return Number(day.ioTokens || 0) > 0 ? T('ioAmount', { v: formatTokenCount(day.ioTokens) }) : '';
 }
 
 function cellMetaText(day) {

@@ -644,6 +644,54 @@ h2 {
   white-space: nowrap;
 }
 
+.quota-activity {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(var(--view-rgb), 0.2);
+}
+
+.quota-activity-head,
+.quota-activity small {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 6px;
+}
+
+.quota-activity-head span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quota-activity-head b {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quota-card .quota-activity small {
+  margin-top: 4px;
+  font-size: 9px;
+}
+
+.quota-activity small span,
+.quota-activity small em {
+  min-width: 0;
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .token-heading,
 .radar-heading {
   margin-top: 22px;
@@ -693,6 +741,26 @@ h2 {
   margin-top: 2px;
   color: rgba(var(--view-rgb), 0.74);
   font-size: 10.5px;
+}
+
+.cache-hit-rate.cache-hit-good {
+  color: #50e28a !important;
+  text-shadow: 0 0 10px rgba(80, 226, 138, 0.24);
+}
+
+.cache-hit-rate.cache-hit-warning {
+  color: #f1c75b !important;
+  text-shadow: 0 0 10px rgba(241, 199, 91, 0.22);
+}
+
+.cache-hit-rate.cache-hit-critical {
+  color: #ff6e72 !important;
+  text-shadow: 0 0 10px rgba(255, 110, 114, 0.22);
+}
+
+.cache-hit-rate.cache-hit-neutral {
+  color: var(--muted) !important;
+  text-shadow: none;
 }
 
 .heatmap {
@@ -761,6 +829,11 @@ h2 {
   margin-top: 5px;
   color: var(--muted);
   font-size: 11px;
+}
+
+.token-detail em.cache-hit-rate {
+  font-style: normal;
+  font-weight: 720;
 }
 
 .iq-list {
@@ -973,7 +1046,7 @@ body[data-view="usage"] .quota-card:only-child {
 }
 
 body[data-view="usage"] .token-heading {
-  margin-top: 21px;
+  margin-top: 15px;
 }
 
 body[data-view="usage"] .token-card {
@@ -1129,18 +1202,28 @@ body[data-view="usage"] footer {
     font-size: 10px;
   }
 
+  body[data-view="usage"] .quota-activity {
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  body[data-view="usage"] .quota-card .quota-activity small {
+    margin-top: 3px;
+    font-size: 8.5px;
+  }
+
   body[data-view="usage"] .token-heading {
-    margin-top: 14px;
+    margin-top: 4px;
   }
 
   body[data-view="usage"] .token-card {
-    min-height: 270px;
-    padding: 12px;
+    min-height: 252px;
+    padding: 11px;
   }
 
   body[data-view="usage"] .token-summary {
-    margin-bottom: 10px;
-    padding-bottom: 9px;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
   }
 
   body[data-view="usage"] .token-summary span,
@@ -1157,13 +1240,13 @@ body[data-view="usage"] footer {
   }
 
   body[data-view="usage"] .heat-cell {
-    height: 30px;
+    height: 25px;
     font-size: 10px;
   }
 
   body[data-view="usage"] .token-detail {
-    min-height: 48px;
-    margin-top: 10px;
+    min-height: 44px;
+    margin-top: 7px;
     padding: 8px 10px;
   }
 
@@ -1238,8 +1321,23 @@ body[data-view="usage"] footer {
     font-size: 9.5px;
   }
 
+  body[data-view="usage"] .quota-activity {
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+
+  body[data-view="usage"] .quota-activity-head span,
+  body[data-view="usage"] .quota-activity-head b {
+    font-size: 8.5px;
+  }
+
+  body[data-view="usage"] .quota-card .quota-activity small {
+    margin-top: 2px;
+    font-size: 7.5px;
+  }
+
   body[data-view="usage"] .token-heading {
-    margin-top: 9px;
+    margin-top: 4px;
   }
 
   body[data-view="usage"] .token-card {
@@ -1261,13 +1359,13 @@ body[data-view="usage"] footer {
   }
 
   body[data-view="usage"] .heat-cell {
-    height: 23px;
+    height: 20px;
     font-size: 9.5px;
   }
 
   body[data-view="usage"] .token-detail {
-    min-height: 38px;
-    margin-top: 7px;
+    min-height: 34px;
+    margin-top: 5px;
     padding: 6px 8px;
   }
 

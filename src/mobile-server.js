@@ -105,6 +105,10 @@ function sanitizeActivitySlice(slice) {
       source: data.source ? String(data.source) : null,
       units: data.units ? String(data.units) : null,
       windowDays: safeNumber(data.windowDays),
+      windows: data.windows ? {
+        fiveHour: sanitizeActivityWindow(data.windows.fiveHour),
+        week: sanitizeActivityWindow(data.windows.week)
+      } : null,
       days: Array.isArray(data.days) ? data.days.slice(-30).map((day) => ({
         day: String(day.day || ''),
         value: safeNumber(day.value) || 0,
@@ -116,6 +120,20 @@ function sanitizeActivitySlice(slice) {
         costUsd: safeNumber(day.costUsd) || 0
       })) : []
     } : null
+  };
+}
+
+function sanitizeActivityWindow(windowValue) {
+  if (!windowValue || typeof windowValue !== 'object') return null;
+  return {
+    startAt: safeNumber(windowValue.startAt),
+    endAt: safeNumber(windowValue.endAt),
+    basis: windowValue.basis === 'cycle' ? 'cycle' : 'rolling',
+    tokens: safeNumber(windowValue.tokens) || 0,
+    ioTokens: safeNumber(windowValue.ioTokens) || 0,
+    inputTokens: safeNumber(windowValue.inputTokens),
+    cachedInputTokens: safeNumber(windowValue.cachedInputTokens),
+    threads: safeNumber(windowValue.threads) || 0
   };
 }
 
