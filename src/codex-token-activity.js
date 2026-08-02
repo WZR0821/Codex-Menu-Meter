@@ -27,6 +27,14 @@ function parseCodexRolloutLines(raw, state = {}) {
         state.hasSessionMeta = true;
         state.isSubagentSession = Boolean(record.payload?.source?.subagent);
         state.isReplayingParentHistory = state.isSubagentSession;
+        // session_id 在 subagent rollout 里指向父线程，所以按它计数时子代理会并入发起它的
+        // 会话，而不是各自算一个——和 Claude 侧 record.sessionId 的口径一致。
+        state.sessionId = String(
+          record.payload?.session_id
+          || record.payload?.parent_thread_id
+          || record.payload?.id
+          || ''
+        ).trim() || null;
       }
       continue;
     }
@@ -63,7 +71,8 @@ function parseCodexRolloutLines(raw, state = {}) {
       ioTokens: (input - cached) + output,
       // 按 GPT-5.5/5.6 牌价比例加权（$5 输入 / $30 输出）：未缓存输入 1、缓存输入 0.1、输出 6。
       weighted: (input - cached) + cached * 0.1 + output * 6,
-      model: state.model || null
+      model: state.model || null,
+      sessionId: state.sessionId || null
     });
   }
   return entries;

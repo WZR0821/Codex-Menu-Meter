@@ -98,9 +98,13 @@ const TOKEN_ACTIVITY_REFRESH_MS = 5 * 60_000;
 const PANEL_FOLLOW_MS = 500;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PANEL_WIDTH = 406;
-const PANEL_HEIGHT = 607;
+// 面板高度跟随当前页内容，渲染层量好后通过 panel:content-height 报上来；
+// 这两个常量只是首帧的起点和上下限（额外平台只有两张额度卡，用量页会很短）。
+const PANEL_HEIGHT = 640;
+const PANEL_CONTENT_MIN_HEIGHT = 300;
+const PANEL_CONTENT_MAX_HEIGHT = 780;
 const PANEL_MIN_WIDTH = 330;
-const PANEL_MIN_HEIGHT = 500;
+const PANEL_MIN_HEIGHT = 260;
 const PANEL_VISIBLE_INSET = 6;
 const PANEL_CLOSE_MS = 230;
 const POINTER_OPEN_GRACE_MS = 180;
@@ -177,6 +181,7 @@ let panelBlurTimer = null;
 let panelOpenedFromTopEdge = false;
 let panelRendererReady = false;
 let pendingPanelShow = false;
+let panelContentHeight = 0;
 let touchBarHelper = null;
 let touchBarStateTimer = null;
 let touchBarHelperOutput = '';
@@ -461,10 +466,23 @@ function isCursorInTopMenuArea() {
   return cursor.y <= display.bounds.y + MENU_BAR_HOVER_HEIGHT;
 }
 
+function desiredPanelHeight() {
+  const requested = Number(panelContentHeight) > 0 ? Number(panelContentHeight) : PANEL_HEIGHT;
+  return clamp(Math.round(requested), PANEL_CONTENT_MIN_HEIGHT, PANEL_CONTENT_MAX_HEIGHT);
+}
+
+function applyPanelContentHeight() {
+  if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
+  const bounds = positionPanel();
+  if (!bounds) return;
+  const current = panel.getBounds();
+  if (bounds.height === current.height && bounds.x === current.x && bounds.y === current.y) return;
+  panel.setBounds(bounds);
+}
+
 function positionPanel() {
   if (!tray || !panel) return null;
   const trayBounds = tray.getBounds();
-  const currentBounds = panel.getBounds();
   const trayHasBounds = Boolean(trayBounds.width || trayBounds.height);
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(trayHasBounds
@@ -475,7 +493,7 @@ function positionPanel() {
     : cursor);
   const workArea = display.workArea;
   const width = Math.min(PANEL_WIDTH, Math.max(PANEL_MIN_WIDTH, workArea.width - 16));
-  const height = Math.min(PANEL_HEIGHT, Math.max(PANEL_MIN_HEIGHT, workArea.height - 24));
+  const height = Math.min(desiredPanelHeight(), Math.max(PANEL_MIN_HEIGHT, workArea.height - 24));
   const anchorX = trayHasBounds ? trayBounds.x + trayBounds.width / 2 : cursor.x;
   const anchorY = trayHasBounds ? trayBounds.y + trayBounds.height : display.bounds.y + MENU_BAR_HOVER_HEIGHT;
   const x = clamp(
@@ -489,7 +507,7 @@ function positionPanel() {
     display.bounds.y,
     workArea.y + workArea.height - height - 8
   );
-  return { x, y, width, height: currentBounds.height === height ? currentBounds.height : height };
+  return { x, y, width, height };
 }
 
 function clamp(value, min, max) {
@@ -591,6 +609,10 @@ async function saveSettings(nextSettings) {
   if (cloudSyncChanged) {
     if (settings.cloudSyncEnabled) queueCloudSyncPush(0);
     else disableCloudSyncRuntime();
+  }
+  // 刚打开云同步时，桌面没选中的平台还没采过 Token 活动，先补齐再让防抖推送带上去。
+  if (!previous.cloudSyncEnabled && settings.cloudSyncEnabled) {
+    refreshAllForRemote().catch(() => {});
   }
   if (previous.language !== settings.language && settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.setTitle(tr('settingsTitle'));
@@ -747,7 +769,7 @@ async function syncMobileServer() {
       assetsDir: MOBILE_ASSETS_DIR,
       getAccessToken: () => settings.mobileAccessToken,
       getState: () => state,
-      onRefresh: refreshAllForMobile,
+      onRefresh: refreshAllForRemote,
       host: MOBILE_HOST,
       port: MOBILE_PORT
     });
@@ -763,7 +785,7 @@ async function syncMobileServer() {
       localBaseUrl: `http://${MOBILE_LOOPBACK_HOST}:${activePort}`,
       error: null
     };
-    refreshAllForMobile().catch(() => {});
+    refreshAllForRemote().catch(() => {});
   } catch (error) {
     mobileRuntime = {
       ...mobileRuntime,
@@ -1734,7 +1756,9 @@ async function findClaudeTranscripts(dir) {
 }
 
 async function readClaudeTranscript(file) {
-  return readTranscriptFile(file, claudeTranscriptCache, parseClaudeTranscriptLines);
+  return readTranscriptFile(file, claudeTranscriptCache, parseClaudeTranscriptLines, {
+    retainFromTs: activityWindowStartTs()
+  });
 }
 
 function parseClaudeTranscriptLines(raw) {
@@ -1832,9 +1856,13 @@ async function collectCodexEntriesNow() {
     }
     // mtime 早于统计窗口起点的文件不可能包含窗口内的事件，跳过以省掉大文件解析。
     if (stat.mtimeMs < cutoffTs) continue;
-    const sessionId = path.basename(file, '.jsonl');
-    for (const entry of await readTranscriptFile(file, codexTranscriptCache, parseCodexRolloutLines)) {
-      entry.sessionId = sessionId;
+    // 文件名只是兜底：解析器能从 session_meta 拿到真正的线程 id 时优先用它，
+    // 否则 subagent 的独立 rollout 文件会被算成一个额外会话。
+    const fallbackSessionId = path.basename(file, '.jsonl');
+    for (const entry of await readTranscriptFile(file, codexTranscriptCache, parseCodexRolloutLines, {
+      retainFromTs: cutoffTs
+    })) {
+      if (!entry.sessionId) entry.sessionId = fallbackSessionId;
       entries.push(entry);
     }
   }
@@ -2779,20 +2807,35 @@ async function selectProvider(provider, { source = 'manual' } = {}) {
   return state;
 }
 
+// 手机端和云同步快照里始终带着所有已启用平台的数据，所以只要开了其中之一，
+// 就不能只刷新桌面当前选中的那个平台的 Token 活动，否则远端会一直看到空数据。
+function mirrorsAllProviders() {
+  return Boolean(settings.mobileEnabled || settings.cloudSyncEnabled);
+}
+
+function refreshActivities() {
+  const mirrorAll = mirrorsAllProviders();
+  const jobs = [];
+  if (isProviderEnabled('claude', settings.providerSettings) && (mirrorAll || state.provider === 'claude')) {
+    jobs.push(refreshClaudeActivity());
+  }
+  // 附加平台（Kimi/GLM/Qwen）没有本地 Token 记录，只有远端快照需要时才连带刷 Codex。
+  if (mirrorAll || (state.provider !== 'claude' && !EXTRA_PROVIDER_IDS.includes(state.provider))) {
+    jobs.push(refreshTokenActivity());
+  }
+  return jobs;
+}
+
 function refreshAll() {
   const jobs = [refreshUsage(), refreshRadar(), refreshEnabledExtras()];
   if (isProviderEnabled('claude', settings.providerSettings)) {
     jobs.push(refreshClaudeUsage(), refreshClaudeRadar());
   }
-  if (state.provider === 'claude') {
-    jobs.push(refreshClaudeActivity());
-  } else {
-    jobs.push(refreshTokenActivity());
-  }
+  jobs.push(...refreshActivities());
   return Promise.all(jobs);
 }
 
-function refreshAllForMobile() {
+function refreshAllForRemote() {
   const jobs = [
     refreshUsage(),
     refreshRadar(),
@@ -2839,8 +2882,7 @@ app.whenReady().then(async () => {
     if (isProviderEnabled('claude', settings.providerSettings)) refreshClaudeRadar();
   }, RADAR_REFRESH_MS);
   tokenActivityTimer = setInterval(() => {
-    if (state.provider === 'claude') refreshClaudeActivity();
-    else if (!EXTRA_PROVIDER_IDS.includes(state.provider)) refreshTokenActivity();
+    Promise.all(refreshActivities()).catch(() => {});
   }, TOKEN_ACTIVITY_REFRESH_MS);
   extraUsageTimer = setInterval(() => {
     refreshEnabledExtras().catch(() => {});
@@ -2880,6 +2922,14 @@ ipcMain.on('panel:renderer-ready', (event) => {
   if (!panel || panel.isDestroyed() || event.sender !== panel.webContents) return;
   panelRendererReady = true;
   if (pendingPanelShow) showPanelAnimated();
+});
+ipcMain.on('panel:content-height', (event, height) => {
+  if (!panel || panel.isDestroyed() || event.sender !== panel.webContents) return;
+  const next = Math.round(Number(height));
+  if (!Number.isFinite(next) || next <= 0) return;
+  if (Math.abs(next - panelContentHeight) < 3) return;
+  panelContentHeight = next;
+  applyPanelContentHeight();
 });
 ipcMain.handle('state:refresh', async () => {
   if (state.provider === 'claude') invalidateClaudeEntrySnapshot();

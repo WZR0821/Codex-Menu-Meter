@@ -22,6 +22,7 @@ const els = {
   usageTitle: document.getElementById('usageTitle'),
   tokenTitle: document.getElementById('tokenTitle'),
   trendTitle: document.getElementById('trendTitle'),
+  trendLegend: document.getElementById('trendLegend'),
   usageTrend: document.getElementById('usageTrend'),
   iqTitle: document.getElementById('iqTitle'),
   quotaRadarTitle: document.getElementById('quotaRadarTitle'),
@@ -217,6 +218,54 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && currentState) requestRender(currentState);
 });
 
+// ---- 面板高度跟随内容 ----
+// 主进程按这里量出来的高度调整窗口，用量页因此永远不需要滚动，
+// 而只有两张额度卡的附加平台也不会留下一大片空白。
+let reportedPanelHeight = 0;
+let panelHeightFrame = null;
+let panelHeightSettleTimer = null;
+
+function measurePanelHeight() {
+  const activePanel = els.panels.find((panel) => panel.classList.contains('active'));
+  if (!activePanel) return 0;
+  const styles = getComputedStyle(activePanel);
+  const children = [...activePanel.children].filter((node) => node.offsetParent !== null || node.getClientRects().length);
+  const top = activePanel.getBoundingClientRect().top;
+  // 用最后一个可见子节点的底边算实际内容高度：scrollHeight 至少等于可视高度，
+  // 面板变矮时它不会跟着变小，没法用来驱动收缩。
+  const contentBottom = children.reduce((lowest, node) => {
+    const bounds = node.getBoundingClientRect();
+    return bounds.height ? Math.max(lowest, bounds.bottom - top) : lowest;
+  }, 0);
+  const content = contentBottom + parseFloat(styles.paddingBottom || 0) + activePanel.scrollTop;
+  const chrome = [els.toolbar, els.statusLine].reduce((sum, node) => {
+    if (!node) return sum;
+    const nodeStyles = getComputedStyle(node);
+    return sum + node.offsetHeight + parseFloat(nodeStyles.marginTop || 0) + parseFloat(nodeStyles.marginBottom || 0);
+  }, 0);
+  return Math.ceil(chrome + content);
+}
+
+function reportPanelHeight() {
+  if (!window.codexMeter?.reportPanelHeight) return;
+  const height = measurePanelHeight();
+  if (!height || Math.abs(height - reportedPanelHeight) < 3) return;
+  reportedPanelHeight = height;
+  window.codexMeter.reportPanelHeight(height);
+}
+
+function queuePanelHeightReport() {
+  if (!window.codexMeter?.reportPanelHeight) return;
+  if (panelHeightFrame) window.cancelAnimationFrame(panelHeightFrame);
+  panelHeightFrame = window.requestAnimationFrame(() => {
+    panelHeightFrame = null;
+    reportPanelHeight();
+  });
+  // 字体和过渡结束后再量一次，避免定格在中间态的高度。
+  window.clearTimeout(panelHeightSettleTimer);
+  panelHeightSettleTimer = window.setTimeout(reportPanelHeight, 320);
+}
+
 function setActiveTab(tab, {
   provider = currentProviderKey(),
   animate = true,
@@ -232,6 +281,7 @@ function setActiveTab(tab, {
     revealActivePanel({ details: false });
     playTabSwitchEffect();
   }
+  queuePanelHeightReport();
 }
 
 function handlePanelWheel(event) {
@@ -284,6 +334,7 @@ function render(state) {
     revealActivePanel({ celebrate: true, details: false });
     playProviderSwitchEffect(previousProvider, provider);
   }
+  queuePanelHeightReport();
 }
 
 function renderVisibleContent(stateValue, tab, providedSlices = null) {
@@ -326,6 +377,7 @@ function renderTrend(state, usageState, provider) {
   ].filter(Boolean);
 
   if (usable.length < 3) {
+    if (els.trendLegend) els.trendLegend.innerHTML = '';
     els.usageTrend.innerHTML = emptyBlock(T('trendEmpty'));
     return;
   }
@@ -335,6 +387,8 @@ function renderTrend(state, usageState, provider) {
   if (hasFive) legendParts.push(`<span class="trend-dot trend-dot-five"></span>${escapeHtml(T('windowName5h'))}`);
   if (hasWeek) legendParts.push(`<span class="trend-dot trend-dot-week"></span>${escapeHtml(T('windowNameWeek'))}`);
 
+  // 图例挪到分区标题右侧，卡片里只留曲线和燃烧率，省下面板高度。
+  if (els.trendLegend) els.trendLegend.innerHTML = legendParts.join('');
   els.usageTrend.innerHTML = `
     <section class="trend-card">
       <svg viewBox="0 0 ${TREND_W} ${TREND_H}" preserveAspectRatio="none" aria-hidden="true">
@@ -342,8 +396,9 @@ function renderTrend(state, usageState, provider) {
         ${trendPath(usable, 'week', 'trend-week')}
         ${trendPath(usable, 'five', 'trend-five')}
       </svg>
-      <div class="trend-legend">${legendParts.join('')}</div>
-      ${lines.map((line) => `<p class="trend-line">${escapeHtml(line)}</p>`).join('')}
+      <div class="trend-lines">
+        ${lines.map((line) => `<span class="trend-line">${escapeHtml(line)}</span>`).join('')}
+      </div>
     </section>
   `;
 }
@@ -1415,8 +1470,10 @@ function formatCacheHitRate(cachedInputTokens, inputTokens) {
 function cacheHitTone(cachedInputTokens, inputTokens) {
   const rate = cacheHitPercent(cachedInputTokens, inputTokens);
   if (rate === null) return 'cache-hit-neutral';
-  if (rate > 99) return 'cache-hit-good';
-  if (rate >= 95) return 'cache-hit-warning';
+  // 按显示出来的那个数字（保留 1 位小数）判色，否则 98.97% 会显示成 99% 却是黄色。
+  const shown = Math.round(rate * 10) / 10;
+  if (shown >= 99) return 'cache-hit-good';
+  if (shown >= 95) return 'cache-hit-warning';
   return 'cache-hit-critical';
 }
 

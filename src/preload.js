@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('codexMeter', {
     return () => ipcRenderer.removeListener('panel:motion', listener);
   },
   markPanelReady: () => ipcRenderer.send('panel:renderer-ready'),
+  reportPanelHeight: (height) => ipcRenderer.send('panel:content-height', height),
   onSettings: (callback) => {
     const listener = (_event, settings) => callback(settings);
     ipcRenderer.on('settings:update', listener);

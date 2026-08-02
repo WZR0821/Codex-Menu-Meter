@@ -2,7 +2,18 @@ const fs = require('fs/promises');
 
 const DEFAULT_CHUNK_SIZE = 1024 * 1024;
 
-async function readTranscriptFile(file, cache, parseLines, { chunkSize = DEFAULT_CHUNK_SIZE } = {}) {
+function retainRecentEntries(entries, retainFromTs) {
+  if (!Number.isFinite(retainFromTs)) return entries;
+  // 长会话文件会一路追加，缓存里只留统计窗口内的条目，避免旧条目长期占内存。
+  const firstKept = entries.findIndex((entry) => Number(entry?.ts) >= retainFromTs);
+  if (firstKept <= 0) return firstKept === 0 ? entries : [];
+  return entries.slice(firstKept);
+}
+
+async function readTranscriptFile(file, cache, parseLines, {
+  chunkSize = DEFAULT_CHUNK_SIZE,
+  retainFromTs = null
+} = {}) {
   let stat;
   try {
     stat = await fs.stat(file);
@@ -54,14 +65,15 @@ async function readTranscriptFile(file, cache, parseLines, { chunkSize = DEFAULT
     await handle?.close().catch(() => {});
   }
 
+  const retained = retainRecentEntries(entries, retainFromTs);
   cache.set(file, {
     mtimeMs: stat.mtimeMs,
     fileSize: stat.size,
     offset,
-    entries,
+    entries: retained,
     parseState
   });
-  return entries;
+  return retained;
 }
 
 module.exports = { readTranscriptFile };

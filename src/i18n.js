@@ -68,7 +68,7 @@
     usedAmount: ['已使用 {v}', 'Used {v}', '使用済み {v}'],
     ioAmount: ['读写 {v}', 'I/O {v}', '読み書き {v}'],
     cacheHitRate: ['缓存命中率 {v}', 'Cache hit {v}', 'キャッシュヒット率 {v}'],
-    cacheHitHint: ['缓存读取 Token 占总输入 Token 的比例；>99% 绿色，95–99% 黄色，<95% 红色', 'Cached input as a share of all input; green above 99%, yellow at 95–99%, red below 95%', '全入力 Token に占めるキャッシュ読み取りの割合。>99% は緑、95–99% は黄、<95% は赤'],
+    cacheHitHint: ['缓存读取 Token 占总输入 Token 的比例；≥99% 绿色，95–99% 黄色，<95% 红色', 'Cached input as a share of all input; green at 99% and above, yellow at 95–99%, red below 95%', '全入力 Token に占めるキャッシュ読み取りの割合。99% 以上は緑、95–99% は黄、95% 未満は赤'],
     windowUsage5h: ['5h Token', '5h Token', '5h Token'],
     windowUsageWeek: ['周 Token', 'Week Token', '週間 Token'],
     totalShort: ['总 {v}', 'Total {v}', '合計 {v}'],

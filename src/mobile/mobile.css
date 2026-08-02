@@ -449,9 +449,11 @@ h2 {
 
 .provider-button {
   min-height: 42px;
+  padding: 0 3px;
   overflow: hidden;
   color: var(--muted);
-  font-size: 15px;
+  /* 字号跟着可用宽度走：5 个平台挤在 320px 屏上也能完整显示名字。 */
+  font-size: clamp(11px, calc((100vw - 68px) / var(--provider-count, 1) / 4), 15px);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -707,8 +709,8 @@ h2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-bottom: 15px;
-  padding-bottom: 14px;
+  margin-bottom: 9px;
+  padding-bottom: 9px;
   border-bottom: 1px dashed rgba(var(--view-rgb), 0.18);
 }
 
@@ -738,27 +740,49 @@ h2 {
 }
 
 .token-summary small.cache-hit-rate {
-  margin-top: 2px;
+  /* 覆盖 .token-summary small 的 display:block，胶囊要按内容宽度收缩 */
+  display: inline-flex;
+  max-width: 100%;
+  margin-top: 4px;
   color: rgba(var(--view-rgb), 0.74);
   font-size: 10.5px;
 }
 
+/* 命中率做成胶囊：底色和文字同色系，扫一眼就知道落在哪一档 */
+.cache-hit-rate {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  line-height: 1.5;
+}
+
 .cache-hit-rate.cache-hit-good {
-  color: #50e28a !important;
-  text-shadow: 0 0 10px rgba(80, 226, 138, 0.24);
+  border-color: rgba(80, 226, 138, 0.28);
+  background: rgba(80, 226, 138, 0.12);
+  color: #6df0a2 !important;
+  text-shadow: none;
 }
 
 .cache-hit-rate.cache-hit-warning {
-  color: #f1c75b !important;
-  text-shadow: 0 0 10px rgba(241, 199, 91, 0.22);
+  border-color: rgba(241, 199, 91, 0.28);
+  background: rgba(241, 199, 91, 0.12);
+  color: #f6d375 !important;
+  text-shadow: none;
 }
 
 .cache-hit-rate.cache-hit-critical {
-  color: #ff6e72 !important;
-  text-shadow: 0 0 10px rgba(255, 110, 114, 0.22);
+  border-color: rgba(255, 110, 114, 0.3);
+  background: rgba(255, 110, 114, 0.13);
+  color: #ff8b8e !important;
+  text-shadow: none;
 }
 
 .cache-hit-rate.cache-hit-neutral {
+  border-color: rgba(160, 178, 188, 0.2);
+  background: rgba(160, 178, 188, 0.09);
   color: var(--muted) !important;
   text-shadow: none;
 }
@@ -1015,7 +1039,7 @@ body[data-view="usage"] .control-deck {
   position: relative;
   top: auto;
   flex: 0 0 auto;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 body[data-view="usage"] #usageView {
@@ -1046,7 +1070,7 @@ body[data-view="usage"] .quota-card:only-child {
 }
 
 body[data-view="usage"] .token-heading {
-  margin-top: 15px;
+  margin-top: 11px;
 }
 
 body[data-view="usage"] .token-card {
@@ -1157,7 +1181,7 @@ body[data-view="usage"] footer {
   }
 
   body[data-view="usage"] .control-deck {
-    margin-bottom: 11px;
+    margin-bottom: 9px;
     padding: 5px;
   }
 
@@ -1222,8 +1246,8 @@ body[data-view="usage"] footer {
   }
 
   body[data-view="usage"] .token-summary {
-    margin-bottom: 8px;
-    padding-bottom: 8px;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
   }
 
   body[data-view="usage"] .token-summary span,
@@ -1267,7 +1291,7 @@ body[data-view="usage"] footer {
 
   body[data-view="usage"] .app-header {
     min-height: 36px;
-    margin-bottom: 6px;
+    margin-bottom: 4px;
   }
 
   body[data-view="usage"] h1 {
@@ -1284,7 +1308,7 @@ body[data-view="usage"] footer {
   }
 
   body[data-view="usage"] .control-deck {
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     padding: 4px;
   }
 
@@ -1346,8 +1370,12 @@ body[data-view="usage"] footer {
   }
 
   body[data-view="usage"] .token-summary {
-    margin-bottom: 7px;
-    padding-bottom: 7px;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+  }
+
+  body[data-view="usage"] .cache-hit-rate {
+    padding: 0 4px;
   }
 
   body[data-view="usage"] .token-summary strong {
@@ -1365,7 +1393,7 @@ body[data-view="usage"] footer {
 
   body[data-view="usage"] .token-detail {
     min-height: 34px;
-    margin-top: 5px;
+    margin-top: 4px;
     padding: 6px 8px;
   }
 

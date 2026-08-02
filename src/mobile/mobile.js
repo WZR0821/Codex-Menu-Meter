@@ -34,7 +34,7 @@ const TEXT = {
     total: '近 30 天',
     io: '读写 {value}',
     cacheHit: '缓存命中率 {value}',
-    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例；>99% 绿色，95–99% 黄色，<95% 红色',
+    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例；≥99% 绿色，95–99% 黄色，<95% 红色',
     windowUsage5h: '5h Token',
     windowUsageWeek: '周 Token',
     totalShort: '总 {value}',
@@ -90,7 +90,7 @@ const TEXT = {
     total: 'Last 30 days',
     io: 'I/O {value}',
     cacheHit: 'Cache hit {value}',
-    cacheHitHint: 'Cached input as a share of all input; green above 99%, yellow at 95–99%, red below 95%',
+    cacheHitHint: 'Cached input as a share of all input; green at 99% and above, yellow at 95–99%, red below 95%',
     windowUsage5h: '5h Token',
     windowUsageWeek: 'Week Token',
     totalShort: 'Total {value}',
@@ -146,7 +146,7 @@ const TEXT = {
     total: '直近 30 日',
     io: '読み書き {value}',
     cacheHit: 'キャッシュヒット率 {value}',
-    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合。>99% は緑、95–99% は黄、<95% は赤',
+    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合。99% 以上は緑、95–99% は黄、95% 未満は赤',
     windowUsage5h: '5h Token',
     windowUsageWeek: '週間 Token',
     totalShort: '合計 {value}',
@@ -880,8 +880,10 @@ function formatCacheHitRate(cachedInputTokens, inputTokens) {
 function cacheHitTone(cachedInputTokens, inputTokens) {
   const rate = cacheHitPercent(cachedInputTokens, inputTokens);
   if (rate === null) return 'cache-hit-neutral';
-  if (rate > 99) return 'cache-hit-good';
-  if (rate >= 95) return 'cache-hit-warning';
+  // 按显示出来的那个数字（保留 1 位小数）判色，否则 98.97% 会显示成 99% 却是黄色。
+  const shown = Math.round(rate * 10) / 10;
+  if (shown >= 99) return 'cache-hit-good';
+  if (shown >= 95) return 'cache-hit-warning';
   return 'cache-hit-critical';
 }
 
