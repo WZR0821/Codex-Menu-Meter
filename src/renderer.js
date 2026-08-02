@@ -221,9 +221,23 @@ document.addEventListener('visibilitychange', () => {
 // ---- 面板高度跟随内容 ----
 // 主进程按这里量出来的高度调整窗口，用量页因此永远不需要滚动，
 // 而只有两张额度卡的附加平台也不会留下一大片空白。
+const PANEL_HEIGHT_SETTLE_MS = 220;
+// 切平台/切页时内容会经过「刷新中」的中间态，高度和稳定后差十几像素。
+// 动画期间不上报，等这段过去再量一次，避免面板在切换过程中被反复 setBounds。
+const PANEL_HEIGHT_SWITCH_HOLD_MS = 540;
 let reportedPanelHeight = 0;
 let panelHeightFrame = null;
 let panelHeightSettleTimer = null;
+let panelHeightHoldUntil = 0;
+// 同一版式共用一个高度：GPT 和 Claude 属于同一版式，来回切时窗口尺寸完全不动。
+// 只有「附加平台」（隐藏了 Token 和曲线两块）和雷达页各自成一档。
+const panelHeightByLayout = new Map();
+
+function panelLayoutKey() {
+  const tab = els.panel?.dataset.activeTab || 'usage';
+  const shape = els.panel?.classList.contains('extra-provider') ? 'extra' : 'main';
+  return `${tab}:${shape}`;
+}
 
 function measurePanelHeight() {
   const activePanel = els.panels.find((panel) => panel.classList.contains('active'));
@@ -248,22 +262,36 @@ function measurePanelHeight() {
 
 function reportPanelHeight() {
   if (!window.codexMeter?.reportPanelHeight) return;
-  const height = measurePanelHeight();
-  if (!height || Math.abs(height - reportedPanelHeight) < 3) return;
+  const measured = measurePanelHeight();
+  if (!measured) return;
+  const key = panelLayoutKey();
+  // 取该版式见过的最大值：两个平台里较高的那个说了算，切换时不再有高度差。
+  const height = Math.max(measured, panelHeightByLayout.get(key) || 0);
+  panelHeightByLayout.set(key, height);
+  if (Math.abs(height - reportedPanelHeight) < 3) return;
   reportedPanelHeight = height;
   window.codexMeter.reportPanelHeight(height);
 }
 
-function queuePanelHeightReport() {
+function queuePanelHeightReport({ hold = 0 } = {}) {
   if (!window.codexMeter?.reportPanelHeight) return;
-  if (panelHeightFrame) window.cancelAnimationFrame(panelHeightFrame);
-  panelHeightFrame = window.requestAnimationFrame(() => {
-    panelHeightFrame = null;
-    reportPanelHeight();
-  });
-  // 字体和过渡结束后再量一次，避免定格在中间态的高度。
+  const now = performance.now();
+  if (hold) panelHeightHoldUntil = Math.max(panelHeightHoldUntil, now + hold);
+
+  // 首帧要立刻定尺寸，否则面板会用默认高度闪一下。
+  if (!reportedPanelHeight) {
+    if (panelHeightFrame) window.cancelAnimationFrame(panelHeightFrame);
+    panelHeightFrame = window.requestAnimationFrame(() => {
+      panelHeightFrame = null;
+      reportPanelHeight();
+    });
+  }
+
   window.clearTimeout(panelHeightSettleTimer);
-  panelHeightSettleTimer = window.setTimeout(reportPanelHeight, 320);
+  panelHeightSettleTimer = window.setTimeout(
+    reportPanelHeight,
+    Math.max(PANEL_HEIGHT_SETTLE_MS, panelHeightHoldUntil - now)
+  );
 }
 
 function setActiveTab(tab, {
@@ -281,7 +309,7 @@ function setActiveTab(tab, {
     revealActivePanel({ details: false });
     playTabSwitchEffect();
   }
-  queuePanelHeightReport();
+  queuePanelHeightReport(changed ? { hold: PANEL_HEIGHT_SWITCH_HOLD_MS } : {});
 }
 
 function handlePanelWheel(event) {
@@ -330,11 +358,12 @@ function render(state) {
   const slices = activeSlices(state);
   renderHeader(slices);
   renderVisibleContent(state, els.panel.dataset.activeTab || 'usage', slices);
-  if (previousProvider && previousProvider !== provider) {
+  const providerChanged = Boolean(previousProvider) && previousProvider !== provider;
+  if (providerChanged) {
     revealActivePanel({ celebrate: true, details: false });
     playProviderSwitchEffect(previousProvider, provider);
   }
-  queuePanelHeightReport();
+  queuePanelHeightReport(providerChanged ? { hold: PANEL_HEIGHT_SWITCH_HOLD_MS } : {});
 }
 
 function renderVisibleContent(stateValue, tab, providedSlices = null) {

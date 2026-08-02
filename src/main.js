@@ -103,6 +103,12 @@ const PANEL_WIDTH = 406;
 const PANEL_HEIGHT = 640;
 const PANEL_CONTENT_MIN_HEIGHT = 300;
 const PANEL_CONTENT_MAX_HEIGHT = 780;
+// 切换平台时内容高度会短暂抖动（刷新态和稳定态差十几像素）。变高立刻生效免得内容被裁，
+// 变矮则要先稳住一段时间再收，避免一次切换里连着两次 setBounds 压在动画上造成卡顿。
+const PANEL_HEIGHT_EPSILON = 6;
+const PANEL_HEIGHT_SHRINK_DELAY_MS = 420;
+const SEND_STATE_COALESCE_MS = 24;
+const TRANSCRIPT_PREWARM_DELAY_MS = 5_000;
 const PANEL_MIN_WIDTH = 330;
 const PANEL_MIN_HEIGHT = 260;
 const PANEL_VISIBLE_INSET = 6;
@@ -182,6 +188,8 @@ let panelOpenedFromTopEdge = false;
 let panelRendererReady = false;
 let pendingPanelShow = false;
 let panelContentHeight = 0;
+let panelHeightShrinkTimer = null;
+let sendStateTimer = null;
 let touchBarHelper = null;
 let touchBarStateTimer = null;
 let touchBarHelperOutput = '';
@@ -469,6 +477,12 @@ function isCursorInTopMenuArea() {
 function desiredPanelHeight() {
   const requested = Number(panelContentHeight) > 0 ? Number(panelContentHeight) : PANEL_HEIGHT;
   return clamp(Math.round(requested), PANEL_CONTENT_MIN_HEIGHT, PANEL_CONTENT_MAX_HEIGHT);
+}
+
+function clearPanelHeightShrinkTimer() {
+  if (!panelHeightShrinkTimer) return;
+  clearTimeout(panelHeightShrinkTimer);
+  panelHeightShrinkTimer = null;
 }
 
 function applyPanelContentHeight() {
@@ -2776,7 +2790,19 @@ function createTransparentTrayImage() {
   return nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
 }
 
+// 一次平台切换会连着触发 7 次 sendState（保存设置 + 三个 slice 各进出一次）。
+// 合并成一帧一次，渲染层就不会在切换动画里被连续重绘七遍。
 function sendState() {
+  if (sendStateTimer) return;
+  sendStateTimer = setTimeout(flushState, SEND_STATE_COALESCE_MS);
+  sendStateTimer.unref?.();
+}
+
+function flushState() {
+  if (sendStateTimer) {
+    clearTimeout(sendStateTimer);
+    sendStateTimer = null;
+  }
   queueTouchBarStateWrite();
   queueCloudSyncPush();
   mobileServer?.broadcast(state);
@@ -2873,6 +2899,12 @@ app.whenReady().then(async () => {
     ensureTouchBarHelper();
   }, 1200);
   refreshAll().catch(() => {});
+  // 本机 Claude 记录约 134MB，冷扫要接近 1 秒。不预热的话这一秒会砸在
+  // 第一次 GPT→Claude 切换的动画上；启动后台先读进缓存，之后切换都是增量。
+  setTimeout(() => {
+    if (isProviderEnabled('claude', settings.providerSettings)) collectClaudeEntries().catch(() => {});
+    collectCodexEntries().catch(() => {});
+  }, TRANSCRIPT_PREWARM_DELAY_MS).unref?.();
   usageTimer = setInterval(refreshUsage, USAGE_REFRESH_MS);
   claudeUsageTimer = setInterval(() => {
     if (isProviderEnabled('claude', settings.providerSettings)) refreshClaudeUsage();
@@ -2890,6 +2922,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  if (sendStateTimer) clearTimeout(sendStateTimer);
+  sendStateTimer = null;
+  clearPanelHeightShrinkTimer();
   if (usageTimer) clearInterval(usageTimer);
   if (claudeUsageTimer) clearInterval(claudeUsageTimer);
   if (radarTimer) clearInterval(radarTimer);
@@ -2927,9 +2962,19 @@ ipcMain.on('panel:content-height', (event, height) => {
   if (!panel || panel.isDestroyed() || event.sender !== panel.webContents) return;
   const next = Math.round(Number(height));
   if (!Number.isFinite(next) || next <= 0) return;
-  if (Math.abs(next - panelContentHeight) < 3) return;
-  panelContentHeight = next;
-  applyPanelContentHeight();
+  if (Math.abs(next - panelContentHeight) <= PANEL_HEIGHT_EPSILON) return;
+  clearPanelHeightShrinkTimer();
+  if (next > panelContentHeight) {
+    panelContentHeight = next;
+    applyPanelContentHeight();
+    return;
+  }
+  panelHeightShrinkTimer = setTimeout(() => {
+    panelHeightShrinkTimer = null;
+    panelContentHeight = next;
+    applyPanelContentHeight();
+  }, PANEL_HEIGHT_SHRINK_DELAY_MS);
+  panelHeightShrinkTimer.unref?.();
 });
 ipcMain.handle('state:refresh', async () => {
   if (state.provider === 'claude') invalidateClaudeEntrySnapshot();
