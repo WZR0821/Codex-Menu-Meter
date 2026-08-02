@@ -57,6 +57,8 @@ function parseCodexRolloutLines(raw, state = {}) {
     entries.push({
       ts,
       tokens,
+      inputTokens: input,
+      cachedInputTokens: cached,
       // Codex 的 cached_input 是 input 的子集，读写口径要把缓存部分剔掉。
       ioTokens: (input - cached) + output,
       // 按 GPT-5.5/5.6 牌价比例加权（$5 输入 / $30 输出）：未缓存输入 1、缓存输入 0.1、输出 6。

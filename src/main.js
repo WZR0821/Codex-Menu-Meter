@@ -1750,8 +1750,12 @@ function parseClaudeTranscriptLines(raw) {
     if (!usage) continue;
     const ts = Date.parse(record.timestamp);
     if (Number.isNaN(ts)) continue;
-    const tokens = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']
-      .reduce((sum, key) => sum + (Number(usage[key]) || 0), 0);
+    const inputTokens = Number(usage.input_tokens) || 0;
+    const outputTokens = Number(usage.output_tokens) || 0;
+    const cacheCreationTokens = Number(usage.cache_creation_input_tokens) || 0;
+    const cachedInputTokens = Number(usage.cache_read_input_tokens) || 0;
+    const totalInputTokens = inputTokens + cacheCreationTokens + cachedInputTokens;
+    const tokens = totalInputTokens + outputTokens;
     if (tokens <= 0) continue;
     // 按 API 计费比例加权，让缓存读取不至于淹没真实用量。
     const weighted = (Number(usage.input_tokens) || 0)
@@ -1762,8 +1766,10 @@ function parseClaudeTranscriptLines(raw) {
       id: message.id && record.requestId ? `${message.id}:${record.requestId}` : record.uuid || null,
       ts,
       tokens,
+      inputTokens: totalInputTokens,
+      cachedInputTokens,
       weighted,
-      ioTokens: (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0),
+      ioTokens: inputTokens + outputTokens,
       model: String(message.model || '').trim() || null,
       sessionId: record.sessionId || null
     });
@@ -1863,12 +1869,23 @@ function buildLocalActivity(entries, source) {
     const day = formatLocalIsoDate(new Date(entry.ts));
     let bucket = dayMap.get(day);
     if (!bucket) {
-      bucket = { day, weighted: 0, tokens: 0, ioTokens: 0, sessions: new Set(), models: new Map() };
+      bucket = {
+        day,
+        weighted: 0,
+        tokens: 0,
+        ioTokens: 0,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        sessions: new Set(),
+        models: new Map()
+      };
       dayMap.set(day, bucket);
     }
     bucket.weighted += entry.weighted;
     bucket.tokens += entry.tokens;
     bucket.ioTokens += entry.ioTokens;
+    bucket.inputTokens += Number(entry.inputTokens) || 0;
+    bucket.cachedInputTokens += Number(entry.cachedInputTokens) || 0;
     if (entry.sessionId) bucket.sessions.add(entry.sessionId);
     if (entry.model) {
       const model = bucket.models.get(entry.model) || { weighted: 0, tokens: 0 };
@@ -1886,6 +1903,8 @@ function buildLocalActivity(entries, source) {
       value: Math.round(bucket.weighted),
       tokens: bucket.tokens,
       ioTokens: bucket.ioTokens,
+      inputTokens: bucket.inputTokens,
+      cachedInputTokens: bucket.cachedInputTokens,
       costUsd: bucketCostUsd(bucket, source),
       threads: bucket.sessions.size,
       models: [...bucket.models.entries()]

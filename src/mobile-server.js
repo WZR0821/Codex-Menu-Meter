@@ -110,6 +110,8 @@ function sanitizeActivitySlice(slice) {
         value: safeNumber(day.value) || 0,
         tokens: safeNumber(day.tokens) || 0,
         ioTokens: safeNumber(day.ioTokens) || 0,
+        inputTokens: safeNumber(day.inputTokens),
+        cachedInputTokens: safeNumber(day.cachedInputTokens),
         threads: safeNumber(day.threads) || 0,
         costUsd: safeNumber(day.costUsd) || 0
       })) : []

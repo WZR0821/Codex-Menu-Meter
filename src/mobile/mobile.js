@@ -33,6 +33,8 @@ const TEXT = {
     today: '今日 Token',
     total: '近 30 天',
     io: 'I/O {value}',
+    cacheHit: '缓存命中率 {value}',
+    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例',
     sessions: '{count} 个会话',
     cost: '约 {value}',
     noData: '暂无数据',
@@ -83,6 +85,8 @@ const TEXT = {
     today: 'Today',
     total: 'Last 30 days',
     io: 'I/O {value}',
+    cacheHit: 'Cache hit {value}',
+    cacheHitHint: 'Cached input tokens as a share of all input tokens',
     sessions: '{count} sessions',
     cost: 'Approx. {value}',
     noData: 'No data yet',
@@ -133,6 +137,8 @@ const TEXT = {
     today: '今日の Token',
     total: '直近 30 日',
     io: 'I/O {value}',
+    cacheHit: 'キャッシュヒット率 {value}',
+    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合',
     sessions: '{count} セッション',
     cost: '約 {value}',
     noData: 'データがありません',
@@ -592,6 +598,8 @@ function renderActivity(activitySlice) {
   const today = days.at(-1) || emptyDay(new Date());
   const total = days.reduce((sum, day) => sum + day.tokens, 0);
   const totalIo = days.reduce((sum, day) => sum + day.ioTokens, 0);
+  const totalInput = days.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
+  const totalCachedInput = days.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
   const max = Math.max(1, ...days.map((day) => day.tokens));
 
   els.tokenCard.innerHTML = `
@@ -600,11 +608,13 @@ function renderActivity(activitySlice) {
         <span>${escapeHtml(T('today'))}</span>
         <strong>${escapeHtml(formatTokens(today.tokens))}</strong>
         <small>${escapeHtml(T('io', { value: formatTokens(today.ioTokens, false) }))}</small>
+        <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHit', { value: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}</small>
       </div>
       <div>
         <span>${escapeHtml(T('total'))}</span>
         <strong>${escapeHtml(formatTokens(total))}</strong>
         <small>${escapeHtml(T('io', { value: formatTokens(totalIo, false) }))}</small>
+        <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHit', { value: formatCacheHitRate(totalCachedInput, totalInput) }))}</small>
       </div>
     </div>
     <div class="heatmap">
@@ -630,10 +640,18 @@ function normalizeDays(rawDays) {
     const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
     const key = isoDate(date);
     const source = byDay.get(key) || {};
+    const hasCacheMetrics = source.inputTokens !== null
+      && source.inputTokens !== undefined
+      && source.cachedInputTokens !== null
+      && source.cachedInputTokens !== undefined
+      && Number.isFinite(Number(source.inputTokens))
+      && Number.isFinite(Number(source.cachedInputTokens));
     days.push({
       day: key,
       tokens: Number(source.tokens ?? source.value ?? 0) || 0,
       ioTokens: Number(source.ioTokens || 0) || 0,
+      inputTokens: hasCacheMetrics ? Math.max(0, Number(source.inputTokens)) : null,
+      cachedInputTokens: hasCacheMetrics ? Math.max(0, Number(source.cachedInputTokens)) : null,
       threads: Number(source.threads || 0) || 0,
       costUsd: Number(source.costUsd || 0) || 0
     });
@@ -644,7 +662,9 @@ function normalizeDays(rawDays) {
 function tokenDetailTemplate(day) {
   return `
     <strong>${escapeHtml(`${formatDay(day.day)} · ${formatTokens(day.tokens)}`)}</strong>
-    <span>${escapeHtml(`${T('sessions', { count: day.threads })} · ${T('cost', { value: formatUsd(day.costUsd) })}`)}</span>
+    <span>${escapeHtml(`${T('sessions', { count: day.threads })} · ${T('cost', { value: formatUsd(day.costUsd) })} · ${T('cacheHit', {
+      value: formatCacheHitRate(day.cachedInputTokens, day.inputTokens)
+    })}`)}</span>
   `;
 }
 
@@ -806,6 +826,14 @@ function formatPercent(value) {
   return Number.isFinite(number) ? `${Math.round(number)}%` : '--';
 }
 
+function formatCacheHitRate(cachedInputTokens, inputTokens) {
+  const cached = Number(cachedInputTokens);
+  const input = Number(inputTokens);
+  if (!Number.isFinite(cached) || !Number.isFinite(input) || input <= 0) return '--';
+  const rate = clamp((cached / input) * 100, 0, 100);
+  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(rate)}%`;
+}
+
 function heatLevel(value, max) {
   if (!value) return 0;
   const ratio = value / Math.max(1, max);
@@ -821,7 +849,15 @@ function isoDate(date) {
 }
 
 function emptyDay(date) {
-  return { day: isoDate(date), tokens: 0, ioTokens: 0, threads: 0, costUsd: 0 };
+  return {
+    day: isoDate(date),
+    tokens: 0,
+    ioTokens: 0,
+    inputTokens: null,
+    cachedInputTokens: null,
+    threads: 0,
+    costUsd: 0
+  };
 }
 
 function clamp(value, min, max) {

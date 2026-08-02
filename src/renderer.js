@@ -879,19 +879,26 @@ function renderTokenActivity(tokenState) {
   const windowDays = Number(activity.windowDays) || 30;
   const totalIo = heatmap.days.reduce((sum, day) => sum + Number(day.ioTokens || 0), 0);
   const totalTokens = heatmap.days.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
+  const totalInput = heatmap.days.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
+  const totalCachedInput = heatmap.days.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
   let statsHtml = `
     <div>
       <span>${escapeHtml(T('todayUsed'))}</span>
       <strong>${escapeHtml(formatTokenCount(today.tokens))}</strong>
       <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}</small>
+      <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}</small>
     </div>
     <div>
       <span>${escapeHtml(T('windowUsed', { n: windowDays }))}</span>
       <strong>${escapeHtml(formatTokenCount(totalTokens))}</strong>
       <small>${escapeHtml(T('ioAmount', { v: formatTokenCount(totalIo, { withUnit: false }) }))}</small>
+      <small class="cache-hit-rate" title="${escapeHtml(T('cacheHitHint'))}">${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(totalCachedInput, totalInput) }))}</small>
     </div>
   `;
-  const detailText = `${today.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(today.tokens) })} · ${T('sessionsCount', { n: Number(today.threads || 0) })}`;
+  const detailText = `${formatMonthDay(today.day)} · ${formatTokenCount(today.tokens)}`;
+  const detailMeta = `${T('sessionsCount', { n: Number(today.threads || 0) })} · ${T('cacheHitRate', {
+    v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens)
+  })}`;
   const totalCost = heatmap.days.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
   statsHtml += `
     <div class="token-cost" title="${escapeHtml(T('costHint'))}">${escapeHtml(T('costLine', {
@@ -932,6 +939,7 @@ function renderTokenActivity(tokenState) {
       </div>
       <div class="token-detail">
         <strong>${escapeHtml(detailText)}</strong>
+        <span>${escapeHtml(detailMeta)}</span>
       </div>
     </section>
   `;
@@ -960,6 +968,12 @@ function createTokenHeatmap(rawDays) {
     const future = date > todayDate;
     const value = Number(source.value ?? source.tokens ?? 0);
     const tokens = Number(source.tokens ?? source.value ?? 0);
+    const hasCacheMetrics = source.inputTokens !== null
+      && source.inputTokens !== undefined
+      && source.cachedInputTokens !== null
+      && source.cachedInputTokens !== undefined
+      && Number.isFinite(Number(source.inputTokens))
+      && Number.isFinite(Number(source.cachedInputTokens));
 
     if (index === 0 || index === HEATMAP_DAYS - 1) {
       months.push({ column: (index % HEATMAP_COLS) + 1, label: formatMonthDay(dayKey) });
@@ -972,6 +986,8 @@ function createTokenHeatmap(rawDays) {
       value: future ? 0 : value,
       tokens: future ? 0 : tokens,
       ioTokens: future ? 0 : Number(source.ioTokens || 0),
+      inputTokens: future || !hasCacheMetrics ? null : Math.max(0, Number(source.inputTokens)),
+      cachedInputTokens: future || !hasCacheMetrics ? null : Math.max(0, Number(source.cachedInputTokens)),
       costUsd: future ? 0 : Number(source.costUsd || 0),
       models: Array.isArray(source.models) ? source.models : [],
       future
@@ -989,7 +1005,17 @@ function createTokenHeatmap(rawDays) {
   return {
     days,
     months,
-    today: today || { day: formatIsoDate(todayDate), threads: 0, value: 0, tokens: 0, ioTokens: 0, costUsd: 0, level: 0 },
+    today: today || {
+      day: formatIsoDate(todayDate),
+      threads: 0,
+      value: 0,
+      tokens: 0,
+      ioTokens: 0,
+      inputTokens: null,
+      cachedInputTokens: null,
+      costUsd: 0,
+      level: 0
+    },
     columnCount: HEATMAP_COLS,
     rowCount: HEATMAP_ROWS,
     gap: HEATMAP_GAP
@@ -1327,8 +1353,21 @@ function formatCostUsd(value) {
   return `$${number.toFixed(2)}`;
 }
 
+function formatCacheHitRate(cachedInputTokens, inputTokens) {
+  const cached = Number(cachedInputTokens);
+  const input = Number(inputTokens);
+  if (!Number.isFinite(cached) || !Number.isFinite(input) || input <= 0) return '--';
+  const rate = clamp((cached / input) * 100, 0, 100);
+  return `${new Intl.NumberFormat(lang, { maximumFractionDigits: 1 }).format(rate)}%`;
+}
+
 function cellSecondaryText(day) {
-  return Number(day.ioTokens || 0) > 0 ? T('ioAmount', { v: formatTokenCount(day.ioTokens) }) : '';
+  const parts = [];
+  if (Number(day.ioTokens || 0) > 0) parts.push(T('ioAmount', { v: formatTokenCount(day.ioTokens) }));
+  if (day.inputTokens !== null) {
+    parts.push(T('cacheHitRate', { v: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) }));
+  }
+  return parts.join(' · ');
 }
 
 function cellMetaText(day) {

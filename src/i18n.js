@@ -67,6 +67,8 @@
     windowUsed: ['近 {n} 天已使用', '{n}-day used', '直近{n}日の使用量'],
     usedAmount: ['已使用 {v}', 'Used {v}', '使用済み {v}'],
     ioAmount: ['读写 {v}', 'I/O {v}', '読み書き {v}'],
+    cacheHitRate: ['缓存命中率 {v}', 'Cache hit {v}', 'キャッシュヒット率 {v}'],
+    cacheHitHint: ['缓存读取 Token 占总输入 Token 的比例', 'Cached input tokens as a share of all input tokens', '全入力 Token に占めるキャッシュ読み取りの割合'],
     sessionsCount: ['{n} 个会话', '{n} sessions', '{n} セッション'],
     noTokenData: ['暂无 Token 活动数据', 'No token activity yet', 'トークン活動データがありません'],
     heatmapAria: ['每日用量热力图', 'Daily usage heatmap', '日次使用量ヒートマップ'],
