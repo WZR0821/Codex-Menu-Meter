@@ -7,6 +7,7 @@ const { promisify } = require('util');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
+const { parseClaudeTranscriptLines } = require('./claude-token-activity');
 const { buildActivityWindows } = require('./activity-windows');
 const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
@@ -1773,49 +1774,6 @@ async function readClaudeTranscript(file) {
   return readTranscriptFile(file, claudeTranscriptCache, parseClaudeTranscriptLines, {
     retainFromTs: activityWindowStartTs()
   });
-}
-
-function parseClaudeTranscriptLines(raw) {
-  const entries = [];
-  for (const line of raw.split('\n')) {
-    if (!line) continue;
-    let record;
-    try {
-      record = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (record?.type !== 'assistant') continue;
-    const message = record.message;
-    const usage = message?.usage;
-    if (!usage) continue;
-    const ts = Date.parse(record.timestamp);
-    if (Number.isNaN(ts)) continue;
-    const inputTokens = Number(usage.input_tokens) || 0;
-    const outputTokens = Number(usage.output_tokens) || 0;
-    const cacheCreationTokens = Number(usage.cache_creation_input_tokens) || 0;
-    const cachedInputTokens = Number(usage.cache_read_input_tokens) || 0;
-    const totalInputTokens = inputTokens + cacheCreationTokens + cachedInputTokens;
-    const tokens = totalInputTokens + outputTokens;
-    if (tokens <= 0) continue;
-    // 按 API 计费比例加权，让缓存读取不至于淹没真实用量。
-    const weighted = (Number(usage.input_tokens) || 0)
-      + (Number(usage.output_tokens) || 0) * 5
-      + (Number(usage.cache_creation_input_tokens) || 0) * 1.25
-      + (Number(usage.cache_read_input_tokens) || 0) * 0.1; // Claude 牌价比例：输出 5×、缓存写 1.25×、缓存读 0.1×
-    entries.push({
-      id: message.id && record.requestId ? `${message.id}:${record.requestId}` : record.uuid || null,
-      ts,
-      tokens,
-      inputTokens: totalInputTokens,
-      cachedInputTokens,
-      weighted,
-      ioTokens: inputTokens + outputTokens,
-      model: String(message.model || '').trim() || null,
-      sessionId: record.sessionId || null
-    });
-  }
-  return entries;
 }
 
 function invalidateClaudeEntrySnapshot() {
