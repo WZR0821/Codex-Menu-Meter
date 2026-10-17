@@ -17,6 +17,8 @@ const STATIC_FILES = new Map([
   ['/mobile/', 'index.html'],
   ['/mobile/index.html', 'index.html'],
   ['/mobile/mobile.css', 'mobile.css'],
+  ['/mobile/minimal.css', 'minimal.css'],
+  ['/mobile/light.css', 'light.css'],
   ['/mobile/runtime-config.js', 'runtime-config.js'],
   ['/mobile/cloud-sync-crypto.js', 'cloud-sync-crypto.js'],
   ['/mobile/mobile.js', 'mobile.js'],
@@ -90,7 +92,18 @@ function sanitizeUsageSlice(slice) {
       secondaryWindow: sanitizeWindow(data.secondaryWindow),
       extraWindows: Array.isArray(data.extraWindows)
         ? data.extraWindows.map(sanitizeWindow).filter(Boolean)
-        : []
+        : [],
+      resetCredits: data.resetCredits ? {
+        availableCount: safeNumber(data.resetCredits.availableCount) || 0,
+        error: data.resetCredits.error ? String(data.resetCredits.error) : null,
+        credits: Array.isArray(data.resetCredits.credits)
+          ? data.resetCredits.credits.map((credit) => ({
+              status: credit?.status ? String(credit.status) : 'unknown',
+              title: credit?.title ? String(credit.title) : null,
+              expiresAt: safeNumber(credit?.expiresAt)
+            }))
+          : []
+      } : null
     } : null
   };
 }
@@ -111,13 +124,18 @@ function sanitizeActivitySlice(slice) {
       } : null,
       days: Array.isArray(data.days) ? data.days.slice(-30).map((day) => ({
         day: String(day.day || ''),
+        future: Boolean(day.future),
         value: safeNumber(day.value) || 0,
         tokens: safeNumber(day.tokens) || 0,
         ioTokens: safeNumber(day.ioTokens) || 0,
         inputTokens: safeNumber(day.inputTokens),
         cachedInputTokens: safeNumber(day.cachedInputTokens),
         threads: safeNumber(day.threads) || 0,
-        costUsd: safeNumber(day.costUsd) || 0
+        costUsd: safeNumber(day.costUsd) || 0,
+        models: Array.isArray(day.models) ? day.models.slice(0, 24).map((model) => ({
+          model: String(model?.model || ''),
+          value: safeNumber(model?.value ?? model?.tokens ?? model?.weighted) || 0
+        })).filter((model) => model.model) : []
       })) : []
     } : null
   };
@@ -141,6 +159,9 @@ function sanitizeIqItem(item) {
   return {
     label: String(item?.label || ''),
     modelLabel: String(item?.modelLabel || item?.label || ''),
+    isLatest: Boolean(item?.isLatest),
+    isCurrentGeneration: Boolean(item?.isCurrentGeneration),
+    catalogOnly: Boolean(item?.catalogOnly),
     reasoningEffort: item?.reasoningEffort ? String(item.reasoningEffort) : null,
     score: safeNumber(item?.score),
     status: item?.status ? String(item.status) : 'unknown',
@@ -148,7 +169,23 @@ function sanitizeIqItem(item) {
     tasks: safeNumber(item?.tasks),
     costUsd: safeNumber(item?.costUsd),
     wallTimeHuman: item?.wallTimeHuman ? String(item.wallTimeHuman) : null,
-    wallHours: safeNumber(item?.wallHours)
+    wallHours: safeNumber(item?.wallHours),
+    averageCostUsd: safeNumber(item?.averageCostUsd ?? item?.avgCostUsd),
+    averageTaskSeconds: safeNumber(item?.averageTaskSeconds ?? item?.avgTaskSeconds),
+    averageTaskTimeHuman: item?.averageTaskTimeHuman ? String(item.averageTaskTimeHuman) : null,
+    sampleCount24h: safeNumber(item?.sampleCount24h),
+    sampleCount: safeNumber(item?.sampleCount),
+    sampleBasis: item?.sampleBasis === 'graded' ? 'graded' : null,
+    coverage: safeNumber(item?.coverage),
+    benchmarkTasks: safeNumber(item?.benchmarkTasks),
+    costKnownSamples: safeNumber(item?.costKnownSamples),
+    costTotalSamples: safeNumber(item?.costTotalSamples),
+    costBasis: item?.costBasis ? String(item.costBasis) : null,
+    costPartial: Boolean(item?.costPartial),
+    recentScores: Array.isArray(item?.recentScores) ? item.recentScores.slice(-32).map((sample) => ({
+      date: sample?.date ? String(sample.date) : null,
+      score: safeNumber(sample?.score)
+    })).filter((sample) => sample.score !== null) : []
   };
 }
 
@@ -167,7 +204,7 @@ function sanitizeRadarSlice(slice, provider) {
       sourceUrl: data.sourceUrl ? String(data.sourceUrl) : null,
       updatedAt: data.updatedAt ? String(data.updatedAt) : null,
       iqUpdatedAt: data.iqUpdatedAt ? String(data.iqUpdatedAt) : null,
-      items: Array.isArray(data.items) ? data.items.slice(0, 12).map(sanitizeIqItem) : [],
+      items: Array.isArray(data.items) ? data.items.slice(0, 96).map(sanitizeIqItem) : [],
       quota: data.quota ? {
         updatedAt: data.quota.updatedAt ? String(data.quota.updatedAt) : null,
         chartLabel: data.quota.chartLabel ? String(data.quota.chartLabel) : null,
@@ -188,9 +225,14 @@ function sanitizeRadarSlice(slice, provider) {
     sourceUrl: data.sourceUrl ? String(data.sourceUrl) : null,
     monitoredAt: data.monitoredAt ? String(data.monitoredAt) : null,
     modelIq: data.modelIq ? {
+      scoreMode: data.modelIq.scoreMode ? String(data.modelIq.scoreMode) : null,
+      timestampBasis: data.modelIq.timestampBasis === 'read' ? 'read' : null,
+      partial: Boolean(data.modelIq.partial),
+      requestedCount: safeNumber(data.modelIq.requestedCount),
+      receivedCount: safeNumber(data.modelIq.receivedCount),
       updatedAt: data.modelIq.updatedAt ? String(data.modelIq.updatedAt) : null,
       latestDate: data.modelIq.latestDate ? String(data.modelIq.latestDate) : null,
-      items: Array.isArray(data.modelIq.items) ? data.modelIq.items.slice(0, 12).map(sanitizeIqItem) : []
+      items: Array.isArray(data.modelIq.items) ? data.modelIq.items.slice(0, 96).map(sanitizeIqItem) : []
     } : null,
     quotaRadar: data.quotaRadar ? {
       updatedAt: data.quotaRadar.updatedAt ? String(data.quotaRadar.updatedAt) : null,
@@ -295,8 +337,8 @@ function createMobileManifest(accessToken = '') {
     start_url: startUrl,
     scope: '/mobile/',
     display: 'standalone',
-    background_color: '#050806',
-    theme_color: '#07110d',
+    background_color: '#ffffff',
+    theme_color: '#ffffff',
     icons: [{
       src: '/mobile/icon.svg',
       sizes: 'any',

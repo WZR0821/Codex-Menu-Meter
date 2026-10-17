@@ -1,9 +1,11 @@
-const { app, BrowserWindow, Tray, ipcMain, nativeImage, screen, shell, globalShortcut, Notification, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, ipcMain, nativeImage, nativeTheme, screen, shell, globalShortcut, Notification, clipboard, systemPreferences, net, session } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
+const { readModelCatalog, mergeCatalogItems, latestFamilyItem, compareModelVersions } = require('./model-catalog');
+const { createRadarBenchReader } = require('./radar-bench');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
@@ -28,6 +30,7 @@ const {
 } = require('./mobile/cloud-sync-crypto');
 const {
   PROVIDER_BY_ID,
+  PROVIDER_IDS,
   OPTIONAL_PROVIDER_IDS,
   USAGE_ONLY_PROVIDER_IDS,
   defaultProviderSettings,
@@ -49,8 +52,11 @@ const RESET_CREDITS_URL = `${CHATGPT_BASE_URL}/wham/rate-limit-reset-credits`;
 const RADAR_URL = 'https://codexradar.com/current.json';
 const RADAR_HOME = 'https://codexradar.com/';
 const AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
+const MODEL_CATALOG_PATH = path.join(os.homedir(), '.codex', 'models_cache.json');
+const RADAR_CACHE_PATH = path.join(app.getPath('userData'), 'radar-cache.json');
 const CLAUDE_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
-const CLAUDE_OAUTH_TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token';
+// 与本机 Claude CLI 的现行刷新地址保持一致，旧 console 域名可能返回网页重定向。
+const CLAUDE_OAUTH_TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
 const CLAUDE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const CLAUDE_RADAR_URL = 'https://claudecoderadar.com/data/claude-code-radar.json';
 const CLAUDE_RADAR_HOME = 'https://claudecoderadar.com/';
@@ -94,27 +100,33 @@ const CLOUD_SYNC_RETRY_MS = 5 * 60_000;
 const USAGE_REFRESH_MS = 120_000;
 const CLAUDE_USAGE_REFRESH_MS = 5 * 60_000;
 const EXTRA_USAGE_REFRESH_MS = 5 * 60_000;
-const RADAR_REFRESH_MS = 15 * 60_000;
+const RADAR_REFRESH_MS = 5 * 60_000;
+const MODEL_CATALOG_REFRESH_MS = 60_000;
 const TOKEN_ACTIVITY_REFRESH_MS = 5 * 60_000;
 const PANEL_FOLLOW_MS = 500;
 const REQUEST_TIMEOUT_MS = 15_000;
 const PANEL_WIDTH = 406;
 // 面板高度跟随当前页内容，渲染层量好后通过 panel:content-height 报上来；
-// 这两个常量只是首帧的起点和上下限（额外平台只有两张额度卡，用量页会很短）。
+// 这两个常量只是首帧的起点和上下限（附加平台没有 Token 区，内容仍比主平台短）。
 const PANEL_HEIGHT = 640;
 const PANEL_CONTENT_MIN_HEIGHT = 300;
 const PANEL_CONTENT_MAX_HEIGHT = 780;
 // 切换平台时内容高度会短暂抖动（刷新态和稳定态差十几像素）。变高立刻生效免得内容被裁，
 // 变矮则要先稳住一段时间再收，避免一次切换里连着两次 setBounds 压在动画上造成卡顿。
 const PANEL_HEIGHT_EPSILON = 6;
-const PANEL_HEIGHT_SHRINK_DELAY_MS = 420;
+const PANEL_HEIGHT_SHRINK_DELAY_MS = 80;
+const PANEL_HEIGHT_ANIMATION_MS = 180;
+const PANEL_HEIGHT_ANIMATION_FRAME_MS = 16;
 const SEND_STATE_COALESCE_MS = 24;
 const TRANSCRIPT_PREWARM_DELAY_MS = 5_000;
 const PANEL_MIN_WIDTH = 330;
 const PANEL_MIN_HEIGHT = 260;
 const PANEL_VISIBLE_INSET = 6;
-const PANEL_CLOSE_MS = 230;
-const POINTER_OPEN_GRACE_MS = 180;
+const PANEL_CLOSE_MS = 160;
+// macOS 自动隐藏菜单栏在全屏 Space 中会延迟派发同一次点击的 mouse-up/click；
+// 合并整次手势，避免一次点击先打开面板、随后又被第二个事件关掉。
+const TRAY_EVENT_COALESCE_MS = 1200;
+const POINTER_OPEN_GRACE_MS = 350;
 const AUTO_HIDE_GRACE_MS = 850;
 const MENU_BAR_HOVER_HEIGHT = 44;
 const PANEL_HOVER_PADDING = 8;
@@ -127,7 +139,7 @@ const state = {
   provider: 'codex',
   language: 'zh-CN',
   enabledProviders: ['codex'],
-  usageHistory: { codex: [], claude: [] },
+  usageHistory: Object.fromEntries(PROVIDER_IDS.map((id) => [id, []])),
   usage: idleSlice(),
   radar: idleSlice(),
   tokenActivity: idleSlice(),
@@ -163,11 +175,8 @@ if (!hasSingleInstanceLock) {
 
 app.on('second-instance', () => {
   if (!panel || panel.isDestroyed()) createPanel();
-  if (panel.isVisible()) {
-    panel.moveTop();
-  } else {
-    showPanelAnimated();
-  }
+  // 即使 Electron 仍把另一个 Space 上的窗口视为 visible，也强制在当前 Space 重新呈现。
+  showPanelAnimated();
 });
 
 let tray = null;
@@ -184,14 +193,21 @@ let lastTrayActivationAt = 0;
 let panelShownAt = 0;
 let cursorOutsideSince = 0;
 let panelAnimationTimer = null;
+let panelClosing = false;
 let panelBlurTimer = null;
 let panelOpenedFromTopEdge = false;
 let panelRendererReady = false;
 let pendingPanelShow = false;
 let panelContentHeight = 0;
 let panelHeightShrinkTimer = null;
+let panelBoundsAnimationTimer = null;
+let panelBoundsAnimationToken = 0;
+let panelBoundsTarget = null;
 let sendStateTimer = null;
+let modelCatalogTimer = null;
+let codexModelCatalog = readModelCatalog(null);
 let touchBarHelper = null;
+let touchBarPresentPending = false;
 let touchBarStateTimer = null;
 let touchBarHelperOutput = '';
 const foregroundProviderTracker = new ForegroundProviderTracker();
@@ -263,7 +279,7 @@ function createTray() {
   tray.setTitle('GPT 5h：--  周：--');
   tray.setToolTip('Codex Menu Meter');
   tray.setIgnoreDoubleClickEvents(true);
-  tray.on('mouse-down', handleTrayActivation);
+  tray.on('mouse-down', (event) => handleTrayActivation(event, { pointerDown: true }));
   tray.on('click', handleTrayActivation);
   tray.on('mouse-up', handleTrayActivation);
   tray.on('right-click', openSettingsWindow);
@@ -301,35 +317,42 @@ function createPanel() {
   panel.loadFile(path.join(__dirname, 'index.html'));
   panel.on('blur', handlePanelBlur);
   panel.on('closed', () => {
+    stopPanelBoundsAnimation();
     panel = null;
+    panelClosing = false;
     panelRendererReady = false;
     pendingPanelShow = false;
   });
 }
 
-function preparePanelForFullScreen() {
+function preparePanelForFullScreen({ presenting = false } = {}) {
   if (!panel || panel.isDestroyed()) return;
   panel.setVisibleOnAllWorkspaces(true, {
     visibleOnFullScreen: true,
     skipTransformProcessType: true
   });
-  // 'screen-saver' 层级和真正的锁屏界面同层，macOS 会因此认为“有东西要一直显示在
-  // 屏幕保护程序之上”，从而抑制自动息屏/自动锁屏——即使这个面板窗口当时是隐藏的，
-  // 这个层级设置也长期附着在窗口对象上（面板只在首次打开时创建一次，之后仅隐藏/显示）。
-  // 'pop-up-menu' 仍然足够盖住全屏应用，但不在系统保留给屏幕保护程序的那个特殊层级上。
-  panel.setAlwaysOnTop(true, 'pop-up-menu', 1);
+  // 全屏应用上方需要 screen-saver 层级才稳定；只在面板显示期间使用，隐藏后立即降回
+  // pop-up-menu，避免隐藏窗口长期处于高层级而影响系统自动息屏。
+  const level = process.platform === 'darwin' && presenting ? 'screen-saver' : 'pop-up-menu';
+  panel.setAlwaysOnTop(true, level, 1);
 }
 
-function handleTrayActivation(event) {
+function handleTrayActivation(event, { pointerDown = false } = {}) {
   if (event?.button === 2 || event?.button === 'right') return;
   const now = Date.now();
-  if (now - lastTrayActivationAt < 280) return;
+  // 新的一次按下立即响应，只合并同一次手势尾随的 mouse-up/click。
+  if (!pointerDown && now - lastTrayActivationAt < TRAY_EVENT_COALESCE_MS) return;
   lastTrayActivationAt = now;
   togglePanel();
 }
 
 function togglePanel() {
   if (!panel) createPanel();
+  // 全局鼠标监听可能比托盘事件先到，先启动了关闭动画；托盘点击应撤销关闭并打开。
+  if (panelClosing) {
+    showPanelAnimated();
+    return;
+  }
   if (panel.isVisible()) {
     // 面板可能“看似可见”但遗留在别的显示器/全屏空间上——
     // 这时点击托盘应该把它拉到当前托盘处重新显示，而不是关掉（表现为“点了没反应”）。
@@ -355,7 +378,7 @@ function togglePanel() {
 }
 
 function showPanelAnimated() {
-  if (!panel) return;
+  if (!panel || panel.isDestroyed()) return;
   if (!panelRendererReady) {
     pendingPanelShow = true;
     return;
@@ -365,21 +388,24 @@ function showPanelAnimated() {
   const targetBounds = positionPanel();
   if (!targetBounds) return;
   stopPanelAnimation();
-  preparePanelForFullScreen();
+  panelClosing = false;
+  preparePanelForFullScreen({ presenting: true });
   panel.setOpacity(0);
   panel.setBounds(targetBounds);
   panelShownAt = Date.now();
   cursorOutsideSince = 0;
   panelOpenedFromTopEdge = isCursorInTopMenuArea();
   panel.show();
+  if (process.platform === 'darwin') app.focus({ steal: true });
   panel.focus();
+  requestTouchBarPresentation();
   panel.webContents.send('panel:motion', 'opening');
   startPanelFollowMonitor();
   panel.moveTop();
   // 全屏空间下 show 后窗口层级偶尔晚一拍生效，保留一次轻量兜底即可。
   setTimeout(() => {
     if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
-    preparePanelForFullScreen();
+    preparePanelForFullScreen({ presenting: true });
     panel.moveTop();
   }, 120);
   // Let the renderer own the visual transition. Native opacity is only used to
@@ -391,18 +417,23 @@ function showPanelAnimated() {
 }
 
 function hidePanelAnimated() {
-  if (!panel || !panel.isVisible()) return;
+  if (!panel || !panel.isVisible() || panelClosing) return;
   clearPanelBlurTimer();
+  clearPanelHeightShrinkTimer();
+  stopPanelBoundsAnimation();
   panelOpenedFromTopEdge = false;
   panel.webContents.send('panel:motion', 'closing');
   stopPanelFollowMonitor();
   stopPanelAnimation();
+  panelClosing = true;
   panel.setOpacity(1);
   panelAnimationTimer = setTimeout(() => {
     panelAnimationTimer = null;
     if (!panel || panel.isDestroyed()) return;
     panel.hide();
     panel.setOpacity(1);
+    preparePanelForFullScreen();
+    panelClosing = false;
   }, PANEL_CLOSE_MS);
 }
 
@@ -486,13 +517,74 @@ function clearPanelHeightShrinkTimer() {
   panelHeightShrinkTimer = null;
 }
 
+function stopPanelBoundsAnimation() {
+  panelBoundsAnimationToken += 1;
+  panelBoundsTarget = null;
+  if (!panelBoundsAnimationTimer) return;
+  clearTimeout(panelBoundsAnimationTimer);
+  panelBoundsAnimationTimer = null;
+}
+
+function animatePanelBounds(targetBounds) {
+  if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
+  const sameBounds = (left, right) => left && right && ['x', 'y', 'width', 'height'].every((key) => left[key] === right[key]);
+  if (sameBounds(panelBoundsTarget, targetBounds)) return;
+  const fromBounds = panel.getBounds();
+  const heightDelta = Math.abs(targetBounds.height - fromBounds.height);
+  const widthDelta = Math.abs(targetBounds.width - fromBounds.width);
+  const positionDelta = Math.abs(targetBounds.x - fromBounds.x) + Math.abs(targetBounds.y - fromBounds.y);
+  if (heightDelta <= 1 && widthDelta <= 1 && positionDelta <= 1) return;
+
+  stopPanelBoundsAnimation();
+  if (systemPreferences.getAnimationSettings().prefersReducedMotion) {
+    panel.setBounds(targetBounds);
+    return;
+  }
+  panelBoundsTarget = { ...targetBounds };
+  const animationToken = panelBoundsAnimationToken;
+  const startedAt = performance.now();
+  const duration = Math.min(260, Math.max(PANEL_HEIGHT_ANIMATION_MS, Math.round(heightDelta * 0.5)));
+  let lastBounds = fromBounds;
+
+  const tick = () => {
+    if (animationToken !== panelBoundsAnimationToken || !panel || panel.isDestroyed() || !panel.isVisible()) {
+      panelBoundsAnimationTimer = null;
+      return;
+    }
+    const progress = Math.min(1, (performance.now() - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const nextBounds = {
+      x: Math.round(fromBounds.x + (targetBounds.x - fromBounds.x) * eased),
+      y: Math.round(fromBounds.y + (targetBounds.y - fromBounds.y) * eased),
+      width: targetBounds.width,
+      height: Math.round(fromBounds.height + (targetBounds.height - fromBounds.height) * eased)
+    };
+    if (!sameBounds(lastBounds, nextBounds)) panel.setBounds(nextBounds);
+    lastBounds = nextBounds;
+    if (progress >= 1) {
+      panelBoundsAnimationTimer = null;
+      panelBoundsTarget = null;
+      return;
+    }
+    panelBoundsAnimationTimer = setTimeout(tick, PANEL_HEIGHT_ANIMATION_FRAME_MS);
+  };
+
+  tick();
+}
+
 function applyPanelContentHeight() {
   if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
-  const bounds = positionPanel();
-  if (!bounds) return;
   const current = panel.getBounds();
-  if (bounds.height === current.height && bounds.x === current.x && bounds.y === current.y) return;
-  panel.setBounds(bounds);
+  const positioned = positionPanel();
+  if (!positioned) return;
+  // 内容高度变化时只调整高度，保持面板顶部锚点不动；否则 Codex/Claude
+  // 内容高度不同，positionPanel 会按底部边界重新计算 y，造成整窗轻微位移。
+  const bounds = { ...positioned, x: current.x, y: current.y };
+  if (bounds.height === current.height && bounds.x === current.x && bounds.y === current.y) {
+    stopPanelBoundsAnimation();
+    return;
+  }
+  animatePanelBounds(bounds);
 }
 
 function positionPanel() {
@@ -550,7 +642,7 @@ function createSettingsWindow() {
     minimizable: false,
     maximizable: false,
     title: tr('settingsTitle'),
-    backgroundColor: '#0b1116',
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1033,7 +1125,7 @@ async function cloudSyncFetch(url, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await net.fetch(url, { ...options, credentials: 'omit', signal: controller.signal });
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('request_timeout');
     throw error;
@@ -1201,7 +1293,7 @@ async function resetCloudSyncPairing() {
   return getSettingsSnapshot();
 }
 
-async function getCodexAccessToken() {
+async function getCodexRequestHeaders() {
   let raw;
   try {
     raw = await fs.readFile(AUTH_PATH, 'utf8');
@@ -1218,38 +1310,45 @@ async function getCodexAccessToken() {
 
   const token = auth?.tokens?.access_token;
   if (!token) throw new Error(tr('errCodexAuthNoToken'));
-  return token;
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(auth.tokens.account_id ? { 'ChatGPT-Account-Id': auth.tokens.account_id } : {})
+  };
 }
 
 async function fetchJson(url, options = {}) {
+  const { requestTimeoutMs = REQUEST_TIMEOUT_MS, ...requestOptions } = options;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
-    const response = await fetch(url, {
-      ...options,
+    // Chromium 的网络栈读取 macOS 系统代理；Node fetch 会绕过它，直连被拦域名。
+    const response = await net.fetch(url, {
+      ...requestOptions,
+      credentials: 'omit',
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'CodexMenuMeter/0.1',
+        'User-Agent': `CodexMenuMeter/${app.getVersion()}`,
         ...(options.headers || {})
       }
     });
     const text = await response.text();
-    let body = null;
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch {
-        body = text;
-      }
-    }
     if (!response.ok) {
       const error = new Error(`HTTP ${response.status}`);
       error.status = response.status;
       error.url = url;
+      const retryAfter = response.headers.get('retry-after');
+      if (retryAfter) error.retryAfterMs = /^\d+(?:\.\d+)?$/.test(retryAfter)
+        ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now());
       throw error;
     }
-    return body;
+    try {
+      return JSON.parse(text);
+    } catch {
+      const error = new Error(tr('errInvalidJsonResponse'));
+      error.code = 'invalid-json-response';
+      throw error;
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -1257,17 +1356,20 @@ async function fetchJson(url, options = {}) {
 
 function requestErrorMessage(error, provider) {
   if (error?.status === 401) return tr('errExpired', { provider });
-  if (error?.name === 'AbortError') return tr('errTimeout', { provider });
+  const detail = `${error?.code || ''} ${error?.message || ''} ${error?.cause?.code || ''}`;
+  if (error?.name === 'AbortError' || /TIMED?_?OUT|TIMEOUT/i.test(detail)) return tr('errTimeout', { provider });
+  if (/ERR_(PROXY|TUNNEL)/i.test(detail)) return tr('errSystemProxy');
+  if (/fetch failed|ERR_(NAME_NOT_RESOLVED|INTERNET_DISCONNECTED|CONNECTION|NETWORK)/i.test(detail)) return tr('errNetwork', { provider });
   if (error?.status) return tr('errHttp', { status: error.status });
   return error?.message || tr('errFetch', { provider });
 }
 
 function refreshUsage() {
   return refreshStateSlice('codex-usage', 'usage', async () => {
-    const token = await getCodexAccessToken();
+    const headers = await getCodexRequestHeaders();
     const [usage, resetCredits] = await Promise.all([
-      fetchJson(CODEX_USAGE_URL, { headers: { Authorization: `Bearer ${token}` } }),
-      fetchJson(RESET_CREDITS_URL, { headers: { Authorization: `Bearer ${token}` } })
+      fetchJson(CODEX_USAGE_URL, { headers }),
+      fetchJson(RESET_CREDITS_URL, { headers })
         .catch((error) => ({ error: requestErrorMessage(error, 'Codex') }))
     ]);
     return normalizeUsage(usage, resetCredits);
@@ -1282,6 +1384,7 @@ function refreshUsage() {
 }
 
 function normalizeUsage(raw, resetCredits) {
+  if (!raw?.rate_limit || typeof raw.rate_limit !== 'object') throw new Error(tr('errUsageResponseInvalid'));
   const rateLimit = raw?.rate_limit || {};
   const resetCreditSummary = resetCredits?.error
     ? {
@@ -1341,11 +1444,60 @@ function normalizeWindow(windowValue) {
   };
 }
 
+const readRadarBench = createRadarBenchReader(fetchJson);
+
 function refreshRadar() {
   return refreshStateSlice('codex-radar', 'radar', async () => {
-    const radar = await fetchJson(RADAR_URL, { headers: { Referer: RADAR_HOME } });
-    return normalizeRadar(radar);
-  });
+    const previous = state.radar.data;
+    const createData = (modelIq) => ({
+      sourceUrl: RADAR_HOME, monitoredAt: modelIq.updatedAt,
+      modelIq: { ...modelIq, items: mergeCatalogItems(modelIq.items, codexModelCatalog) },
+      quotaRadar: previous?.quotaRadar || { updatedAt: null, rows: [] }
+    });
+    // 旧 current.json 仅保留额度参考；IQ 使用网页当前公开的 RadarBench 接口。
+    const quotaRead = fetchJson(RADAR_URL, { headers: { Referer: RADAR_HOME } })
+      .then((raw) => raw?.model_iq?.quota_radar).catch(() => null);
+    const modelIq = await readRadarBench({
+      previous: previous?.modelIq,
+      onProgress: (partial) => {
+        state.radar = { ...state.radar, data: createData(partial) };
+        sendState();
+      }
+    });
+    const normalized = createData(modelIq);
+    const quota = await quotaRead;
+    if (Array.isArray(quota?.rows)) normalized.quotaRadar = { updatedAt: quota.updated_at || null, rows: quota.rows };
+    await cacheRadarData('codex', normalized);
+    return normalized;
+  }, { formatError: (error) => requestErrorMessage(error, 'Codex Radar') });
+}
+
+// 仅保存公开雷达快照；短暂断网或上游停供时保留最后一次有效测评，不包含登录凭据。
+const radarCache = {};
+let radarCacheWrite = Promise.resolve();
+
+function cacheRadarData(provider, data) {
+  radarCache[provider] = { data, fetchedAt: Date.now() };
+  const serialized = JSON.stringify({ version: 1, providers: radarCache });
+  radarCacheWrite = radarCacheWrite.then(() => fs.writeFile(RADAR_CACHE_PATH, serialized, 'utf8')).catch(() => {});
+  return radarCacheWrite;
+}
+
+async function loadRadarCache() {
+  try {
+    const cached = JSON.parse(await fs.readFile(RADAR_CACHE_PATH, 'utf8'));
+    if (cached.version !== 1) return;
+    for (const [provider, key] of [['codex', 'radar'], ['claude', 'claudeRadar']]) {
+      const snapshot = cached.providers?.[provider];
+      const items = provider === 'codex' ? snapshot?.data?.modelIq?.items : snapshot?.data?.items;
+      if (!Array.isArray(items) || !items.some((item) => !item.catalogOnly && finiteNumber(item.score) !== null)) continue;
+      radarCache[provider] = snapshot;
+      state[key] = { ...state[key], ...snapshot, status: 'refreshing', error: null };
+      if (provider === 'codex') state[key].data.modelIq.items = mergeCatalogItems(items, codexModelCatalog);
+    }
+  } catch {
+    // 首次启动或缓存损坏时使用在线源，不影响其他数据源刷新。
+  }
 }
 
 function refreshTokenActivity() {
@@ -1370,19 +1522,20 @@ function normalizeRadar(raw) {
   const seenModels = new Set();
 
   if (modelIq.latest) {
-    appendIqItem(items, seenModels, null, modelIq.latest);
+    appendIqItem(items, seenModels, null, modelIq.latest, modelIq.recent_days);
   }
 
   Object.values(comparisons).forEach((value) => {
-    if (value?.latest) appendIqItem(items, seenModels, value.label, value.latest);
+    if (value?.latest) appendIqItem(items, seenModels, value.label, value.latest, value.recent_days);
   });
+  if (raw !== null && !items.length) throw new Error(tr('errRadarNoMetrics'));
 
   return {
     monitoredAt: raw?.monitored_at || null,
     modelIq: {
       latestDate: modelIq.latest?.date || null,
       updatedAt: modelIq.latest?.updated_at || modelIq.updated_at || null,
-      items
+      items: mergeCatalogItems(items, codexModelCatalog)
     },
     quotaRadar: {
       updatedAt: modelIq.quota_radar?.updated_at || null,
@@ -1392,11 +1545,36 @@ function normalizeRadar(raw) {
   };
 }
 
-function appendIqItem(items, seenModels, label, latest) {
+async function refreshModelCatalog() {
+  try {
+    const cached = JSON.parse(await fs.readFile(MODEL_CATALOG_PATH, 'utf8'));
+    const next = readModelCatalog(cached);
+    if (JSON.stringify(next) === JSON.stringify(codexModelCatalog)) return;
+    codexModelCatalog = next;
+    if (state.radar.data?.modelIq) {
+      state.radar.data.modelIq.items = mergeCatalogItems(state.radar.data.modelIq.items || [], codexModelCatalog);
+      sendState();
+    }
+  } catch {
+    // Codex 缓存暂不可读或正在替换时保留已知目录，下次自动重试。
+  }
+}
+
+function appendIqItem(items, seenModels, label, latest, recentDays = []) {
   const identity = normalizeIqIdentity(label, latest);
   const identityKey = `${identity.modelLabel.toLowerCase()}|${identity.reasoningEffort.toLowerCase()}`;
   if (seenModels.has(identityKey)) return;
   seenModels.add(identityKey);
+  const sampleSeries = normalizeIqSampleSeries(recentDays, latest);
+  const validTasks = Number(latest.valid_tasks ?? latest.tasks);
+  const averageCostUsd = finiteNumber(latest.average_cost_usd)
+    ?? (finiteNumber(latest.cost_usd) !== null && Number.isFinite(validTasks) && validTasks > 0
+      ? Number(latest.cost_usd) / validTasks
+      : null);
+  const averageTaskSeconds = finiteNumber(latest.average_task_seconds)
+    ?? (finiteNumber(latest.wall_seconds) !== null && Number.isFinite(validTasks) && validTasks > 0
+      ? Number(latest.wall_seconds) / validTasks
+      : null);
   items.push({
     label: identity.label,
     modelLabel: identity.modelLabel,
@@ -1406,8 +1584,36 @@ function appendIqItem(items, seenModels, label, latest) {
     passed: latest.passed,
     tasks: latest.tasks,
     costUsd: latest.cost_usd,
-    wallTimeHuman: latest.wall_time_human
+    wallTimeHuman: latest.wall_time_human,
+    averageCostUsd,
+    averageTaskSeconds,
+    averageTaskTimeHuman: latest.average_task_time_human || null,
+    sampleCount24h: sampleSeries.length || finiteNumber(latest.sample_count_24h),
+    recentScores: sampleSeries
   });
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeIqSampleSeries(recentDays, latest) {
+  const samples = Array.isArray(recentDays) ? recentDays : [];
+  const latestDate = Date.parse(String(latest?.date || ''));
+  const anchor = Number.isFinite(latestDate) ? latestDate : Date.now();
+  const start = anchor - 24 * 60 * 60 * 1000;
+  const byDate = new Map();
+
+  [...samples, latest].forEach((sample) => {
+    const score = finiteNumber(sample?.score);
+    const date = Date.parse(String(sample?.date || ''));
+    if (score === null || !Number.isFinite(date) || date < start || date > anchor + 60 * 60 * 1000) return;
+    byDate.set(date, { date, score });
+  });
+
+  return [...byDate.values()].sort((left, right) => left.date - right.date);
 }
 
 function normalizeIqIdentity(label, latest) {
@@ -1447,10 +1653,17 @@ function escapeRegex(value) {
 }
 
 let claudeCredentialCache = null;
+let claudeCredentialIssue = null;
+let claudeCredentialRefreshError = null;
 
 async function getClaudeCredentials({ force = false, excludeSource = null, excludeAccessToken = null } = {}) {
   if (!force && claudeCredentialCache && (!claudeCredentialCache.expiresAt || claudeCredentialCache.expiresAt - Date.now() > 60_000)) {
+    claudeCredentialIssue = null;
     return claudeCredentialCache;
+  }
+  if (force) {
+    claudeCredentialIssue = null;
+    claudeCredentialRefreshError = null;
   }
 
   const sources = [
@@ -1480,12 +1693,22 @@ async function getClaudeCredentials({ force = false, excludeSource = null, exclu
 
     const expiringSoon = credentials.expiresAt && credentials.expiresAt - Date.now() < 60_000;
     if (expiringSoon) {
-      if (!credentials.refreshToken) continue;
-      credentials = await refreshClaudeCredentials(credentials).catch(() => null);
-      if (!credentials) continue;
+      if (!credentials.refreshToken) {
+        claudeCredentialIssue = 'expired';
+        continue;
+      }
+      try {
+        credentials = await refreshClaudeCredentials(credentials);
+      } catch (error) {
+        // 凭据确实存在，但已经过期且无法刷新；不要再误报成“未安装/未登录 CLI”。
+        if ([400, 401].includes(error.status)) claudeCredentialIssue = 'expired';
+        else claudeCredentialRefreshError = error;
+        continue;
+      }
     }
 
     claudeCredentialCache = credentials;
+    claudeCredentialIssue = null;
     return credentials;
   }
 
@@ -1635,7 +1858,9 @@ async function readClaudeUsage() {
       }
     }
   } else {
-    officialError = claudeError('claude-no-creds');
+    officialError = claudeCredentialRefreshError || claudeError(claudeCredentialIssue === 'expired'
+      ? 'claude-auth-expired'
+      : 'claude-no-creds');
   }
 
   throw officialError || claudeError('claude-unavailable');
@@ -1655,6 +1880,7 @@ function claudeUsageErrorMessage(error) {
   if (error?.status === 429) return tr('errClaude429');
   if (error?.name === 'AbortError') return tr('errClaudeTimeout');
   if (Number(error?.status) >= 500) return tr('errClaude5xx');
+  if (error?.code === 'claude-auth-expired') return tr('errClaudeAuthExpired');
   if (error?.code === 'claude-no-creds') return tr('errClaudeNoCli');
   if (error?.code === 'claude-bad-data') return tr('errClaudeBadData');
   if (error?.code === 'claude-unavailable') return tr('errClaudeUnavailable');
@@ -1981,9 +2207,18 @@ function formatLocalIsoDate(date) {
 
 function refreshClaudeRadar() {
   return refreshStateSlice('claude-radar', 'claudeRadar', async () => {
-    const raw = await fetchJson(CLAUDE_RADAR_URL, { headers: { Referer: CLAUDE_RADAR_HOME } });
-    return normalizeClaudeRadar(raw);
-  });
+    try {
+      const raw = await fetchJson(CLAUDE_RADAR_URL, { headers: { Referer: CLAUDE_RADAR_HOME } });
+      const normalized = normalizeClaudeRadar(raw);
+      await cacheRadarData('claude', normalized);
+      return normalized;
+    } catch (error) {
+      if (error.code === 'invalid-json-response' || [404, 410].includes(error.status)) {
+        throw new Error(tr('errClaudeRadarSourceUnavailable'));
+      }
+      throw error;
+    }
+  }, { formatError: (error) => requestErrorMessage(error, 'Claude Radar') });
 }
 
 function normalizeClaudeRadar(raw) {
@@ -1991,6 +2226,7 @@ function normalizeClaudeRadar(raw) {
   const items = sortClaudeIqItems(models
     .map((model) => normalizeClaudeIqItem(model))
     .filter(Boolean));
+  if (!items.length) throw new Error(tr('errRadarNoMetrics'));
   const quota = raw?.quota || {};
 
   return {
@@ -2062,6 +2298,10 @@ function normalizeClaudeIqItem(model) {
     invalid,
     costUsd,
     wallHours,
+    averageCostUsd: costUsd,
+    averageTaskSeconds: Number.isFinite(wallHours) ? wallHours * 3600 : null,
+    averageTaskTimeHuman: null,
+    sampleCount24h: iqSeries.filter((value) => value !== null && value !== undefined).length || null,
     latestAt: model.latest_at || null,
     status: invalid > 0 ? 'invalid' : claudeIqStatus(score)
   };
@@ -2123,18 +2363,18 @@ function claudeIqStatus(score) {
 
 // ---- 额度采样：燃烧率预测 / 24h 曲线 / 阈值通知的共同底层 ----
 
-const usageHistory = { codex: [], claude: [] };
+const usageHistory = Object.fromEntries(PROVIDER_IDS.map((id) => [id, []]));
 let usageHistorySaveTimer = null;
-const alertState = {
-  codex: { five: { lastThreshold: null, nearCap: false }, week: { lastThreshold: null, nearCap: false } },
-  claude: { five: { lastThreshold: null, nearCap: false }, week: { lastThreshold: null, nearCap: false } }
-};
+const alertState = Object.fromEntries(PROVIDER_IDS.map((id) => [id, {
+  five: { lastThreshold: null, nearCap: false },
+  week: { lastThreshold: null, nearCap: false }
+}]));
 
 async function loadUsageHistory() {
   try {
     const raw = JSON.parse(await fs.readFile(USAGE_HISTORY_PATH, 'utf8'));
     const cutoff = Date.now() - USAGE_HISTORY_RETENTION_MS;
-    for (const provider of ['codex', 'claude']) {
+    for (const provider of PROVIDER_IDS) {
       if (Array.isArray(raw?.[provider])) {
         usageHistory[provider] = raw[provider].filter((s) => Number(s?.t) > cutoff);
       }
@@ -2154,7 +2394,7 @@ function queueUsageHistorySave() {
 }
 
 function recordUsageSample(provider) {
-  const slice = provider === 'claude' ? state.claudeUsage : state.usage;
+  const slice = provider === 'codex' ? state.usage : state[`${provider}Usage`];
   if (slice.status !== 'ok' || !slice.data) return;
   const usage = slice.data;
   const sample = {
@@ -2185,7 +2425,7 @@ function refreshUsageHistoryView(provider) {
 
 function checkUsageAlerts(provider, sample, previous) {
   if (!settings.notificationsEnabled || !Notification.isSupported()) return;
-  const name = provider === 'claude' ? 'Claude' : 'GPT';
+  const name = PROVIDER_BY_ID[provider]?.label || provider;
   checkWindowAlert(provider, name, 'five', tr('windowName5h'), sample.five, previous?.five);
   checkWindowAlert(provider, name, 'week', tr('windowNameWeek'), sample.week, previous?.week);
 }
@@ -2261,7 +2501,10 @@ function extraError(code) {
 function refreshExtraUsage(id) {
   return refreshStateSlice(`extra-${id}`, `${id}Usage`, () => readExtraUsage(id), {
     formatError: (error) => extraUsageErrorMessage(id, error),
-    onSettled: updateTrayTitle
+    onSettled: () => {
+      updateTrayTitle();
+      recordUsageSample(id);
+    }
   });
 }
 
@@ -2542,7 +2785,7 @@ async function ensureTouchBarHelper() {
   }
 
   touchBarHelper = spawn(helperPath, [TOUCHBAR_STATE_PATH, String(process.pid)], {
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'ignore'],
     detached: false
   });
   touchBarHelperOutput = '';
@@ -2559,6 +2802,20 @@ async function ensureTouchBarHelper() {
     touchBarHelper = null;
   });
   touchBarHelper.unref();
+}
+
+async function requestTouchBarPresentation() {
+  if (process.platform !== 'darwin' || process.env.CMM_DISABLE_TOUCHBAR === '1') return;
+  touchBarPresentPending = true;
+  try {
+    await ensureTouchBarHelper();
+    const helper = touchBarHelper;
+    if (!touchBarPresentPending || !helper?.stdin?.writable) return;
+    helper.stdin.write('present\n');
+    touchBarPresentPending = false;
+  } catch {
+    // Touch Bar support is optional; retry on the next panel opening.
+  }
 }
 
 function handleTouchBarHelperOutput(chunk) {
@@ -2604,10 +2861,13 @@ function handleGlobalPointerDown() {
   if (Date.now() - panelShownAt < POINTER_OPEN_GRACE_MS) return;
   const cursor = screen.getCursorScreenPoint();
   if (isPointInsideBounds(cursor, panel.getBounds(), PANEL_HOVER_PADDING)) return;
+  const trayBounds = tray?.getBounds();
+  if (trayBounds && isPointInsideBounds(cursor, trayBounds, 2)) return;
   hidePanelAnimated();
 }
 
 function stopTouchBarHelper() {
+  touchBarPresentPending = false;
   if (!touchBarHelper || touchBarHelper.killed) return;
   touchBarHelper.kill();
   touchBarHelper = null;
@@ -2683,6 +2943,17 @@ function createTouchBarPayload() {
 }
 
 function createTouchBarProviderPayload(label, usage, iqItems, provider) {
+  const latestItems = provider === 'codex' ? mergeCatalogItems(iqItems, codexModelCatalog) : [];
+  const newestModels = [...new Set(latestItems.filter((item) => item.isLatest).map((item) => item.modelLabel))]
+    .sort(compareModelVersions).slice(0, 3);
+  const firstPage = newestModels.map((modelLabel) => latestItems.find((item) => item.modelLabel === modelLabel && item.reasoningEffort === 'max')
+    || latestItems.find((item) => item.modelLabel === modelLabel)).filter(Boolean);
+  const secondPage = [['sol', 'medium'], ['terra', 'max'], ['luna', 'max']]
+    .map(([family, effort]) => latestFamilyItem(latestItems, family, effort)).filter(Boolean);
+  const displayItems = provider === 'codex'
+    ? [...firstPage, ...secondPage]
+    : iqItems.slice().sort((a, b) => compareModelVersions(a.modelLabel, b.modelLabel)).slice(0, 6);
+
   return {
     label,
     usage: {
@@ -2691,10 +2962,10 @@ function createTouchBarProviderPayload(label, usage, iqItems, provider) {
         : touchBarQuota('5h', usage?.primaryWindow),
       week: touchBarQuota('7d', usage?.secondaryWindow)
     },
-    iq: iqItems.slice(0, 6).map((item) => ({
+    iq: displayItems.map((item) => ({
       label: item.label,
       compactLabel: compactTouchLabel(item.modelLabel || item.label, item.reasoningEffort, provider),
-      score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
+      score: finiteNumber(item.score),
       status: item.status || 'unknown'
     }))
   };
@@ -2739,7 +3010,7 @@ function compactTouchLabel(modelLabel, reasoningEffort, provider = 'codex') {
 
 function compactReasoningEffort(value) {
   const effort = String(value || '').toLowerCase();
-  const known = { ultra: 'U', xhigh: 'XH', high: 'H', medium: 'M', low: 'L', minimal: 'MIN' };
+  const known = { ultra: 'U', max: 'MA', xhigh: 'XH', high: 'H', medium: 'M', low: 'L', minimal: 'MIN' };
   return known[effort] || effort.slice(0, 2).toUpperCase();
 }
 
@@ -2833,8 +3104,15 @@ function refreshAllForRemote() {
 }
 
 app.whenReady().then(async () => {
+  nativeTheme.themeSource = 'light';
+  await session.defaultSession.setProxy({ mode: 'system' });
   await loadSettings();
   await loadUsageHistory();
+  await refreshModelCatalog();
+  await loadRadarCache();
+  if (!state.radar.data) state.radar.data = normalizeRadar(null);
+  modelCatalogTimer = setInterval(refreshModelCatalog, MODEL_CATALOG_REFRESH_MS);
+  modelCatalogTimer.unref?.();
   applyPanelHotkey();
   if (process.env.CMM_DEBUG_STATE_PATH) {
     setInterval(() => {
@@ -2880,9 +3158,11 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  if (modelCatalogTimer) clearInterval(modelCatalogTimer);
   if (sendStateTimer) clearTimeout(sendStateTimer);
   sendStateTimer = null;
   clearPanelHeightShrinkTimer();
+  stopPanelBoundsAnimation();
   if (usageTimer) clearInterval(usageTimer);
   if (claudeUsageTimer) clearInterval(claudeUsageTimer);
   if (radarTimer) clearInterval(radarTimer);
@@ -2911,8 +3191,13 @@ app.on('before-quit', () => {
 app.on('window-all-closed', () => {});
 
 ipcMain.handle('state:get', () => state);
-ipcMain.on('panel:renderer-ready', (event) => {
+ipcMain.on('panel:renderer-ready', (event, height) => {
   if (!panel || panel.isDestroyed() || event.sender !== panel.webContents) return;
+  const measured = Math.round(Number(height));
+  if (Number.isFinite(measured) && measured > 0) {
+    clearPanelHeightShrinkTimer();
+    panelContentHeight = clamp(measured, PANEL_CONTENT_MIN_HEIGHT, PANEL_CONTENT_MAX_HEIGHT);
+  }
   panelRendererReady = true;
   if (pendingPanelShow) showPanelAnimated();
 });
@@ -2937,6 +3222,7 @@ ipcMain.on('panel:content-height', (event, height) => {
 ipcMain.handle('state:refresh', async () => {
   if (state.provider === 'claude') invalidateClaudeEntrySnapshot();
   else if (state.provider === 'codex') invalidateCodexEntrySnapshot();
+  await refreshModelCatalog();
   await refreshProvider(state.provider);
   return state;
 });

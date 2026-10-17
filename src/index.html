@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Usage Signal Bar</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./mobile/minimal.css" />
+    <link rel="stylesheet" href="./mobile/light.css" />
   </head>
-  <body>
+  <body class="desktop-surface light-theme">
     <main class="panel" data-active-tab="usage" data-provider="codex">
       <div class="panel-aurora" aria-hidden="true"></div>
       <div class="motion-layer" aria-hidden="true">
@@ -19,25 +21,25 @@
         <div class="provider-row">
           <div class="provider-switch" id="providerSwitch" role="group" aria-label="平台">
             <span class="provider-thumb" aria-hidden="true"></span>
-            <button class="provider-option active" type="button" data-provider="codex">GPT</button>
+            <button class="provider-option active" type="button" data-provider="codex" aria-pressed="true">GPT</button>
           </div>
           <button class="icon-button" id="refresh" type="button" title="刷新" aria-label="刷新">
             <span>↻</span>
           </button>
         </div>
-        <nav class="tabs" aria-label="views">
-          <button class="tab-button active" type="button" data-tab="usage">
+        <nav class="tabs" role="tablist" aria-label="views">
+          <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="usage">
             <span>▥</span>
             <strong id="tabUsageLabel">用量</strong>
           </button>
-          <button class="tab-button" type="button" data-tab="radar">
+          <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="radar">
             <span>⌁</span>
             <strong id="tabRadarLabel">雷达</strong>
           </button>
         </nav>
       </header>
 
-      <section class="status-line" id="statusLine">正在读取...</section>
+      <section class="status-line" id="statusLine" role="status" aria-live="polite">正在读取...</section>
 
       <section class="tab-panel active" id="usagePanel">
         <section class="section">
@@ -56,39 +58,105 @@
           <div id="tokenActivity" class="token-usage"></div>
         </section>
 
-        <section class="section trend-section">
-          <div class="section-head">
-            <h2 id="trendTitle">24 小时额度曲线</h2>
+        <details class="section trend-section inline-details" data-detail="usage-trend">
+          <summary>
+            <h2 id="trendTitle">额度曲线</h2>
+          </summary>
+          <div class="disclosure-content">
             <span class="trend-legend" id="trendLegend"></span>
+            <div id="usageTrend" class="usage-trend"></div>
           </div>
-          <div id="usageTrend" class="usage-trend"></div>
-        </section>
+        </details>
 
       </section>
 
       <section class="tab-panel" id="radarPanel">
-        <section class="section">
-          <div class="section-head">
-            <h2 id="iqTitle">今日 IQ</h2>
-            <span id="iqDate" class="subtle"></span>
-          </div>
-          <div id="iqGrid" class="iq-grid"></div>
+        <nav class="radar-subtabs" id="radarSubtabs" role="tablist" aria-label="雷达内容">
+          <button class="radar-subtab active" type="button" role="tab" aria-selected="true" data-radar-view="intelligence">
+            <span>◈</span>
+            <strong id="radarTabIntelligence">智力</strong>
+          </button>
+          <button class="radar-subtab" type="button" role="tab" aria-selected="false" data-radar-view="quota">
+            <span>⌁</span>
+            <strong id="radarTabQuota">额度</strong>
+          </button>
+          <button class="radar-subtab" type="button" role="tab" aria-selected="false" data-radar-view="reset">
+            <span>↻</span>
+            <strong id="radarTabReset">重置</strong>
+          </button>
+        </nav>
+
+        <section class="radar-view active" id="radarIntelligenceView" data-radar-view="intelligence">
+          <section class="section radar-intelligence-section">
+            <div class="radar-intelligence-summary">
+              <div class="radar-recommendation">
+                <span class="radar-kicker" id="recommendedTitle">推荐模型</span>
+                <strong id="recommendedModel">--</strong>
+                <span class="subtle" id="recommendedMeta"></span>
+              </div>
+              <div class="radar-degradation" id="iqDegradeAlert" role="status">
+                <span class="radar-kicker" id="iqDegradeTitle">降智预警</span>
+                <strong id="iqDegradeValue">监测中</strong>
+              </div>
+            </div>
+
+            <div class="radar-brief-status" id="radarBriefStatus" role="status" hidden></div>
+            <div class="radar-intelligence-toolbar">
+              <div class="section-head">
+                <h2 id="iqTitle">模型 IQ</h2>
+                <span id="iqDate" class="subtle"></span>
+              </div>
+              <div class="radar-sort-controls" id="iqSortControls" role="group" aria-label="模型排序">
+                <button class="radar-sort-button active" type="button" data-iq-sort="iq" id="iqSortIq">IQ</button>
+                <button class="radar-sort-button" type="button" data-iq-sort="value" id="iqSortValue">性价比</button>
+                <button class="radar-sort-button" type="button" data-iq-sort="speed" id="iqSortSpeed">速度</button>
+              </div>
+            </div>
+
+            <div id="iqGrid" class="model-groups"></div>
+            <button class="model-expand" id="expandModels" type="button" hidden></button>
+            <details class="inline-details source-details" data-detail="radar-source">
+              <summary><span data-ui-copy="sourceDetails">筛选与数据说明</span></summary>
+              <div class="disclosure-content">
+                <div class="model-catalog-notice" id="modelCatalogNotice" hidden>
+                  <span id="modelCatalogNames"></span>
+                  <button type="button" class="catalog-filter" id="latestModelsFilter" aria-pressed="false"></button>
+                </div>
+                <div class="radar-data-notice" id="radarDataNotice" hidden></div>
+              </div>
+            </details>
+          </section>
         </section>
 
-        <section class="section">
-          <div class="section-head">
-            <h2 id="quotaRadarTitle">额度雷达</h2>
-            <span class="subtle" id="quotaSource">Codex Radar</span>
-          </div>
-          <div id="quotaRows" class="quota-table"></div>
+        <section class="radar-view" id="radarQuotaView" data-radar-view="quota">
+          <section class="section model-usage-section">
+            <div class="section-head">
+              <h2 id="modelUsageTitle">模型消耗</h2>
+              <span class="subtle" id="modelUsagePeriod">近 24 小时</span>
+            </div>
+            <div id="modelUsageSummary" class="model-usage-summary"></div>
+            <div id="modelUsageRows" class="model-usage-table"></div>
+          </section>
+
+          <details class="section inline-details" data-detail="quota-reference">
+            <summary>
+              <h2 id="quotaRadarTitle">额度雷达</h2>
+            </summary>
+            <div class="disclosure-content">
+              <span class="subtle" id="quotaSource">Codex Radar</span>
+              <div id="quotaRows" class="quota-table"></div>
+            </div>
+          </details>
         </section>
 
-        <section class="section">
-          <div class="section-head">
-            <h2 id="resetTitle">重置卡</h2>
-            <button class="link-button" id="openRadar" type="button">打开来源</button>
-          </div>
-          <div id="resetCards" class="reset-list"></div>
+        <section class="radar-view" id="radarResetView" data-radar-view="reset">
+          <section class="section">
+            <div class="section-head">
+              <h2 id="resetTitle">重置卡</h2>
+              <button class="link-button" id="openRadar" type="button">打开来源</button>
+            </div>
+            <div id="resetCards" class="reset-list"></div>
+          </section>
         </section>
 
       </section>
