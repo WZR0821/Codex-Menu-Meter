@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('codexMeter', {
   getState: () => ipcRenderer.invoke('state:get'),
   refresh: () => ipcRenderer.invoke('state:refresh'),
   setProvider: (provider) => ipcRenderer.invoke('provider:set', provider),
+  reconnectClaude: () => ipcRenderer.invoke('claude:reconnect'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   getVersion: () => ipcRenderer.invoke('app:version'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),

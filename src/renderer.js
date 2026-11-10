@@ -301,6 +301,11 @@ els.tokenActivity.addEventListener('mouseleave', () => {
   hideChartTooltip();
 });
 
+els.meters.addEventListener('click', (event) => {
+  const action = event.target.closest('[data-action="claude-reconnect"]');
+  if (action && els.meters.contains(action)) handleClaudeReconnect();
+});
+
 els.tokenActivity.addEventListener('click', (event) => {
   const cell = event.target.closest('.token-heatmap-cell');
   if (!cell || !els.tokenActivity.contains(cell)) return;
@@ -598,7 +603,7 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
   const slices = providedSlices || activeSlices(stateValue);
   if (tab === 'usage') {
     const clockBucket = Math.floor(Date.now() / 30_000);
-    renderSection('meters', [slices.usage, slices.activity?.data?.windows, clockBucket], () => renderMeters(slices.usage, provider, slices.activity));
+    renderSection('meters', [slices.usage, slices.activity?.data?.windows, clockBucket, claudeReconnect], () => renderMeters(slices.usage, provider, slices.activity));
     renderSection('trend', [slices.usage, stateValue.usageHistory?.[provider], clockBucket], () => renderTrend(stateValue, slices.usage, provider));
     if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, formatIsoDate(new Date())], () => renderTokenActivity(slices.activity));
     return;
@@ -877,9 +882,14 @@ function renderMeters(usageState, provider, activityState) {
     : '';
   els.usageUpdated.title = provider === 'claude' && usage ? T('officialTip') : '';
   if (!usage) {
-    updateHtml(els.meters, emptyBlock(usageState.error || T('noUsageData')));
+    const reconnect = provider === 'claude' && CLAUDE_RECONNECT_CODES.includes(usageState.errorCode);
+    if (!reconnect) claudeReconnect = { pending: false, failed: '' };
+    updateHtml(els.meters, reconnect
+      ? claudeConnectTemplate(usageState.errorCode)
+      : emptyBlock(usageState.error || T('noUsageData')));
     return;
   }
+  claudeReconnect = { pending: false, failed: '' };
 
   const cards = [];
   if (usage.fiveHourUnlimited) {
@@ -905,6 +915,56 @@ function renderMeters(usageState, provider, activityState) {
     cards.push(quotaCardTemplate(windowValue, label, { provider }));
   });
   if (updateHtml(els.meters, cards.length ? cards.join('') : emptyBlock(T('windowUnavailable')))) animateQuotaNumbers();
+}
+
+// Claude 断连（未登录 / 登录过期）时不显示一行报错，而是给出原因和一键重连。
+const CLAUDE_RECONNECT_CODES = ['claude-auth-expired', 'claude-no-creds'];
+let claudeReconnect = { pending: false, failed: '' };
+
+function claudeConnectTemplate(errorCode) {
+  const missing = errorCode === 'claude-no-creds';
+  const title = T(missing ? 'claudeConnectTitleMissing' : 'claudeConnectTitleExpired');
+  const body = claudeReconnect.failed
+    || (claudeReconnect.pending ? T('claudeConnectWaitingHint') : T(missing ? 'claudeConnectBodyMissing' : 'claudeConnectBodyExpired'));
+  const action = claudeReconnect.pending
+    ? T('claudeConnectWaiting')
+    : T(missing ? 'claudeConnectActionMissing' : 'claudeConnectAction');
+  return `
+    <article class="connect-card${claudeReconnect.pending ? ' pending' : ''}" role="group" aria-label="${escapeHtml(title)}">
+      <span class="connect-glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 14a4.5 4.5 0 0 0 6.4.3l3-3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2" />
+          <path d="M14 10a4.5 4.5 0 0 0-6.4-.3l-3 3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" />
+        </svg>
+      </span>
+      <div class="connect-copy">
+        <strong>${escapeHtml(title)}</strong>
+        <p>${escapeHtml(body)}</p>
+      </div>
+      <button class="connect-action" type="button" data-action="claude-reconnect"${claudeReconnect.pending ? ' disabled' : ''}>
+        ${claudeReconnect.pending ? '<i class="connect-spinner" aria-hidden="true"></i>' : ''}<span>${escapeHtml(action)}</span>
+      </button>
+    </article>
+  `;
+}
+
+async function handleClaudeReconnect() {
+  if (claudeReconnect.pending) return;
+  claudeReconnect = { pending: true, failed: '' };
+  if (currentState) requestRender(currentState);
+  let result = null;
+  try {
+    result = await window.codexMeter.reconnectClaude?.();
+  } catch (error) {
+    result = { ok: false, error: error?.message };
+  }
+  if (!result?.ok) {
+    claudeReconnect = {
+      pending: false,
+      failed: T('claudeConnectFailed', { command: result?.command || 'claude auth login --claudeai' })
+    };
+    if (currentState) requestRender(currentState);
+  }
 }
 
 function formatPlanType(value) {

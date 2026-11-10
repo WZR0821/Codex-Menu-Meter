@@ -299,9 +299,9 @@
       'Claude CLI のログインが見つかりません。Claude Code でログインしてください。'
     ],
     errClaudeAuthExpired: [
-      'Claude 登录已过期且自动刷新失败，请运行 claude auth login --claudeai 后再刷新。',
-      'Claude login expired and could not be refreshed. Run claude auth login --claudeai, then refresh.',
-      'Claude のログイン期限が切れ、自動更新にも失敗しました。claude auth login --claudeai を実行してから更新してください。'
+      'Claude 登录已过期，请重新登录：claude auth login --claudeai',
+      'Claude sign-in expired. Sign in again: claude auth login --claudeai',
+      'Claude のログイン期限が切れました。再ログイン：claude auth login --claudeai'
     ],
     errClaudeBadData: [
       'Claude 官方接口返回了无法识别的数据。',
@@ -312,6 +312,43 @@
       'Claude 官方用量暂时不可用。',
       'Claude usage temporarily unavailable.',
       'Claude 使用量は一時的に取得できません。'
+    ],
+    // Claude 断连卡片与一键重连
+    claudeConnectTitleExpired: ['Claude Code 登录已过期', 'Claude Code sign-in expired', 'Claude Code のログイン期限切れ'],
+    claudeConnectTitleMissing: ['尚未连接 Claude Code', 'Claude Code not connected', 'Claude Code 未接続'],
+    claudeConnectBodyExpired: [
+      '额度读取自 Claude Code 的登录。重新登录一次，这里会自动恢复。',
+      'Quota is read from your Claude Code sign-in. Sign in again and this will recover on its own.',
+      '使用枠は Claude Code のログインから取得します。再ログインすると自動で復帰します。'
+    ],
+    claudeConnectBodyMissing: [
+      '额度读取自 Claude Code 的登录。在终端登录一次即可开始显示。',
+      'Quota is read from your Claude Code sign-in. Sign in once in Terminal to get started.',
+      '使用枠は Claude Code のログインから取得します。ターミナルで一度ログインしてください。'
+    ],
+    claudeConnectAction: ['重新连接', 'Reconnect', '再接続'],
+    claudeConnectActionMissing: ['连接', 'Connect', '接続'],
+    claudeConnectWaiting: ['等待登录完成…', 'Waiting for sign-in…', 'ログイン待ち…'],
+    claudeConnectWaitingHint: [
+      '已在「终端」打开登录，请在浏览器中完成授权。',
+      'Sign-in opened in Terminal. Finish authorizing in your browser.',
+      'ターミナルでログインを開きました。ブラウザで認証を完了してください。'
+    ],
+    claudeConnectFailed: [
+      '无法打开终端，请手动运行：{command}',
+      'Could not open Terminal. Run manually: {command}',
+      'ターミナルを開けません。手動で実行してください：{command}'
+    ],
+    claudeReconnectShellTitle: ['重新连接 Claude Code', 'Reconnect Claude Code', 'Claude Code を再接続'],
+    claudeReconnectShellMissing: [
+      '未找到 claude 命令，请先安装 Claude Code：',
+      'The claude command was not found. Install Claude Code first:',
+      'claude コマンドが見つかりません。先に Claude Code をインストールしてください：'
+    ],
+    claudeReconnectShellDone: [
+      '登录完成后，菜单栏会在几秒内自动恢复，可以关闭此窗口。',
+      'Once signed in, the menu bar recovers within seconds. You can close this window.',
+      'ログイン後、数秒でメニューバーが復帰します。このウィンドウは閉じて構いません。'
     ],
     errClaudeRefreshFailed: [
       '刷新 Claude 登录凭证失败',

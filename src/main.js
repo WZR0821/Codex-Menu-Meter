@@ -10,6 +10,7 @@ const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
 const { parseClaudeTranscriptLines } = require('./claude-token-activity');
+const { isCredentialUsable, isRefreshTokenExpired, mergeRefreshedOAuth } = require('./claude-credentials');
 const { buildActivityWindows } = require('./activity-windows');
 const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
@@ -99,6 +100,10 @@ const CLOUD_SYNC_RETRY_MS = 5 * 60_000;
 
 const USAGE_REFRESH_MS = 120_000;
 const CLAUDE_USAGE_REFRESH_MS = 5 * 60_000;
+// 断连期间只读本机凭据（不发请求），发现重新登录后立刻恢复。
+const CLAUDE_RECONNECT_POLL_MS = 8_000;
+const CLAUDE_RECONNECT_CODES = new Set(['claude-auth-expired', 'claude-no-creds']);
+const CLAUDE_LOGIN_COMMAND = 'claude auth login --claudeai';
 const EXTRA_USAGE_REFRESH_MS = 5 * 60_000;
 const RADAR_REFRESH_MS = 5 * 60_000;
 const MODEL_CATALOG_REFRESH_MS = 60_000;
@@ -185,6 +190,7 @@ let settingsWindow = null;
 let settings = { ...defaultSettings };
 let usageTimer = null;
 let claudeUsageTimer = null;
+let claudeReconnectTimer = null;
 let radarTimer = null;
 let tokenActivityTimer = null;
 let extraUsageTimer = null;
@@ -258,13 +264,16 @@ function refreshStateSlice(jobKey, stateKey, loadData, { formatError, onSettled 
         status: 'ok',
         data: await loadData(),
         error: null,
+        errorCode: null,
         fetchedAt: Date.now()
       };
     } catch (error) {
       state[stateKey] = {
         ...state[stateKey],
         status: 'error',
-        error: formatError ? formatError(error) : error.message
+        error: formatError ? formatError(error) : error.message,
+        // 渲染层按错误码决定展示形态（例如 Claude 断连时给出「重新连接」）。
+        errorCode: error?.code || (error?.status ? `http-${error.status}` : null)
       };
     }
 
@@ -300,7 +309,8 @@ function createPanel() {
     movable: true,
     type: 'panel',
     alwaysOnTop: true,
-    hasShadow: false,
+    // 系统原生投影：透明窗口的投影按内容形状缓存，开合与改高度后要手动刷新（见 refreshPanelShadow）。
+    hasShadow: true,
     skipTaskbar: true,
     transparent: true,
     backgroundColor: '#00000000',
@@ -318,6 +328,7 @@ function createPanel() {
   panel.on('blur', handlePanelBlur);
   panel.on('closed', () => {
     stopPanelBoundsAnimation();
+    clearPanelShadowTimers();
     panel = null;
     panelClosing = false;
     panelRendererReady = false;
@@ -377,6 +388,34 @@ function togglePanel() {
   showPanelAnimated();
 }
 
+// 透明窗口的原生投影是按「当时的内容形状」缓存的：渲染层淡入期间多刷几次，
+// 投影就跟着内容一起浮现，而不是停在第一帧（几乎透明）的样子。
+const PANEL_SHADOW_REFRESH_DELAYS_MS = [70, 140, 230];
+let panelShadowTimers = [];
+
+function clearPanelShadowTimers() {
+  panelShadowTimers.forEach((timer) => clearTimeout(timer));
+  panelShadowTimers = [];
+}
+
+function refreshPanelShadow() {
+  if (process.platform !== 'darwin' || !panel || panel.isDestroyed() || !panel.isVisible() || panelClosing) return;
+  panel.invalidateShadow();
+}
+
+function presentPanelShadow() {
+  if (process.platform !== 'darwin' || !panel || panel.isDestroyed()) return;
+  clearPanelShadowTimers();
+  panel.setHasShadow(true);
+  panelShadowTimers = PANEL_SHADOW_REFRESH_DELAYS_MS.map((delay) => setTimeout(refreshPanelShadow, delay));
+}
+
+function dismissPanelShadow() {
+  clearPanelShadowTimers();
+  // 关闭时内容在渲染层淡出，投影不会跟着变淡，先撤掉避免留下一圈残影。
+  if (process.platform === 'darwin' && panel && !panel.isDestroyed()) panel.setHasShadow(false);
+}
+
 function showPanelAnimated() {
   if (!panel || panel.isDestroyed()) return;
   if (!panelRendererReady) {
@@ -396,6 +435,7 @@ function showPanelAnimated() {
   cursorOutsideSince = 0;
   panelOpenedFromTopEdge = isCursorInTopMenuArea();
   panel.show();
+  presentPanelShadow();
   if (process.platform === 'darwin') app.focus({ steal: true });
   panel.focus();
   requestTouchBarPresentation();
@@ -425,6 +465,7 @@ function hidePanelAnimated() {
   panel.webContents.send('panel:motion', 'closing');
   stopPanelFollowMonitor();
   stopPanelAnimation();
+  dismissPanelShadow();
   panelClosing = true;
   panel.setOpacity(1);
   panelAnimationTimer = setTimeout(() => {
@@ -538,6 +579,7 @@ function animatePanelBounds(targetBounds) {
   stopPanelBoundsAnimation();
   if (systemPreferences.getAnimationSettings().prefersReducedMotion) {
     panel.setBounds(targetBounds);
+    refreshPanelShadow();
     return;
   }
   panelBoundsTarget = { ...targetBounds };
@@ -564,6 +606,7 @@ function animatePanelBounds(targetBounds) {
     if (progress >= 1) {
       panelBoundsAnimationTimer = null;
       panelBoundsTarget = null;
+      refreshPanelShadow();
       return;
     }
     panelBoundsAnimationTimer = setTimeout(tick, PANEL_HEIGHT_ANIMATION_FRAME_MS);
@@ -642,7 +685,7 @@ function createSettingsWindow() {
     minimizable: false,
     maximizable: false,
     title: tr('settingsTitle'),
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f2f2f5',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1693,7 +1736,8 @@ async function getClaudeCredentials({ force = false, excludeSource = null, exclu
 
     const expiringSoon = credentials.expiresAt && credentials.expiresAt - Date.now() < 60_000;
     if (expiringSoon) {
-      if (!credentials.refreshToken) {
+      // 刷新令牌也过期时不必再打一次注定失败的请求，直接提示重新登录。
+      if (!credentials.refreshToken || isRefreshTokenExpired(oauth)) {
         claudeCredentialIssue = 'expired';
         continue;
       }
@@ -1718,7 +1762,7 @@ async function getClaudeCredentials({ force = false, excludeSource = null, exclu
 async function refreshClaudeCredentials(credentials) {
   if (!credentials?.refreshToken) return null;
   const refreshed = await refreshClaudeOAuth(credentials.refreshToken);
-  const raw = { ...(credentials.raw || {}), ...refreshed };
+  const raw = mergeRefreshedOAuth(credentials.raw, refreshed);
   const next = { ...credentials, ...refreshed, raw };
   claudeCredentialCache = next;
   await credentials.persist?.(raw).catch(() => {});
@@ -1736,11 +1780,14 @@ async function refreshClaudeOAuth(refreshToken) {
     })
   });
   if (!raw?.access_token) throw new Error(tr('errClaudeRefreshFailed'));
-  return {
+  const refreshed = {
     accessToken: raw.access_token,
     refreshToken: raw.refresh_token || refreshToken,
     expiresAt: Date.now() + (Number(raw.expires_in) || 3600) * 1000
   };
+  const refreshTtl = Number(raw.refresh_token_expires_in);
+  if (Number.isFinite(refreshTtl) && refreshTtl > 0) refreshed.refreshTokenExpiresAt = Date.now() + refreshTtl * 1000;
+  return refreshed;
 }
 
 async function readClaudeCredentialsFile() {
@@ -1811,8 +1858,68 @@ function refreshClaudeUsage() {
       syncActivityWindows('claude');
       updateTrayTitle();
       recordUsageSample('claude');
+      syncClaudeReconnectWatch();
     }
   });
+}
+
+function claudeNeedsReconnect() {
+  return state.claudeUsage.status === 'error' && CLAUDE_RECONNECT_CODES.has(state.claudeUsage.errorCode);
+}
+
+// Claude 断连（未登录 / 登录过期）时，每隔几秒看一眼本机凭据有没有被重新登录刷新。
+// 只读文件和钥匙串，不发网络请求；一旦发现可用凭据就走正常刷新并停掉轮询。
+function syncClaudeReconnectWatch() {
+  const wanted = claudeNeedsReconnect() && isProviderEnabled('claude', settings.providerSettings);
+  if (!wanted) {
+    if (claudeReconnectTimer) clearInterval(claudeReconnectTimer);
+    claudeReconnectTimer = null;
+    return;
+  }
+  if (claudeReconnectTimer) return;
+  claudeReconnectTimer = setInterval(async () => {
+    if (!claudeNeedsReconnect()) return syncClaudeReconnectWatch();
+    if (await hasUsableClaudeCredentials()) refreshClaudeUsage();
+  }, CLAUDE_RECONNECT_POLL_MS);
+  claudeReconnectTimer.unref?.();
+}
+
+async function hasUsableClaudeCredentials() {
+  for (const read of [readClaudeCredentialsFile, readClaudeCredentialsKeychain]) {
+    try {
+      if (isCredentialUsable(await read())) return true;
+    } catch {
+      // 该来源不存在或读不到，继续看下一个。
+    }
+  }
+  return false;
+}
+
+// 在「终端」里打开 Claude Code 的登录流程。用 .command 文件交给系统打开，
+// 不需要辅助功能/自动化授权；登录由用户自己在浏览器里完成，本应用不接触账号密码。
+async function startClaudeReconnect() {
+  const scriptPath = path.join(app.getPath('userData'), 'claude-reconnect.command');
+  const script = [
+    '#!/bin/zsh',
+    'clear',
+    `echo "Codex Menu Meter · ${tr('claudeReconnectShellTitle')}"`,
+    'echo',
+    'if ! command -v claude >/dev/null 2>&1; then',
+    `  echo "${tr('claudeReconnectShellMissing')}"`,
+    '  echo "  npm install -g @anthropic-ai/claude-code"',
+    '  exit 1',
+    'fi',
+    CLAUDE_LOGIN_COMMAND,
+    'echo',
+    `echo "${tr('claudeReconnectShellDone')}"`,
+    ''
+  ].join('\n');
+  await fs.writeFile(scriptPath, script, { mode: 0o755 });
+  await fs.chmod(scriptPath, 0o755);
+  const failure = await shell.openPath(scriptPath);
+  if (failure) throw new Error(failure);
+  syncClaudeReconnectWatch();
+  return { ok: true, command: CLAUDE_LOGIN_COMMAND };
 }
 
 function claudeError(code) {
@@ -3165,6 +3272,7 @@ app.on('before-quit', () => {
   stopPanelBoundsAnimation();
   if (usageTimer) clearInterval(usageTimer);
   if (claudeUsageTimer) clearInterval(claudeUsageTimer);
+  if (claudeReconnectTimer) clearInterval(claudeReconnectTimer);
   if (radarTimer) clearInterval(radarTimer);
   if (tokenActivityTimer) clearInterval(tokenActivityTimer);
   if (extraUsageTimer) clearInterval(extraUsageTimer);
@@ -3225,6 +3333,13 @@ ipcMain.handle('state:refresh', async () => {
   await refreshModelCatalog();
   await refreshProvider(state.provider);
   return state;
+});
+ipcMain.handle('claude:reconnect', async () => {
+  try {
+    return await startClaudeReconnect();
+  } catch (error) {
+    return { ok: false, command: CLAUDE_LOGIN_COMMAND, error: error?.message || String(error) };
+  }
 });
 ipcMain.handle('provider:set', (_event, provider) => selectProvider(provider, { source: 'manual' }));
 ipcMain.handle('settings:get', () => getSettingsSnapshot());
