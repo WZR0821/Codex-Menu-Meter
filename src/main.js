@@ -11,6 +11,7 @@ const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
 const { parseClaudeTranscriptLines } = require('./claude-token-activity');
 const { isCredentialUsable, isRefreshTokenExpired, mergeRefreshedOAuth } = require('./claude-credentials');
+const { parseClaudeTimestamp, normalizeClaudeOfficialUsage, resolveClaudePlan } = require('./claude-usage');
 const { buildActivityWindows } = require('./activity-windows');
 const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
@@ -56,6 +57,7 @@ const AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 const MODEL_CATALOG_PATH = path.join(os.homedir(), '.codex', 'models_cache.json');
 const RADAR_CACHE_PATH = path.join(app.getPath('userData'), 'radar-cache.json');
 const CLAUDE_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
+const CLAUDE_PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile';
 // 与本机 Claude CLI 的现行刷新地址保持一致，旧 console 域名可能返回网页重定向。
 const CLAUDE_OAUTH_TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
 const CLAUDE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
@@ -1973,14 +1975,26 @@ async function readClaudeUsage() {
   throw officialError || claudeError('claude-unavailable');
 }
 
+// 套餐读账户接口：钥匙串里的 subscriptionType 只在登录时写一次，之后升级或降级都不会更新。
+// 账户接口偶尔读不到时沿用上一次读到的套餐，从没读到过才退回钥匙串里的值。
+let claudePlanSnapshot = null;
+
 async function fetchClaudeOfficialUsage(credentials) {
-  const raw = await fetchJson(CLAUDE_USAGE_URL, {
-    headers: {
-      Authorization: `Bearer ${credentials.accessToken}`,
-      'anthropic-beta': 'oauth-2025-04-20'
-    }
+  const headers = {
+    Authorization: `Bearer ${credentials.accessToken}`,
+    'anthropic-beta': 'oauth-2025-04-20'
+  };
+  const [raw, profile] = await Promise.all([
+    // cedar_ember=1：让同一个请求顺带返回账号持有的「重置卡」（官方客户端 /limit-reset 的数据）。
+    fetchJson(`${CLAUDE_USAGE_URL}?cedar_ember=1`, { headers }),
+    // 套餐只是标题上的一个标注，读不到或太慢都不能拖住额度本身。
+    fetchJson(CLAUDE_PROFILE_URL, { headers, requestTimeoutMs: 8_000 }).catch(() => null)
+  ]);
+  const livePlan = resolveClaudePlan(profile);
+  if (livePlan) claudePlanSnapshot = livePlan;
+  return normalizeClaudeOfficialUsage(raw, {
+    planType: livePlan || claudePlanSnapshot || resolveClaudePlan(null, credentials?.subscriptionType)
   });
-  return normalizeClaudeOfficialUsage(raw, credentials);
 }
 
 function claudeUsageErrorMessage(error) {
@@ -1992,55 +2006,6 @@ function claudeUsageErrorMessage(error) {
   if (error?.code === 'claude-bad-data') return tr('errClaudeBadData');
   if (error?.code === 'claude-unavailable') return tr('errClaudeUnavailable');
   return requestErrorMessage(error, 'Claude');
-}
-
-function normalizeClaudeOfficialUsage(raw, credentials) {
-  const primary = normalizeClaudeWindow(raw?.five_hour);
-  const secondary = normalizeClaudeWindow(raw?.seven_day);
-  if (!primary && !secondary) return null;
-
-  const extraWindows = [];
-  for (const [key, value] of Object.entries(raw || {})) {
-    if (key === 'five_hour' || key === 'seven_day' || !key.startsWith('seven_day_')) continue;
-    if (!value || typeof value !== 'object' || value.utilization === undefined) continue;
-    const name = key
-      .slice('seven_day_'.length)
-      .split('_')
-      .map((part) => (part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : ''))
-      .join(' ');
-    const window = normalizeClaudeWindow(value);
-    if (window) extraWindows.push({ ...window, name });
-  }
-
-  return {
-    planType: credentials?.subscriptionType || null,
-    primaryWindow: primary,
-    secondaryWindow: secondary,
-    extraWindows,
-    limitReached: [primary, secondary, ...extraWindows].some((item) => item && item.usedPercent >= 100)
-  };
-}
-
-function normalizeClaudeWindow(windowValue) {
-  if (!windowValue) return null;
-  const usedPercent = clamp(Math.round(Number(windowValue.utilization ?? 0)), 0, 100);
-  const resetAt = parseClaudeTimestamp(windowValue.resets_at);
-  return {
-    usedPercent,
-    remainingPercent: clamp(100 - usedPercent, 0, 100),
-    resetAt,
-    inactive: !resetAt && usedPercent === 0
-  };
-}
-
-function parseClaudeTimestamp(value) {
-  if (!value) return null;
-  const numeric = Number(value);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return numeric > 10_000_000_000 ? numeric : numeric * 1000;
-  }
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? null : parsed;
 }
 
 const claudeTranscriptCache = new Map();
@@ -2321,7 +2286,10 @@ function refreshClaudeRadar() {
       return normalized;
     } catch (error) {
       if (error.code === 'invalid-json-response' || [404, 410].includes(error.status)) {
-        throw new Error(tr('errClaudeRadarSourceUnavailable'));
+        // 数据源下线不是本机故障：带上错误码，渲染层据此显示成「暂不可用」而不是红色报错。
+        const unavailable = new Error(tr('errClaudeRadarSourceUnavailable'));
+        unavailable.code = 'radar-source-unavailable';
+        throw unavailable;
       }
       throw error;
     }

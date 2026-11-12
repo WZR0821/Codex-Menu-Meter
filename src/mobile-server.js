@@ -68,6 +68,14 @@ function safeNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+// 到期时间两种写法都有：Claude 侧是毫秒数，Codex 侧是 ISO 字符串。
+function safeTimestamp(value) {
+  const number = safeNumber(value);
+  if (number !== null) return number;
+  const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 function sanitizeWindow(windowValue) {
   if (!windowValue || typeof windowValue !== 'object') return null;
   return {
@@ -96,11 +104,15 @@ function sanitizeUsageSlice(slice) {
       resetCredits: data.resetCredits ? {
         availableCount: safeNumber(data.resetCredits.availableCount) || 0,
         error: data.resetCredits.error ? String(data.resetCredits.error) : null,
+        unavailableReason: data.resetCredits.unavailableReason ? String(data.resetCredits.unavailableReason) : null,
         credits: Array.isArray(data.resetCredits.credits)
           ? data.resetCredits.credits.map((credit) => ({
               status: credit?.status ? String(credit.status) : 'unknown',
               title: credit?.title ? String(credit.title) : null,
-              expiresAt: safeNumber(credit?.expiresAt)
+              kind: credit?.kind ? String(credit.kind) : null,
+              resetsLeft: safeNumber(credit?.resetsLeft),
+              resetsTotal: safeNumber(credit?.resetsTotal),
+              expiresAt: safeTimestamp(credit?.expiresAt)
             }))
           : []
       } : null

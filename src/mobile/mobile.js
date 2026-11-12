@@ -101,6 +101,15 @@ const TEXT = {
     noExpiry: '暂无到期时间',
     creditsAvailable: '当前可用 {n} 张重置卡',
     noResetCards: '暂无重置卡数据',
+    sourceClaudeOfficial: 'Claude 官方',
+    statusPending: '达到上限后可用',
+    statusPaused: '已暂停',
+    resetsLeft: '剩余 {left}/{total} 次',
+    resetCardFallback: '额度重置',
+    resetKindSession: '5 小时重置',
+    resetKindWeekly: '一周重置',
+    resetKindFull: '完全重置',
+    resetWithheld: '官方接口没有向本应用提供重置卡，可在 Claude Code 里输入 /limit-reset 查看',
     recentDays: '近 30 天',
     updated: '更新 {time}',
     remaining: '{label} 剩余',
@@ -235,6 +244,15 @@ const TEXT = {
     noExpiry: 'No expiry',
     creditsAvailable: '{n} reset credits available',
     noResetCards: 'No reset credit data',
+    sourceClaudeOfficial: 'Claude official',
+    statusPending: 'Usable at limit',
+    statusPaused: 'Paused',
+    resetsLeft: '{left}/{total} left',
+    resetCardFallback: 'Limit reset',
+    resetKindSession: '5-hour reset',
+    resetKindWeekly: 'Weekly reset',
+    resetKindFull: 'Full reset',
+    resetWithheld: 'The official API does not return reset credits to this app. Run /limit-reset in Claude Code to view them.',
     recentDays: 'Last 30 days',
     updated: 'Updated {time}',
     remaining: '{label} left',
@@ -369,6 +387,15 @@ const TEXT = {
     noExpiry: '期限情報なし',
     creditsAvailable: '利用可能なリセットカード {n} 枚',
     noResetCards: 'リセットカードのデータがありません',
+    sourceClaudeOfficial: 'Claude 公式',
+    statusPending: '上限到達後に利用可',
+    statusPaused: '一時停止中',
+    resetsLeft: '残り {left}/{total} 回',
+    resetCardFallback: '使用枠リセット',
+    resetKindSession: '5時間リセット',
+    resetKindWeekly: '週間リセット',
+    resetKindFull: 'フルリセット',
+    resetWithheld: '公式 API はこのアプリにリセットカードを返しません。Claude Code で /limit-reset を実行して確認できます。',
     recentDays: '直近 30 日',
     updated: '{time} 更新',
     remaining: '{label} 残量',
@@ -1416,14 +1443,26 @@ function radarTableTemplate(firstLabel, rows) {
 }
 
 function renderResetCards(usageSlice, radar, providerId) {
+  const credits = usageSlice?.data?.resetCredits;
   if (providerId === 'claude') {
-    const quota = radar?.quota || {};
-    const calibratedAt = formatRadarTime(quota.updatedAt || radar?.updatedAt);
-    els.resetSource.textContent = calibratedAt || '--';
-    if (!radar) {
-      els.resetCards.innerHTML = empty(T('noRadarNotes'));
+    // 重置卡来自官方用量接口；雷达数据源不可用时这一页只剩它。
+    if (credits?.credits?.length) {
+      els.resetSource.textContent = T('sourceClaudeOfficial');
+      els.resetCards.innerHTML = resetCreditsTimeline(credits, T('resetCardFallback'));
       return;
     }
+    if (!radar) {
+      els.resetSource.textContent = credits ? T('sourceClaudeOfficial') : '--';
+      els.resetCards.innerHTML = empty(!credits
+        ? T('noRadarNotes')
+        : credits.unavailableReason && credits.unavailableReason !== 'no_grant'
+          ? T('resetWithheld')
+          : T('creditsAvailable', { n: 0 }));
+      return;
+    }
+    const quota = radar.quota || {};
+    const calibratedAt = formatRadarTime(quota.updatedAt || radar.updatedAt);
+    els.resetSource.textContent = calibratedAt || '--';
     els.resetCards.innerHTML = `<div class="reset-timeline">
       <div class="reset-timeline-summary"><span>${escapeHtml(T('resetTimelineTitle'))}</span><strong>${escapeHtml(calibratedAt || '--')}</strong></div>
       ${resetTimelineItem(T('calibTitle'), T('calibStatus'), quota.chartLabel || quota.note || T('calibNone'), 'available')}
@@ -1433,7 +1472,6 @@ function renderResetCards(usageSlice, radar, providerId) {
   }
 
   els.resetSource.textContent = T('sourceCodex');
-  const credits = usageSlice?.data?.resetCredits;
   if (!credits) {
     els.resetCards.innerHTML = empty(T('noResetCards'));
     return;
@@ -1446,15 +1484,32 @@ function renderResetCards(usageSlice, radar, providerId) {
     els.resetCards.innerHTML = empty(T('creditsAvailable', { n: credits.availableCount ?? 0 }));
     return;
   }
-  els.resetCards.innerHTML = `<div class="reset-timeline">
+  els.resetCards.innerHTML = resetCreditsTimeline(credits, 'Codex reset');
+}
+
+function resetCreditsTimeline(credits, fallbackTitle) {
+  return `<div class="reset-timeline">
     <div class="reset-timeline-summary"><span>${escapeHtml(T('resetTimelineTitle'))}</span><strong>${escapeHtml(T('creditsAvailable', { n: credits.availableCount ?? credits.credits.length }))}</strong></div>
     ${credits.credits.map((credit) => resetTimelineItem(
-      credit.title || 'Codex reset',
+      credit.title || resetKindTitle(credit.kind) || fallbackTitle,
       resetStatusLabel(credit.status),
-      credit.expiresAt ? T('expiresAt', { t: formatDateTime(credit.expiresAt) }) : T('noExpiry'),
+      resetCreditDetail(credit),
       resetStatusClass(credit.status)
     )).join('')}
   </div>`;
+}
+
+function resetKindTitle(kind) {
+  const key = { session: 'resetKindSession', weekly: 'resetKindWeekly', full: 'resetKindFull' }[kind];
+  return key ? T(key) : '';
+}
+
+function resetCreditDetail(credit) {
+  const expiry = credit.expiresAt ? T('expiresAt', { t: formatDateTime(credit.expiresAt) }) : T('noExpiry');
+  // 一张卡可以带多次重置（Claude 侧），只有一次时不必写出来。
+  return Number(credit.resetsTotal) > 1
+    ? `${T('resetsLeft', { left: credit.resetsLeft ?? 0, total: credit.resetsTotal })} · ${expiry}`
+    : expiry;
 }
 
 function resetTimelineItem(title, status, detail, tone = 'neutral') {
@@ -1466,7 +1521,13 @@ function resetStatusClass(status) {
 }
 
 function resetStatusLabel(status) {
-  const key = { available: 'statusAvailable', redeemed: 'statusRedeemed', expired: 'statusExpired' }[status] || 'statusUnknown';
+  const key = {
+    available: 'statusAvailable',
+    redeemed: 'statusRedeemed',
+    expired: 'statusExpired',
+    pending: 'statusPending',
+    paused: 'statusPaused'
+  }[status] || 'statusUnknown';
   return T(key);
 }
 

@@ -28,19 +28,21 @@
             <span>↻</span>
           </button>
         </div>
-        <nav class="tabs" role="tablist" aria-label="views">
-          <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="usage">
-            <span>▥</span>
-            <strong id="tabUsageLabel">用量</strong>
-          </button>
-          <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="radar">
-            <span>⌁</span>
-            <strong id="tabRadarLabel">雷达</strong>
-          </button>
-        </nav>
+        <!-- 页签和同步状态共用一行：状态摘要靠右，展开后的明细排在这一行下面 -->
+        <div class="tabs-row">
+          <nav class="tabs" role="tablist" aria-label="views">
+            <button class="tab-button active" type="button" role="tab" aria-selected="true" data-tab="usage">
+              <span>▥</span>
+              <strong id="tabUsageLabel">用量</strong>
+            </button>
+            <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="radar">
+              <span>⌁</span>
+              <strong id="tabRadarLabel">雷达</strong>
+            </button>
+          </nav>
+          <section class="status-line" id="statusLine" role="status" aria-live="polite"></section>
+        </div>
       </header>
-
-      <section class="status-line" id="statusLine" role="status" aria-live="polite">正在读取...</section>
 
       <section class="tab-panel active" id="usagePanel">
         <section class="section">

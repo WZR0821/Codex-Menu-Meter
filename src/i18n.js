@@ -20,6 +20,12 @@
     statusRadarRefreshing: ['雷达刷新中', 'Refreshing radar', 'レーダーを更新中'],
     statusRadarFailed: ['雷达读取失败', 'Radar fetch failed', 'レーダーの取得に失敗'],
     statusWaiting: ['等待刷新', 'Waiting for refresh', '更新待ち'],
+    radarPaused: ['雷达数据源暂不可用', 'Radar source unavailable', 'レーダーのデータ元は利用不可'],
+    radarPausedHint: [
+      '原雷达站已停止提供数据。额度和重置时间来自官方接口，不受影响。',
+      'The radar site no longer publishes data. Quota and reset times come from the official API and are unaffected.',
+      '元のレーダーサイトはデータ提供を終了しました。使用枠とリセット時刻は公式 API から取得しており、影響はありません。'
+    ],
 
     // 页签与区块标题
     tabUsage: ['用量', 'Usage', '使用量'],
@@ -33,6 +39,7 @@
     resetTitleCodex: ['重置', 'Reset', 'リセット'],
     resetTitleClaude: ['重置', 'Reset', 'リセット'],
     openSource: ['打开来源', 'Open source', 'ソースを開く'],
+    openOfficialUsage: ['官方用量页', 'Official usage', '公式の使用量'],
 
     // 额度卡
     updatedAt: ['更新 {time}', 'Updated {time}', '更新 {time}'],
@@ -61,6 +68,7 @@
     resetInH: ['{h}小时后重置', 'Resets in {h}h', '{h}時間後にリセット'],
     resetInM: ['{m}分钟后重置', 'Resets in {m}m', '{m}分後にリセット'],
     tomorrowAt: ['明天 {time}', 'Tmrw {time}', '明日 {time}'],
+    todayAt: ['今天 {time}', 'Today {time}', '今日 {time}'],
 
     // Token 活动
     localSuffix: [' · 本地统计', ' · Local stats', ' · ローカル集計'],
@@ -204,10 +212,35 @@
     ],
     noRadarNotes: ['暂无雷达说明数据', 'No radar notes yet', 'レーダー情報がありません'],
     resetTimelineTitle: ['最近的重置状态', 'Recent reset status', '最近のリセット状況'],
+    resetScheduleTitle: ['额度重置', 'Quota resets', '使用枠のリセット'],
+    resetWindowWeekAll: ['一周 · 全部模型', 'Weekly · All models', '週間 · 全モデル'],
+    resetUsageLine: ['剩余 {left}% · 已用 {used}%', '{left}% left · {used}% used', '残り {left}% · 使用 {used}%'],
+    resetSourceClaude: ['来自 Claude 官方用量接口', 'From the official Claude usage API', 'Claude 公式の使用量 API より'],
+    resetSourceCodex: ['来自 Codex 官方用量接口', 'From the official Codex usage API', 'Codex 公式の使用量 API より'],
+    resetCardsTitle: ['重置卡', 'Reset credits', 'リセットカード'],
     statusAvailable: ['可用', 'Available', '利用可'],
     statusRedeemed: ['已使用', 'Used', '使用済み'],
     statusExpired: ['已过期', 'Expired', '期限切れ'],
     statusUnknown: ['未知', 'Unknown', '不明'],
+    statusPending: ['达到上限后可用', 'Usable at a limit', '上限到達後に利用可'],
+    statusPaused: ['已暂停', 'Paused', '一時停止'],
+    statusUnavailable: ['暂不可用', 'Unavailable', '利用不可'],
+    resetKindSession: ['5 小时重置', '5-hour reset', '5時間リセット'],
+    resetKindWeekly: ['一周重置', 'Weekly reset', '週間リセット'],
+    resetKindFull: ['完全重置', 'Full reset', 'フルリセット'],
+    resetKindGeneric: ['额度重置', 'Limit reset', '使用枠リセット'],
+    resetsLeftLine: ['剩余 {left}/{total} 次', '{left} of {total} left', '残り {left}/{total} 回'],
+    resetCardsWithheld: ['官方未提供', 'Not provided', '提供なし'],
+    resetReasonSurface: [
+      '官方接口按客户端类型限制，没有向本应用返回重置卡。可在 Claude Code 里输入 /limit-reset 查看。',
+      'The official API limits reset credits by client type and did not return them to this app. Run /limit-reset in Claude Code to see them.',
+      '公式 API はクライアントの種類で制限しており、このアプリにはリセットカードを返しません。Claude Code で /limit-reset を実行すると確認できます。'
+    ],
+    resetReasonOther: [
+      '官方接口这次没有给出重置卡（原因：{reason}）。',
+      'The official API returned no reset credits this time (reason: {reason}).',
+      '公式 API は今回リセットカードを返しませんでした（理由：{reason}）。'
+    ],
     expiresAt: ['到期 {t}', 'Expires {t}', '期限 {t}'],
     noExpiry: ['暂无到期时间', 'No expiry', '期限情報なし'],
     creditsAvailable: ['当前可用 {n} 张重置卡', '{n} reset credits available', '利用可能なリセットカード {n} 枚'],

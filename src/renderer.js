@@ -121,6 +121,9 @@ function T(key, params) {
   return I18N.t(lang, key, params);
 }
 
+// 主进程给「雷达数据源已下线」标的错误码：界面按中性提示处理，不当成读取失败。
+const RADAR_PAUSED_CODE = 'radar-source-unavailable';
+
 function currentProviderKey() {
   return currentState?.provider || els.panel.dataset.provider || 'codex';
 }
@@ -265,8 +268,12 @@ els.refresh.addEventListener('click', async () => {
 
 els.openRadar.addEventListener('click', () => {
   const provider = currentState?.provider || 'codex';
-  const fallback = provider === 'claude' ? 'https://claudecoderadar.com/' : 'https://codexradar.com/';
-  const url = (currentState ? activeSlices(currentState).radar?.data?.sourceUrl : null) || fallback;
+  // Claude 的重置时间来自官方用量接口，对应的「来源」是官方用量页，不是雷达站。
+  if (provider === 'claude') {
+    window.codexMeter.openExternal('https://claude.ai/settings/usage');
+    return;
+  }
+  const url = (currentState ? activeSlices(currentState).radar?.data?.sourceUrl : null) || 'https://codexradar.com/';
   window.codexMeter.openExternal(url);
 });
 
@@ -430,7 +437,9 @@ function measurePanelHeight() {
     return bounds.height ? Math.max(lowest, bounds.bottom - top) : lowest;
   }, 0);
   const content = contentBottom + parseFloat(styles.paddingBottom || 0) + activePanel.scrollTop;
-  const chrome = [els.toolbar, els.statusLine].reduce((sum, node) => {
+  // 状态行现在放在工具栏的页签行里，工具栏高度已经包含它；只有不在其中时才单独计入。
+  const chromeNodes = els.toolbar?.contains(els.statusLine) ? [els.toolbar] : [els.toolbar, els.statusLine];
+  const chrome = chromeNodes.reduce((sum, node) => {
     if (!node) return sum;
     const nodeStyles = getComputedStyle(node);
     return sum + node.offsetHeight + parseFloat(nodeStyles.marginTop || 0) + parseFloat(nodeStyles.marginBottom || 0);
@@ -486,7 +495,7 @@ function setActiveTab(tab, {
   });
   els.panels.forEach((panel) => panel.classList.toggle('active', panel.id === `${tab}Panel`));
   if (tab === 'radar' && changed) {
-    setActiveRadarView('intelligence', {
+    setActiveRadarView(defaultRadarView(provider), {
       provider,
       animate: false,
       renderContent: false
@@ -498,6 +507,13 @@ function setActiveTab(tab, {
     playTabSwitchEffect();
   }
   queuePanelHeightReport(changed ? { hold: PANEL_HEIGHT_SWITCH_HOLD_MS } : {});
+}
+
+// 雷达数据源下线时智力页没有内容可看，直接落在仍然有数据的「重置」页。
+function defaultRadarView(provider) {
+  if (!currentState || provider !== currentState.provider) return 'intelligence';
+  const radar = activeSlices(currentState).radar;
+  return radar?.status === 'error' && !radar.data ? 'reset' : 'intelligence';
 }
 
 function setActiveRadarView(view, {
@@ -535,7 +551,7 @@ function renderRadarView(stateValue, view, provider = stateValue.provider || 'co
     return;
   }
   if (view === 'reset') {
-    renderSection('reset', [slices.usage, slices.radar], () => renderResetCards(stateValue, provider));
+    renderSection('reset', [slices.usage, slices.radar, Math.floor(Date.now() / 30_000)], () => renderResetCards(stateValue, provider));
     return;
   }
   renderSection('iq', [slices.radar, radarSortByProvider[provider], radarExpandedByProvider[provider], radarLatestByProvider[provider]], () => renderIq(slices.radar, provider));
@@ -818,7 +834,7 @@ function applyStaticText() {
   if (els.trendTitle) els.trendTitle.textContent = T('trendTitle');
   if (els.iqTitle) els.iqTitle.textContent = T('iqModelsTitle');
   if (els.quotaRadarTitle) els.quotaRadarTitle.textContent = T('quotaRadarTitle');
-  if (els.openRadar) els.openRadar.textContent = T('openSource');
+  if (els.openRadar) els.openRadar.textContent = T(currentProviderKey() === 'claude' ? 'openOfficialUsage' : 'openSource');
   const sortLabels = {
     iq: 'iqSortIq',
     value: 'iqSortValue',
@@ -848,13 +864,16 @@ function renderHeader(slices) {
   if (radar.status === 'ok') statusParts.push(statusPart(T('statusRadar', { time: formatClock(radar.fetchedAt) }), 'info'));
   if (radar.status === 'loading') statusParts.push(statusPart(T('statusRadarLoading'), 'loading'));
   if (radar.status === 'refreshing') statusParts.push(statusPart(T('statusRadarRefreshing'), 'loading'));
-  if (radar.status === 'error') statusParts.push(statusPart(radar.error || T('statusRadarFailed'), 'danger'));
-  const errors = [usage, radar, token].filter((slice) => slice.status === 'error').length;
+  // 雷达数据源下线不是本机故障：单独标成「暂不可用」，不算进读取异常，也不把状态行染红。
+  const radarPaused = radar.status === 'error' && radar.errorCode === RADAR_PAUSED_CODE;
+  if (radarPaused) statusParts.push(statusPart(T('radarPaused'), 'neutral'));
+  else if (radar.status === 'error') statusParts.push(statusPart(radar.error || T('statusRadarFailed'), 'danger'));
+  const errors = [usage, radar, token].filter((slice) => slice.status === 'error' && !(slice === radar && radarPaused)).length;
   const loading = [usage, radar, token].some((slice) => ['loading', 'refreshing'].includes(slice.status));
   const fetchedAt = [usage, radar, token].map((slice) => slice.fetchedAt).filter(Boolean).sort().at(-1);
   const brief = errors ? T('statusCompactError', { n: errors })
     : loading ? T('statusCompactLoading')
-      : fetchedAt ? T('statusCompactOk', { time: formatClock(fetchedAt) }) : T('statusWaiting');
+      : fetchedAt ? T('statusCompactOk', { time: formatShortTime(fetchedAt) }) : T('statusWaiting');
   updateHtml(els.statusLine, `<details class="inline-details sync-details" data-detail="sync-status">
     <summary>${statusPart(brief, errors ? 'danger' : loading ? 'loading' : 'good')}</summary>
     <div class="disclosure-content">${statusParts.join('') || statusPart(T('statusWaiting'), 'neutral')}</div>
@@ -892,6 +911,10 @@ function renderMeters(usageState, provider, activityState) {
   claudeReconnect = { pending: false, failed: '' };
 
   const cards = [];
+  const scopedWindows = isExtra ? [] : (usage.extraWindows || []);
+  const foldedScopedWindow = scopedWindows.length === 1 && usage.secondaryWindow && String(scopedWindows[0].name || '').trim()
+    ? scopedWindows[0]
+    : null;
   if (usage.fiveHourUnlimited) {
     cards.push(unlimitedCardTemplate(T('label5h'), activityWindows.fiveHour, 'fiveHour'));
   } else if (usage.primaryWindow || !isExtra) {
@@ -905,16 +928,25 @@ function renderMeters(usageState, provider, activityState) {
     cards.push(quotaCardTemplate(usage.secondaryWindow, T('labelWeek'), {
       provider,
       activityWindow: activityWindows.week,
-      activityWindowKey: 'week'
+      activityWindowKey: 'week',
+      scopedWindow: foldedScopedWindow
     }));
   }
+  // 附加平台的额外窗口本身就是主要信息，保持整张卡。GPT / Claude 的专项周限额（例如 Fable）
+  // 是补充信息：只有一项时并进「一周」卡的底部，不占高度，GPT 与 Claude 的用量页因此同高、
+  // 切换时窗口尺寸不动；多于一项才在卡片下方逐行列出。
+  const slimRows = [];
   (usage.extraWindows || []).forEach((windowValue) => {
-    const label = isExtra
-      ? String(windowValue.name || '').trim() || T('labelWeek')
-      : `${T('labelWeek')} ${windowValue.name || ''}`.trim();
-    cards.push(quotaCardTemplate(windowValue, label, { provider }));
+    if (isExtra) {
+      cards.push(quotaCardTemplate(windowValue, String(windowValue.name || '').trim() || T('labelWeek'), { provider }));
+    } else if (windowValue !== foldedScopedWindow) {
+      slimRows.push(quotaSlimRowTemplate(windowValue, scopedWindowLabel(windowValue)));
+    }
   });
-  if (updateHtml(els.meters, cards.length ? cards.join('') : emptyBlock(T('windowUnavailable')))) animateQuotaNumbers();
+  const markup = cards.length || slimRows.length
+    ? `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows">${slimRows.join('')}</div>` : ''}`
+    : emptyBlock(T('windowUnavailable'));
+  if (updateHtml(els.meters, markup)) animateQuotaNumbers();
 }
 
 // Claude 断连（未登录 / 登录过期）时不显示一行报错，而是给出原因和一键重连。
@@ -976,7 +1008,8 @@ function formatPlanType(value) {
 function quotaCardTemplate(windowValue, label, {
   provider = 'codex',
   activityWindow = null,
-  activityWindowKey = null
+  activityWindowKey = null,
+  scopedWindow = null
 } = {}) {
   if (!windowValue) return emptyBlock(T('windowUnavailable'));
   const remaining = Number.isFinite(Number(windowValue.remainingPercent))
@@ -1005,9 +1038,47 @@ function quotaCardTemplate(windowValue, label, {
         <i></i>
         <span class="quota-flare"></span>
       </div>
-      <small>${escapeHtml(footer)}</small>
+      ${scopedWindow
+    ? `<small class="quota-foot-split"><span class="quota-foot-text" title="${escapeHtml(footer)}">${escapeHtml(footer)}</span>${quotaScopedChipTemplate(scopedWindow)}</small>`
+    : `<small>${escapeHtml(footer)}</small>`}
       ${quotaActivityTemplate(activityWindowKey, activityWindow)}
     </article>
+  `;
+}
+
+function scopedWindowLabel(windowValue) {
+  const name = String(windowValue?.name || '').trim();
+  return name ? `${T('labelWeek')} · ${name}` : T('labelWeek');
+}
+
+// 「一周」卡底部右侧的专项限额：名称 + 剩余百分比；完整说明（含重置时间）放在悬停提示里。
+function quotaScopedChipTemplate(windowValue) {
+  const remaining = Number.isFinite(Number(windowValue.remainingPercent))
+    ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
+    : 0;
+  const critical = !windowValue.inactive && remaining <= 10;
+  const reset = windowValue.resetAt
+    ? formatReset(windowValue.resetAt)
+    : windowValue.inactive ? T('inactiveFooter') : T('noResetFooter');
+  const tip = `${T('remainingTitle', { label: scopedWindowLabel(windowValue) })} ${remaining}% · ${reset}`;
+  return `<span class="quota-scoped-chip${critical ? ' critical' : ''}" title="${escapeHtml(tip)}">${escapeHtml(String(windowValue.name).trim())} <b>${remaining}%</b></span>`;
+}
+
+function quotaSlimRowTemplate(windowValue, label) {
+  const remaining = Number.isFinite(Number(windowValue.remainingPercent))
+    ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
+    : 0;
+  const critical = !windowValue.inactive && remaining <= 10;
+  const footer = windowValue.resetAt
+    ? formatReset(windowValue.resetAt)
+    : windowValue.inactive ? T('inactiveFooter') : T('noResetFooter');
+  return `
+    <div class="quota-slim-row${critical ? ' critical' : ''}" style="--quota-percent:${remaining}%;">
+      <span class="quota-slim-name">${escapeHtml(T('remainingTitle', { label }))}</span>
+      <span class="quota-slim-bar" aria-hidden="true"><i></i></span>
+      <strong>${remaining}%</strong>
+      <small>${escapeHtml(footer)}</small>
+    </div>
   `;
 }
 
@@ -1029,7 +1100,7 @@ function quotaActivityTemplate(windowKey, activityWindow) {
   const titleKey = windowKey === 'fiveHour' ? 'windowUsage5h' : 'windowUsageWeek';
   return `
     <details class="quota-activity inline-details" data-detail="quota-${escapeHtml(windowKey)}">
-      <summary>${escapeHtml(T('quotaDetails'))}</summary>
+      <summary title="${escapeHtml(T('quotaDetails'))}"><span>${escapeHtml(T('quotaDetails'))}</span></summary>
       <div class="disclosure-content">
       <div class="quota-activity-head">
         <span>${escapeHtml(T(titleKey))}</span>
@@ -1459,11 +1530,10 @@ function renderTokenActivity(tokenState) {
           <span>${escapeHtml(T('heatmapMore'))}</span>
         </div>
       </div>
-      <div class="token-detail">
-        <strong>${escapeHtml(detailText)}</strong>
-      </div>
-      <details class="inline-details" data-detail="token-metrics">
-        <summary>${escapeHtml(T('activityDetails'))}</summary>
+      <details class="inline-details token-more" data-detail="token-metrics">
+        <summary title="${escapeHtml(T('activityDetails'))}">
+          <span class="token-detail"><strong>${escapeHtml(detailText)}</strong></span>
+        </summary>
         <div class="disclosure-content">
           <dl class="detail-metrics">
             ${detailMetric(T('todayUsed'), T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}
@@ -1585,56 +1655,154 @@ function formatIsoDate(date) {
 }
 
 function renderResetCards(state, provider) {
-  if (provider === 'claude') {
-    if (els.resetTitle) els.resetTitle.textContent = T('resetTitleClaude');
-    renderClaudeNotes(state.claudeRadar?.data);
-    return;
-  }
+  if (els.resetTitle) els.resetTitle.textContent = T(provider === 'claude' ? 'resetTitleClaude' : 'resetTitleCodex');
+  if (els.openRadar) els.openRadar.textContent = T(provider === 'claude' ? 'openOfficialUsage' : 'openSource');
+  const usageState = activeSlices(state).usage || {};
+  // 重置卡在最上面；下面是各额度窗口自动重置的时间，两块都来自官方接口。
+  const blocks = [
+    resetCreditsTemplate(usageState.data?.resetCredits, provider),
+    resetScheduleTemplate(usageState, provider),
+    provider === 'claude' ? claudeNotesTemplate(state.claudeRadar?.data) : ''
+  ];
+  els.resetCards.innerHTML = blocks.filter(Boolean).join('');
+}
 
-  if (els.resetTitle) els.resetTitle.textContent = T('resetTitleCodex');
-  const usageState = state.usage;
-  const credits = usageState.data?.resetCredits;
-  if (!credits) {
-    els.resetCards.innerHTML = emptyBlock(T('noResetCards'));
-    return;
-  }
+// 各额度窗口什么时候重置。数据来自官方用量接口，和雷达站无关，雷达连不上时照常显示。
+function resetScheduleTemplate(usageState, provider) {
+  const usage = usageState.data;
+  if (!usage) return emptyBlock(usageState.error || T('noUsageData'));
 
+  const rows = [];
+  if (usage.fiveHourUnlimited) rows.push({ title: T('label5h'), unlimited: true });
+  else if (usage.primaryWindow) rows.push({ title: T('label5h'), window: usage.primaryWindow, tone: 'five' });
+  // 只有存在专项周限额（例如 Fable）时，才需要把总的周限额标成「全部模型」来区分。
+  const weekTitle = usage.extraWindows?.length ? T('resetWindowWeekAll') : T('labelWeek');
+  if (usage.secondaryWindow) rows.push({ title: weekTitle, window: usage.secondaryWindow, tone: 'week' });
+  (usage.extraWindows || []).forEach((windowValue) => {
+    rows.push({ title: scopedWindowLabel(windowValue), window: windowValue, tone: 'week' });
+  });
+  if (!rows.length) return emptyBlock(T('windowUnavailable'));
+
+  const source = provider === 'claude' ? T('resetSourceClaude') : T('resetSourceCodex');
+  const updated = usageState.fetchedAt ? ` · ${T('updatedAt', { time: formatShortTime(usageState.fetchedAt) })}` : '';
+  return `
+    <div class="reset-timeline reset-schedule" aria-label="${escapeHtml(T('resetScheduleTitle'))}">
+      ${rows.map((row) => resetScheduleRowTemplate(row)).join('')}
+    </div>
+    <p class="reset-footnote">${escapeHtml(`${source}${updated}`)}</p>
+  `;
+}
+
+function resetScheduleRowTemplate({ title, window: windowValue, unlimited = false, tone = 'five' }) {
+  if (unlimited) {
+    return `
+      <article class="reset-row unlimited" style="--reset-percent:100;">
+        <span class="reset-ring" aria-hidden="true"></span>
+        <div class="reset-row-main"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(T('unlimitedFooter'))}</small></div>
+        <div class="reset-row-side"><strong>${escapeHtml(T('unlimitedBadge'))}</strong></div>
+      </article>
+    `;
+  }
+  const remaining = clamp(Math.round(Number(windowValue.remainingPercent) || 0), 0, 100);
+  const used = clamp(Math.round(Number(windowValue.usedPercent) || 0), 0, 100);
+  const critical = !windowValue.inactive && remaining <= 10;
+  const when = windowValue.resetAt ? formatResetMoment(windowValue.resetAt) : T(windowValue.inactive ? 'notStarted' : 'noneShort');
+  const countdown = windowValue.resetAt
+    ? formatReset(windowValue.resetAt)
+    : T(windowValue.inactive ? 'inactiveFooter' : 'noResetFooter');
+  return `
+    <article class="reset-row ${escapeHtml(tone)}${critical ? ' critical' : ''}" style="--reset-percent:${remaining};">
+      <span class="reset-ring" aria-hidden="true"></span>
+      <div class="reset-row-main">
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(T('resetUsageLine', { left: remaining, used }))}</small>
+      </div>
+      <div class="reset-row-side">
+        <strong>${escapeHtml(when)}</strong>
+        <small>${escapeHtml(countdown)}</small>
+      </div>
+    </article>
+  `;
+}
+
+// 重置时刻：今天/明天只写时间，更远的日期带上星期，一眼能看出是哪天。
+function formatResetMoment(value) {
+  // 接口给的时刻带零点几秒的偏差（同一次重置会是 11:59:59.89 和 12:00:00.89），先取整到分钟。
+  const date = new Date(Math.round(Number(new Date(value)) / 60_000) * 60_000);
+  if (Number.isNaN(date.getTime())) return '--';
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  const time = new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+  if (isSameDay(date, today)) return T('todayAt', { time });
+  if (isSameDay(date, tomorrow)) return T('tomorrowAt', { time });
+  const day = new Intl.DateTimeFormat(lang, { month: 'numeric', day: 'numeric' }).format(date);
+  const weekday = new Intl.DateTimeFormat(lang, { weekday: 'short' }).format(date);
+  return `${day} ${weekday} ${time}`;
+}
+
+// 重置卡：账号持有的、可以主动兑换的额度重置。Codex 来自重置卡接口，
+// Claude 来自官方用量接口的可用重置（官方客户端里的 /limit-reset），两边共用这一块。
+function resetCreditsTemplate(credits, provider) {
+  if (!credits) return '';
+  const items = credits.credits || [];
+  const withheld = !items.length && credits.unavailableReason && credits.unavailableReason !== 'no_grant';
+  let body = '';
   if (credits.error) {
-    els.resetCards.innerHTML = emptyBlock(credits.error);
-    return;
+    body = `<p class="reset-timeline-note">${escapeHtml(credits.error)}</p>`;
+  } else if (items.length) {
+    body = `<div class="reset-timeline-list">
+      ${items.map((credit) => resetTimelineItemTemplate(
+        credit.title || resetKindLabel(credit.kind, provider),
+        statusLabel(credit.status),
+        resetCreditDetail(credit),
+        resetStatusClass(credit.status)
+      )).join('')}
+    </div>`;
+  } else if (withheld) {
+    body = `<p class="reset-timeline-note">${escapeHtml(resetWithheldText(credits.unavailableReason))}</p>`;
   }
-
-  if (!credits.credits.length) {
-    els.resetCards.innerHTML = emptyBlock(T('creditsAvailable', { n: credits.availableCount ?? 0 }));
-    return;
-  }
-
-  els.resetCards.innerHTML = `
-    <div class="reset-timeline">
+  const summary = credits.error || withheld
+    ? T('resetCardsWithheld')
+    : T('creditsAvailable', { n: credits.availableCount ?? items.length });
+  return `
+    <div class="reset-timeline reset-credits">
       <div class="reset-timeline-summary">
-        <span>${escapeHtml(T('resetTimelineTitle'))}</span>
-        <strong>${escapeHtml(T('creditsAvailable', { n: credits.availableCount ?? credits.credits.length }))}</strong>
+        <span>${escapeHtml(T('resetCardsTitle'))}</span>
+        <strong>${escapeHtml(summary)}</strong>
       </div>
-      <div class="reset-timeline-list">
-        ${credits.credits.map((credit) => resetTimelineItemTemplate(
-          credit.title || 'Codex reset',
-          statusLabel(credit.status),
-          credit.expiresAt ? T('expiresAt', { t: formatDateTime(credit.expiresAt) }) : T('noExpiry'),
-          resetStatusClass(credit.status)
-        )).join('')}
-      </div>
+      ${body}
     </div>
   `;
 }
 
-function renderClaudeNotes(radar) {
-  if (!radar) {
-    els.resetCards.innerHTML = emptyBlock(T('noRadarNotes'));
-    return;
+function resetKindLabel(kind, provider) {
+  const keys = { session: 'resetKindSession', weekly: 'resetKindWeekly', full: 'resetKindFull' };
+  if (keys[kind]) return T(keys[kind]);
+  return provider === 'claude' ? T('resetKindGeneric') : 'Codex reset';
+}
+
+function resetCreditDetail(credit) {
+  const parts = [];
+  if (Number.isFinite(credit.resetsLeft) && Number(credit.resetsTotal) > 0) {
+    parts.push(T('resetsLeftLine', { left: credit.resetsLeft, total: credit.resetsTotal }));
   }
+  parts.push(credit.expiresAt ? T('expiresAt', { t: formatDateTime(credit.expiresAt) }) : T('noExpiry'));
+  return parts.join(' · ');
+}
+
+// 接口明确表示这次不给出重置卡时的说明。surface：按客户端类型限制，本应用不在名单里。
+function resetWithheldText(reason) {
+  if (reason === 'surface') return T('resetReasonSurface');
+  return T('resetReasonOther', { reason });
+}
+
+// Claude 雷达站提供的额度校准说明；雷达站没有数据时整块不显示。
+function claudeNotesTemplate(radar) {
+  if (!radar) return '';
   const quota = radar.quota || {};
   const calibratedAt = formatRadarUpdateLabel(quota.updatedAt, radar.updatedAt);
-  els.resetCards.innerHTML = `
+  return `
     <div class="reset-timeline">
       <div class="reset-timeline-summary">
         <span>${escapeHtml(T('resetTimelineTitle'))}</span>
@@ -1674,7 +1842,10 @@ function resetTimelineItemTemplate(title, status, detail, tone = 'neutral') {
 }
 
 function resetStatusClass(status) {
-  return ['available', 'redeemed', 'expired'].includes(status) ? status : 'neutral';
+  if (['available', 'redeemed', 'expired'].includes(status)) return status;
+  if (status === 'pending') return 'info';
+  if (status === 'paused' || status === 'unavailable') return 'watch';
+  return 'neutral';
 }
 
 function renderIq(radarState, provider) {
@@ -1682,10 +1853,15 @@ function renderIq(radarState, provider) {
   els.modelCatalogNotice.hidden = true;
   els.radarDataNotice.hidden = true;
   els.radarBriefStatus.hidden = true;
+  // 没有任何雷达数据时，推荐模型卡和排序按钮都是空壳，收起来只留一句说明。
+  els.radarPanel?.classList.toggle('radar-no-data', !radar);
   if (!radar) {
     if (els.iqDate) els.iqDate.textContent = '';
     renderRadarSummary([], provider);
-    updateHtml(els.iqGrid, emptyBlock(radarState?.error || T('noIqData')));
+    const paused = radarState?.errorCode === RADAR_PAUSED_CODE;
+    updateHtml(els.iqGrid, paused
+      ? `<div class="empty radar-paused"><strong>${escapeHtml(T('radarPaused'))}</strong><p>${escapeHtml(T('radarPausedHint'))}</p></div>`
+      : emptyBlock(radarState?.error || T('noIqData')));
     if (els.expandModels) els.expandModels.hidden = true;
     return;
   }
@@ -2167,7 +2343,9 @@ function renderQuota(radarState, provider, activityState) {
   if (els.quotaSource) els.quotaSource.textContent = provider === 'claude' ? 'Claude Code Radar' : 'Codex Radar';
   renderModelUsage(radar, provider, activityState);
   if (!radar) {
-    els.quotaRows.innerHTML = emptyBlock(radarState.error || T('noQuotaRadar'));
+    els.quotaRows.innerHTML = emptyBlock(radarState.errorCode === RADAR_PAUSED_CODE
+      ? T('radarPaused')
+      : radarState.error || T('noQuotaRadar'));
     return;
   }
 
@@ -2328,7 +2506,10 @@ function statusLabel(status) {
   const keys = {
     available: 'statusAvailable',
     redeemed: 'statusRedeemed',
-    expired: 'statusExpired'
+    expired: 'statusExpired',
+    pending: 'statusPending',
+    paused: 'statusPaused',
+    unavailable: 'statusUnavailable'
   };
   return keys[status] ? T(keys[status]) : status || T('statusUnknown');
 }
