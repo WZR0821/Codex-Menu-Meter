@@ -240,12 +240,12 @@ function syncProviderUi(provider) {
 function activeSlices(state) {
   const provider = state.provider || 'codex';
   if (provider === 'claude') {
-    return { usage: state.claudeUsage || {}, radar: state.claudeRadar || {}, activity: state.claudeActivity || {} };
+    return { usage: state.claudeUsage || {}, radar: state.claudeRadar || {}, activity: state.claudeActivity || {}, service: state.claudeStatus || {} };
   }
   if (EXTRA_PROVIDER_IDS.includes(provider)) {
-    return { usage: state[`${provider}Usage`] || {}, radar: { status: 'idle' }, activity: { status: 'idle' } };
+    return { usage: state[`${provider}Usage`] || {}, radar: { status: 'idle' }, activity: { status: 'idle' }, service: { status: 'idle' } };
   }
-  return { usage: state.usage, radar: state.radar, activity: state.tokenActivity };
+  return { usage: state.usage, radar: state.radar, activity: state.tokenActivity, service: state.codexStatus || {} };
 }
 
 els.refresh.addEventListener('click', async () => {
@@ -554,7 +554,7 @@ function renderRadarView(stateValue, view, provider = stateValue.provider || 'co
     renderSection('reset', [slices.usage, slices.radar, Math.floor(Date.now() / 30_000)], () => renderResetCards(stateValue, provider));
     return;
   }
-  renderSection('iq', [slices.radar, radarSortByProvider[provider], radarExpandedByProvider[provider], radarLatestByProvider[provider]], () => renderIq(slices.radar, provider));
+  renderSection('iq', [slices.radar, slices.service?.data, radarSortByProvider[provider], radarExpandedByProvider[provider], radarLatestByProvider[provider]], () => renderIq(slices.radar, provider));
 }
 
 function handlePanelWheel(event) {
@@ -620,7 +620,8 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
   if (tab === 'usage') {
     const clockBucket = Math.floor(Date.now() / 30_000);
     renderSection('meters', [slices.usage, slices.activity?.data?.windows, clockBucket, claudeReconnect], () => renderMeters(slices.usage, provider, slices.activity));
-    renderSection('trend', [slices.usage, stateValue.usageHistory?.[provider], clockBucket], () => renderTrend(stateValue, slices.usage, provider));
+    const trendHistory = trendRange === 'week' ? stateValue.usageHistoryWeek?.[provider] : stateValue.usageHistory?.[provider];
+    renderSection('trend', [slices.usage, trendRange, trendHistory, clockBucket], () => renderTrend(stateValue, slices.usage, provider));
     if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, formatIsoDate(new Date())], () => renderTokenActivity(slices.activity));
     return;
   }
@@ -635,76 +636,160 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
   }
 }
 
-// ---- 额度曲线 + 燃烧率预测 ----
+// ---- 额度曲线 + 节奏 ----
 
+const PACE = window.CMM_PACE;
 const TREND_W = 372;
 const TREND_H = 92;
 const TREND_PLOT = Object.freeze({ left: 34, right: 7, top: 11, bottom: 19 });
+// 24 小时看 5 小时窗口的锯齿，7 天看周窗口的走势；7 天视图是按小时压缩过的样本。
+const TREND_RANGES = Object.freeze({
+  day: {
+    spanMs: 24 * 3600_000,
+    gapMs: 45 * 60_000,
+    ticks: [[0, 'trendX24h', 'start'], [0.5, 'trendX12h', 'middle'], [1, 'trendXNow', 'end']]
+  },
+  week: {
+    spanMs: 7 * 24 * 3600_000,
+    gapMs: 4 * 3600_000,
+    ticks: [[0, 'trendX7d', 'start'], [4 / 7, 'trendX3d', 'middle'], [1, 'trendXNow', 'end']]
+  }
+});
+const TREND_RANGE_STORAGE_KEY = 'cmm.trendRange';
+let trendRange = readTrendRange();
+let trendModel = null;
+
+function readTrendRange() {
+  try {
+    return window.localStorage.getItem(TREND_RANGE_STORAGE_KEY) === 'week' ? 'week' : 'day';
+  } catch {
+    return 'day';
+  }
+}
+
+function setTrendRange(range) {
+  const next = range === 'week' ? 'week' : 'day';
+  if (next === trendRange) return;
+  trendRange = next;
+  try {
+    window.localStorage.setItem(TREND_RANGE_STORAGE_KEY, next);
+  } catch {
+    // 存储不可用时只在本次打开期间生效。
+  }
+  if (currentState) renderVisibleContent(currentState, 'usage');
+  queuePanelHeightReport({ hold: 120 });
+}
+
+els.trendLegend?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-trend-range]');
+  if (!button || !els.trendLegend.contains(button)) return;
+  event.preventDefault();
+  setTrendRange(button.dataset.trendRange);
+});
+
+// 曲线里的序列：5 小时、周额度，再加第一项按模型的周限额（例如 Fable）。
+function trendSeriesFor(usage, provider, samples) {
+  const series = [];
+  if (!usage?.fiveHourUnlimited) {
+    series.push({ key: 'five', paceKey: 'five', label: T('windowName5h'), tone: 'five', pick: (s) => s.five, window: usage?.primaryWindow });
+  }
+  series.push({ key: 'week', paceKey: 'week', label: T('windowNameWeek'), tone: 'week', pick: (s) => s.week, window: usage?.secondaryWindow });
+  const scoped = EXTRA_PROVIDER_IDS.includes(provider)
+    ? null
+    : (usage?.extraWindows || []).find((windowValue) => windowValue && !windowValue.inactive && String(windowValue.name || '').trim());
+  if (scoped) {
+    const name = String(scoped.name).trim();
+    series.push({ key: `extra:${name}`, paceKey: `extra:${name}`, label: name, tone: 'scoped', pick: (s) => s.ex?.[name], window: scoped });
+  }
+  return series.map((item) => ({
+    ...item,
+    points: samples
+      .map((sample) => ({ t: Number(sample.t), v: item.pick(sample) }))
+      .filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v))
+  }));
+}
+
+// 匀速参考线：当前窗口从开始（0%）到重置（100%）匀速用完时，此刻应该用到哪。
+// 周额度和同一时刻重置的专项限额共用一条，避免两条虚线叠在一起。
+function trendPaceGuides(series, provider, start, now) {
+  const seen = new Set();
+  const guides = [];
+  for (const item of series) {
+    if (!item.points.length) continue;
+    const durationMs = PACE?.windowDurationMs(item.paceKey, provider);
+    const resetAt = Number(item.window?.resetAt);
+    if (!durationMs || !resetAt || resetAt <= now) continue;
+    const startAt = resetAt - durationMs;
+    const signature = `${Math.round(startAt / 60_000)}:${durationMs}`;
+    if (seen.has(signature)) {
+      guides.find((guide) => guide.signature === signature)?.labels.push(item.label);
+      continue;
+    }
+    seen.add(signature);
+    const from = Math.max(start, startAt);
+    if (from >= now) continue;
+    guides.push({ signature, tone: item.tone, labels: [item.label], from, to: now, startAt, durationMs });
+  }
+  return guides;
+}
+
+function paceGuideValue(guide, timestamp) {
+  if (!guide || timestamp < guide.from || timestamp > guide.to + 60_000) return null;
+  return clamp(((timestamp - guide.startAt) / guide.durationMs) * 100, 0, 100);
+}
 
 function renderTrend(state, usageState, provider) {
   if (!els.usageTrend) return;
-  const history = (state.usageHistory && state.usageHistory[provider]) || [];
+  const range = TREND_RANGES[trendRange] || TREND_RANGES.day;
+  const source = trendRange === 'week' ? state.usageHistoryWeek?.[provider] : state.usageHistory?.[provider];
   const now = Date.now();
-  const start = now - 24 * 3600_000;
-  const visible = history.filter((sample) => (
+  const start = now - range.spanMs;
+  const visible = (Array.isArray(source) ? source : []).filter((sample) => (
     Number.isFinite(Number(sample?.t))
     && Number(sample.t) >= start
     && Number(sample.t) <= now + 60_000
   ));
   const usage = usageState.data;
-  const fiveSampleCount = visible.filter((sample) => Number.isFinite(sample.five)).length;
-  const weekSampleCount = visible.filter((sample) => Number.isFinite(sample.week)).length;
-  const hasFive = !usage?.fiveHourUnlimited && fiveSampleCount > 0;
-  const hasWeek = weekSampleCount > 0;
-  const fiveCurveReady = hasFive && fiveSampleCount >= 3;
-  const weekCurveReady = hasWeek && weekSampleCount >= 3;
+  const series = trendSeriesFor(usage, provider, visible);
+  const ready = series.filter((item) => item.points.length >= 3);
+  const guides = trendPaceGuides(ready, provider, start, now);
+  trendModel = { now, start, range, series: ready, guides };
 
-  const burnFive = hasFive ? computeBurn(visible, 'five', 90 * 60_000) : null;
-  const burnWeek = hasWeek ? computeBurn(visible, 'week', 12 * 3600_000) : null;
-  const lines = [
-    burnText(T('windowName5h'), burnFive, usage?.primaryWindow?.resetAt),
-    burnText(T('windowNameWeek'), burnWeek, usage?.secondaryWindow?.resetAt)
-  ].filter(Boolean);
-  if (!hasFive) {
-    lines.unshift(T(usage?.fiveHourUnlimited ? 'trendUnlimited' : 'trendUnavailable', {
-      window: T('windowName5h')
-    }));
-  }
-  if (!hasWeek) lines.push(T('trendUnavailable', { window: T('windowNameWeek') }));
-
-  const fiveStatus = usage?.fiveHourUnlimited
-    ? T('trendUnlimited', { window: T('windowName5h') })
-    : fiveCurveReady
-      ? T('windowName5h')
-      : hasFive
-        ? T('trendSamplePending', { window: T('windowName5h'), n: Math.min(3, fiveSampleCount) })
-        : T('trendUnavailable', { window: T('windowName5h') });
-  const weekStatus = weekCurveReady
-    ? T('windowNameWeek')
-    : hasWeek
-      ? T('trendSamplePending', { window: T('windowNameWeek'), n: Math.min(3, weekSampleCount) })
-      : T('trendUnavailable', { window: T('windowNameWeek') });
   if (els.trendLegend) {
-    els.trendLegend.innerHTML = `
-      <span class="trend-legend-item${usage?.fiveHourUnlimited ? ' unlimited' : hasFive ? (fiveCurveReady ? '' : ' sampling') : ' unavailable'}" title="${escapeHtml(fiveStatus)}">
-        <span class="trend-dot trend-dot-five"></span>${escapeHtml(T('windowName5h'))}${usage?.fiveHourUnlimited ? ' ∞' : ''}
-      </span>
-      <span class="trend-legend-item${hasWeek ? (weekCurveReady ? '' : ' sampling') : ' unavailable'}" title="${escapeHtml(weekStatus)}">
-        <span class="trend-dot trend-dot-week"></span>${escapeHtml(T('windowNameWeek'))}
-      </span>
-    `;
+    const legendItems = [];
+    if (usage?.fiveHourUnlimited) {
+      legendItems.push(`<span class="trend-legend-item unlimited" title="${escapeHtml(T('trendUnlimited', { window: T('windowName5h') }))}"><span class="trend-dot trend-dot-five"></span>${escapeHtml(T('windowName5h'))} ∞</span>`);
+    }
+    for (const item of series) {
+      const sampleClass = item.points.length >= 3 ? '' : item.points.length ? ' sampling' : ' unavailable';
+      const tip = item.points.length >= 3
+        ? item.label
+        : item.points.length
+          ? T('trendSamplePending', { window: item.label, n: Math.min(3, item.points.length) })
+          : T('trendUnavailable', { window: item.label });
+      legendItems.push(`<span class="trend-legend-item${sampleClass}" title="${escapeHtml(tip)}"><span class="trend-dot trend-dot-${item.tone}"></span>${escapeHtml(item.label)}</span>`);
+    }
+    if (guides.length) {
+      legendItems.push(`<span class="trend-legend-item trend-legend-pace" title="${escapeHtml(T('trendPaceTip'))}"><span class="trend-dash" aria-hidden="true"></span>${escapeHtml(T('trendPaceLegend'))}</span>`);
+    }
+    const rangeButton = (key, label) => `<button type="button" class="trend-range-button${trendRange === key ? ' active' : ''}" data-trend-range="${key}" aria-pressed="${trendRange === key}">${escapeHtml(label)}</button>`;
+    updateHtml(els.trendLegend, `
+      <span class="trend-legend-items">${legendItems.join('')}</span>
+      <span class="trend-range" role="group" aria-label="${escapeHtml(T('trendRangeAria'))}">${rangeButton('day', T('trendRangeDay'))}${rangeButton('week', T('trendRangeWeek'))}</span>
+    `);
   }
-  const weekPath = weekCurveReady ? trendPath(visible, 'week', 'trend-week', now) : '';
-  const fivePath = fiveCurveReady ? trendPath(visible, 'five', 'trend-five', now) : '';
-  const noCurve = !weekPath && !fivePath;
-  const pendingSamples = [
-    !usage?.fiveHourUnlimited && !fiveCurveReady
-      ? T('trendSamplePending', { window: T('windowName5h'), n: Math.min(3, fiveSampleCount) })
-      : null,
-    !weekCurveReady
-      ? T('trendSamplePending', { window: T('windowNameWeek'), n: Math.min(3, weekSampleCount) })
-      : null
-  ].filter(Boolean);
+
+  const lines = trendPaceText(usage, provider, now);
+  const noCurve = !ready.length;
+  const pendingSamples = series
+    .filter((item) => item.points.length < 3)
+    .map((item) => T('trendSamplePending', { window: item.label, n: Math.min(3, item.points.length) }));
+  const paths = ready.map((item) => trendPath(item.points, `trend-series trend-${item.tone}`, now, range)).join('');
+  const guideLines = guides.map((guide) => {
+    const fromValue = paceGuideValue(guide, guide.from);
+    const toValue = paceGuideValue(guide, guide.to);
+    return `<line class="trend-pace trend-pace-${guide.tone}" x1="${trendX(guide.from, now, range).toFixed(1)}" y1="${trendY(fromValue).toFixed(1)}" x2="${trendX(guide.to, now, range).toFixed(1)}" y2="${trendY(toValue).toFixed(1)}" />`;
+  }).join('');
   const trendVisual = noCurve
     ? `
       <div class="trend-empty-state" role="status">
@@ -716,20 +801,69 @@ function renderTrend(state, usageState, provider) {
       </div>
     `
     : `
-      <svg viewBox="0 0 ${TREND_W} ${TREND_H}" role="img" aria-label="${escapeHtml(T('trendChartAria'))}">
-        ${trendAxes()}
-        ${weekPath}
-        ${fivePath}
+      <svg viewBox="0 0 ${TREND_W} ${TREND_H}" role="img" aria-label="${escapeHtml(T(trendRange === 'week' ? 'trendChartAriaWeek' : 'trendChartAria'))}">
+        ${trendAxes(range)}
+        ${guideLines}
+        ${paths}
+        <g class="trend-hover" aria-hidden="true" visibility="hidden">
+          <line class="trend-crosshair" x1="0" y1="${TREND_PLOT.top}" x2="0" y2="${TREND_H - TREND_PLOT.bottom}" />
+          ${ready.map((item) => `<circle class="trend-hover-dot trend-hover-${item.tone}" data-series="${escapeHtml(item.key)}" r="3.5" cx="0" cy="0" />`).join('')}
+        </g>
+        <rect class="trend-hit" x="${TREND_PLOT.left}" y="0" width="${TREND_W - TREND_PLOT.left - TREND_PLOT.right}" height="${TREND_H - TREND_PLOT.bottom + 4}" />
       </svg>
     `;
   updateHtml(els.usageTrend, `
     <section class="trend-card${noCurve ? ' trend-card-empty' : ''}">
       ${trendVisual}
       <div class="trend-lines">
-        ${lines.map((line) => `<span class="trend-line">${escapeHtml(line)}</span>`).join('')}
+        ${lines.map((line) => `<span class="trend-line">${line.tier && line.tier !== 'good' && line.tier !== 'neutral' ? `<i class="pace-icon tier-${line.tier}" aria-hidden="true">${line.tier === 'critical' ? '■' : '▲'}</i>` : ''}${escapeHtml(line.text)}</span>`).join('')}
       </div>
     </section>
   `);
+}
+
+// 曲线下方固定两行：5 小时一行，周额度与专项周限额里节奏最紧的一行；GPT 与 Claude 行数相同，展开后两边同高。
+function trendPaceText(usage, provider, now) {
+  if (!usage) return [{ text: T('trendUnavailable', { window: T('windowNameWeek') }) }];
+  const entries = PACE ? PACE.listWindows(usage, { provider, now }) : [];
+  const five = entries.find((entry) => entry.key === 'five');
+  const weekly = PACE ? PACE.mostUrgent(entries.filter((entry) => entry.key !== 'five')) : null;
+  const lines = [];
+  if (usage.fiveHourUnlimited) lines.push({ text: T('trendUnlimited', { window: T('windowName5h') }) });
+  else lines.push(five ? paceLine(five) : { text: T('trendUnavailable', { window: T('windowName5h') }) });
+  lines.push(weekly ? paceLine(weekly) : { text: T('trendUnavailable', { window: T('windowNameWeek') }) });
+  return lines;
+}
+
+function paceWindowLabel(entry) {
+  if (entry.key === 'five') return T('windowName5h');
+  if (entry.key === 'week') return T('windowNameWeek');
+  return T('windowNameScoped', { name: entry.name || '' });
+}
+
+function paceLine(entry) {
+  const pace = entry.pace;
+  const window = paceWindowLabel(entry);
+  if (!pace) return { text: T('trendUnavailable', { window }) };
+  const delta = Math.round(Math.abs(pace.delta || 0));
+  switch (pace.status) {
+    case 'exhausted':
+      return { text: T('paceExhausted', { window, time: formatResetClock(pace.resetAt) }), tier: 'critical' };
+    case 'reset':
+      return { text: T('paceResetPending', { window }), tier: 'neutral' };
+    case 'early':
+      return { text: T('paceEarly', { window }), tier: 'neutral' };
+    case 'unknown':
+    case 'idle':
+      return { text: T('paceUnknown', { window }), tier: 'neutral' };
+    default:
+      break;
+  }
+  if (!pace.lastsUntilReset && pace.runOutAt) {
+    return { text: T('paceRunOut', { window, delta, time: formatResetClock(pace.runOutAt) }), tier: pace.tier };
+  }
+  if (pace.status === 'behind') return { text: T('paceBehind', { window, delta }), tier: 'good' };
+  return { text: T('paceSteady', { window }), tier: 'good' };
 }
 
 function trendY(usedPercent) {
@@ -737,17 +871,13 @@ function trendY(usedPercent) {
   return TREND_PLOT.top + usable - (clamp(usedPercent, 0, 100) / 100) * usable;
 }
 
-function trendX(timestamp, now) {
-  const start = now - 24 * 3600_000;
+function trendX(timestamp, now, range = TREND_RANGES.day) {
+  const start = now - range.spanMs;
   const usable = TREND_W - TREND_PLOT.left - TREND_PLOT.right;
-  return TREND_PLOT.left + clamp((timestamp - start) / (24 * 3600_000), 0, 1) * usable;
+  return TREND_PLOT.left + clamp((timestamp - start) / range.spanMs, 0, 1) * usable;
 }
 
-function trendPlotCenterX() {
-  return TREND_PLOT.left + (TREND_W - TREND_PLOT.left - TREND_PLOT.right) / 2;
-}
-
-function trendAxes() {
+function trendAxes(range = TREND_RANGES.day) {
   const plotRight = TREND_W - TREND_PLOT.right;
   const plotBottom = TREND_H - TREND_PLOT.bottom;
   const yTicks = [100, 50, 0].map((value) => {
@@ -757,67 +887,105 @@ function trendAxes() {
       <text class="trend-axis-label trend-axis-y" x="${TREND_PLOT.left - 5}" y="${y + 3}" text-anchor="end">${value}</text>
     `;
   }).join('');
-  const xTicks = [
-    { ratio: 0, label: T('trendX24h'), anchor: 'start' },
-    { ratio: 0.5, label: T('trendX12h'), anchor: 'middle' },
-    { ratio: 1, label: T('trendXNow'), anchor: 'end' }
-  ].map(({ ratio, label, anchor }) => {
+  const xTicks = range.ticks.map(([ratio, key, anchor]) => {
     const x = TREND_PLOT.left + ratio * (plotRight - TREND_PLOT.left);
     return `
       <line class="trend-axis-tick" x1="${x}" y1="${plotBottom}" x2="${x}" y2="${plotBottom + 3}" />
-      <text class="trend-axis-label trend-axis-x" x="${x}" y="${TREND_H - 4}" text-anchor="${anchor}">${escapeHtml(label)}</text>
+      <text class="trend-axis-label trend-axis-x" x="${x}" y="${TREND_H - 4}" text-anchor="${anchor}">${escapeHtml(T(key))}</text>
     `;
   }).join('');
   return `
     <text class="trend-axis-title" x="${TREND_PLOT.left}" y="8">${escapeHtml(T('trendYAxis'))}</text>
     ${yTicks}
-    <line class="trend-axis" x1="${TREND_PLOT.left}" y1="${TREND_PLOT.top}" x2="${TREND_PLOT.left}" y2="${plotBottom}" />
     <line class="trend-axis" x1="${TREND_PLOT.left}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" />
     ${xTicks}
   `;
 }
 
-function trendPath(samples, key, className, now = Date.now()) {
-  const points = samples
-    .filter((s) => Number.isFinite(s[key]))
-    .map((s) => {
-      const x = trendX(s.t, now);
-      return `${x.toFixed(1)},${trendY(s[key]).toFixed(1)}`;
-    });
+// Mac 睡眠时没有样本：相邻两点间隔超过 gapMs 就断开，不画一条横跨空白的直线。
+function trendPath(points, className, now, range) {
   if (points.length < 2) return '';
-  return `<polyline class="${className}" pathLength="1" points="${points.join(' ')}" />`;
-}
-
-function computeBurn(history, key, windowMs) {
-  const samples = history.filter((s) => Number.isFinite(s[key]));
-  if (samples.length < 3) return null;
-  // 只用最近一次重置之后的样本（用量大幅回落视为重置）。
-  let startIndex = 0;
-  for (let index = 1; index < samples.length; index += 1) {
-    if (samples[index][key] < samples[index - 1][key] - 25) startIndex = index;
+  let d = '';
+  let previous = null;
+  for (const point of points) {
+    const command = !previous || point.t - previous.t > range.gapMs ? 'M' : 'L';
+    d += `${command}${trendX(point.t, now, range).toFixed(1)},${trendY(point.v).toFixed(1)}`;
+    previous = point;
   }
-  const now = Date.now();
-  const segment = samples.slice(startIndex).filter((s) => s.t >= now - windowMs);
-  if (segment.length < 3) return null;
-  const first = segment[0];
-  const last = segment[segment.length - 1];
-  const minutes = (last.t - first.t) / 60_000;
-  if (minutes < 10) return null;
-  return {
-    ratePerHour: ((last[key] - first[key]) / minutes) * 60,
-    current: last[key]
-  };
+  return `<path class="${className}" d="${d}" />`;
 }
 
-function burnText(windowLabel, burn, resetAt) {
-  if (!burn) return null;
-  if (burn.ratePerHour <= 0.5) return T('burnFlat', { window: windowLabel });
-  const rate = burn.ratePerHour >= 10 ? Math.round(burn.ratePerHour) : burn.ratePerHour.toFixed(1);
-  const etaMs = ((100 - burn.current) / burn.ratePerHour) * 3600_000;
-  const etaAt = Date.now() + etaMs;
-  if (resetAt && etaAt >= resetAt) return T('burnSafe', { window: windowLabel, rate });
-  return T('burnRising', { window: windowLabel, rate, time: formatResetClock(etaAt) });
+function nearestTrendPoint(points, timestamp, toleranceMs) {
+  let best = null;
+  for (const point of points) {
+    const distance = Math.abs(point.t - timestamp);
+    if (distance <= toleranceMs && (!best || distance < best.distance)) best = { point, distance };
+  }
+  return best?.point || null;
 }
+
+function handleTrendPointer(event) {
+  const svg = event.target.closest?.('.trend-card svg');
+  if (!svg || !trendModel?.series.length) return;
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width) return;
+  const x = ((event.clientX - rect.left) / rect.width) * TREND_W;
+  const plotRight = TREND_W - TREND_PLOT.right;
+  if (x < TREND_PLOT.left || x > plotRight) {
+    hideTrendHover(svg);
+    return;
+  }
+  const { now, range, series, guides } = trendModel;
+  const timestamp = now - range.spanMs + ((x - TREND_PLOT.left) / (plotRight - TREND_PLOT.left)) * range.spanMs;
+  const tolerance = range.gapMs;
+  const rows = [];
+  const hover = svg.querySelector('.trend-hover');
+  const crosshair = svg.querySelector('.trend-crosshair');
+  crosshair?.setAttribute('x1', x.toFixed(1));
+  crosshair?.setAttribute('x2', x.toFixed(1));
+  for (const item of series) {
+    const point = nearestTrendPoint(item.points, timestamp, tolerance);
+    const dot = svg.querySelector(`.trend-hover-dot[data-series="${CSS.escape(item.key)}"]`);
+    if (!point) {
+      dot?.setAttribute('visibility', 'hidden');
+      continue;
+    }
+    dot?.setAttribute('visibility', 'visible');
+    dot?.setAttribute('cx', trendX(point.t, now, range).toFixed(1));
+    dot?.setAttribute('cy', trendY(point.v).toFixed(1));
+    const guide = guides.find((candidate) => candidate.labels.includes(item.label));
+    const expected = paceGuideValue(guide, point.t);
+    rows.push(`
+      <span class="trend-tip-row">
+        <i class="trend-dot trend-dot-${item.tone}" aria-hidden="true"></i>
+        <em>${escapeHtml(item.label)}</em>
+        <b>${escapeHtml(`${Math.round(point.v)}%`)}</b>
+        ${expected === null ? '' : `<small>${escapeHtml(T('trendTipPace', { v: Math.round(expected) }))}</small>`}
+      </span>
+    `);
+  }
+  if (!rows.length) {
+    hideTrendHover(svg);
+    return;
+  }
+  hover?.setAttribute('visibility', 'visible');
+  showTrendTooltip(`<strong>${escapeHtml(formatTrendMoment(timestamp))}</strong>${rows.join('')}`, event);
+}
+
+function hideTrendHover(svg) {
+  svg?.querySelector('.trend-hover')?.setAttribute('visibility', 'hidden');
+  hideChartTooltip();
+}
+
+function formatTrendMoment(timestamp) {
+  const options = trendRange === 'week'
+    ? { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }
+    : { hour: '2-digit', minute: '2-digit', hour12: false };
+  return new Intl.DateTimeFormat(lang, options).format(timestamp);
+}
+
+els.usageTrend?.addEventListener('mousemove', handleTrendPointer);
+els.usageTrend?.addEventListener('mouseleave', () => hideTrendHover(els.usageTrend.querySelector('.trend-card svg')));
 
 function applyStaticText() {
   document.querySelectorAll('[data-ui-copy]').forEach((node) => { node.textContent = T(node.dataset.uiCopy); });
@@ -868,21 +1036,59 @@ function renderHeader(slices) {
   const radarPaused = radar.status === 'error' && radar.errorCode === RADAR_PAUSED_CODE;
   if (radarPaused) statusParts.push(statusPart(T('radarPaused'), 'neutral'));
   else if (radar.status === 'error') statusParts.push(statusPart(radar.error || T('statusRadarFailed'), 'danger'));
+  const service = serviceStatusSummary(slices.service);
+  if (service) statusParts.push(statusPart(service.text, service.tone, service.home));
   const errors = [usage, radar, token].filter((slice) => slice.status === 'error' && !(slice === radar && radarPaused)).length;
   const loading = [usage, radar, token].some((slice) => ['loading', 'refreshing'].includes(slice.status));
   const fetchedAt = [usage, radar, token].map((slice) => slice.fetchedAt).filter(Boolean).sort().at(-1);
+  // 官方故障优先于「已更新」：本机读数正常也可能是服务端出了问题。
+  const outage = service && service.level !== 'none' && service.level !== 'maintenance';
   const brief = errors ? T('statusCompactError', { n: errors })
-    : loading ? T('statusCompactLoading')
-      : fetchedAt ? T('statusCompactOk', { time: formatShortTime(fetchedAt) }) : T('statusWaiting');
+    : outage ? service.brief
+      : loading ? T('statusCompactLoading')
+        : fetchedAt ? T('statusCompactOk', { time: formatShortTime(fetchedAt) }) : T('statusWaiting');
+  const briefTone = errors ? 'danger' : outage ? service.tone : loading ? 'loading' : 'good';
   updateHtml(els.statusLine, `<details class="inline-details sync-details" data-detail="sync-status">
-    <summary>${statusPart(brief, errors ? 'danger' : loading ? 'loading' : 'good')}</summary>
+    <summary>${statusPart(brief, briefTone)}</summary>
     <div class="disclosure-content">${statusParts.join('') || statusPart(T('statusWaiting'), 'neutral')}</div>
   </details>`);
 }
 
-function statusPart(text, tone) {
+function statusPart(text, tone, href = '') {
+  if (href) {
+    return `<button type="button" class="status-item status-link ${tone}" data-open-url="${escapeHtml(href)}"><i aria-hidden="true"></i>${escapeHtml(text)}</button>`;
+  }
   return `<span class="status-item ${tone}"><i aria-hidden="true"></i>${escapeHtml(text)}</span>`;
 }
+
+// 官方状态页（只看本应用相关的组件）：正常时只在展开的状态里列一行，有故障才上到摘要。
+const SERVICE_LEVEL_TONE = { none: 'good', maintenance: 'info', minor: 'warning', major: 'danger', critical: 'danger' };
+
+function serviceStatusSummary(slice) {
+  const data = slice?.data;
+  if (!data || !data.level) return null;
+  const level = SERVICE_LEVEL_TONE[data.level] ? data.level : 'none';
+  const name = currentProviderKey() === 'claude' ? 'Claude' : 'OpenAI';
+  const affected = (data.components || []).filter((item) => item.level && item.level !== 'none').map((item) => item.name);
+  const detail = data.incidents?.[0]?.name || affected.join(' / ');
+  const levelText = T(`serviceLevel_${level}`);
+  return {
+    level,
+    tone: SERVICE_LEVEL_TONE[level],
+    home: typeof data.home === 'string' && data.home.startsWith('https://') ? data.home : '',
+    text: detail && level !== 'none'
+      ? T('serviceStatusDetail', { name, level: levelText, detail })
+      : T('serviceStatusLine', { name, level: levelText }),
+    brief: T('serviceStatusBrief', { name, level: levelText })
+  };
+}
+
+els.statusLine?.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-open-url]');
+  if (!link || !els.statusLine.contains(link)) return;
+  event.preventDefault();
+  window.codexMeter.openExternal(link.dataset.openUrl);
+});
 
 function renderMeters(usageState, provider, activityState) {
   const usage = usageState.data;
@@ -896,10 +1102,18 @@ function renderMeters(usageState, provider, activityState) {
     els.usageTitle.textContent = title + planLabel;
   }
   const officialSuffix = provider === 'claude' && usage ? T('officialSuffix') : '';
+  // 刷新失败或睡眠后没刷到：数字照常显示，但标明数据截至何时，避免把旧数字当成实时。
+  const stale = Boolean(usage) && (usageState.status === 'error' || PACE?.isStale(usageState.fetchedAt, usageState.staleAfterMs));
+  const retry = Number(usageState.retryAt) > Date.now() ? T('retryAt', { time: formatResetClock(usageState.retryAt) }) : '';
   els.usageUpdated.textContent = usageState.fetchedAt
-    ? `${T('updatedAt', { time: formatShortTime(usageState.fetchedAt) })}${officialSuffix}`
+    ? stale
+      ? `${T('dataAsOf', { time: formatShortTime(usageState.fetchedAt) })}${retry ? ` · ${retry}` : ''}`
+      : `${T('updatedAt', { time: formatShortTime(usageState.fetchedAt) })}${officialSuffix}`
     : '';
-  els.usageUpdated.title = provider === 'claude' && usage ? T('officialTip') : '';
+  els.usageUpdated.classList.toggle('stale', stale);
+  els.usageUpdated.title = stale
+    ? [usageState.error || T('dataStaleTip'), retry].filter(Boolean).join(' · ')
+    : provider === 'claude' && usage ? T('officialTip') : '';
   if (!usage) {
     const reconnect = provider === 'claude' && CLAUDE_RECONNECT_CODES.includes(usageState.errorCode);
     if (!reconnect) claudeReconnect = { pending: false, failed: '' };
@@ -1017,6 +1231,7 @@ function quotaCardTemplate(windowValue, label, {
     : 0;
   const inactive = provider === 'claude' && windowValue.inactive;
   const critical = !inactive && remaining <= 10;
+  const pace = inactive ? null : windowPace(windowValue, paceKeyForWindow(activityWindowKey, windowValue), provider);
   const footer = windowValue.resetAt
     ? formatReset(windowValue.resetAt)
     : inactive
@@ -1025,8 +1240,11 @@ function quotaCardTemplate(windowValue, label, {
   const windowClass = quotaWindowClass(activityWindowKey);
   const windowMark = quotaWindowMark(activityWindowKey);
   const windowTitle = T('remainingTitle', { label });
+  const paceClass = !critical && pace?.tier === 'serious' ? ' pace-serious' : '';
+  // 「一周」卡底部右侧放了专项限额时没有空位，节奏只靠进度条上的刻度和悬停说明。
+  const badge = scopedWindow ? '' : paceBadgeTemplate(pace);
   return `
-    <article class="quota-card ${windowClass}${critical ? ' critical' : ''}" style="--quota-percent:${remaining}%;">
+    <article class="quota-card ${windowClass}${critical ? ' critical' : ''}${paceClass}" style="--quota-percent:${remaining}%;">
       <div class="quota-card-top">
         <span class="quota-window-title" title="${escapeHtml(T('remainingTitle', { label }))}">
           <i class="quota-window-mark" aria-hidden="true">${escapeHtml(windowMark)}</i>
@@ -1034,13 +1252,14 @@ function quotaCardTemplate(windowValue, label, {
         </span>
       </div>
       <strong class="quota-remaining-value" data-quota-key="${escapeHtml(`${provider}:${label}`)}" data-quota-value="${remaining}">${remaining}%</strong>
-      <div class="quota-progress" aria-hidden="true">
+      <div class="quota-progress" aria-hidden="true"${pace?.ready ? ` title="${escapeHtml(paceTickTip(pace))}"` : ''}>
         <i></i>
+        ${paceTickTemplate(pace)}
         <span class="quota-flare"></span>
       </div>
       ${scopedWindow
-    ? `<small class="quota-foot-split"><span class="quota-foot-text" title="${escapeHtml(footer)}">${escapeHtml(footer)}</span>${quotaScopedChipTemplate(scopedWindow)}</small>`
-    : `<small>${escapeHtml(footer)}</small>`}
+    ? `<small class="quota-foot-split"><span class="quota-foot-text" title="${escapeHtml(pace?.ready ? `${footer} · ${paceTickTip(pace)}` : footer)}">${escapeHtml(footer)}</span>${quotaScopedChipTemplate(scopedWindow, provider)}${quotaScopedBarTemplate(scopedWindow, provider)}</small>`
+    : `<small class="quota-foot${badge ? ' has-pace' : ''}"><span class="quota-foot-text">${escapeHtml(footer)}</span>${badge}</small>`}
       ${quotaActivityTemplate(activityWindowKey, activityWindow)}
     </article>
   `;
@@ -1051,17 +1270,66 @@ function scopedWindowLabel(windowValue) {
   return name ? `${T('labelWeek')} · ${name}` : T('labelWeek');
 }
 
-// 「一周」卡底部右侧的专项限额：名称 + 剩余百分比；完整说明（含重置时间）放在悬停提示里。
-function quotaScopedChipTemplate(windowValue) {
+// 「一周」卡底部右侧的专项限额：名称 + 剩余百分比；完整说明（含重置时间、节奏）放在悬停提示里。
+// 节奏偏快时名称前加一个状态图标，颜色只落在图标上。
+function quotaScopedChipTemplate(windowValue, provider = 'claude') {
   const remaining = Number.isFinite(Number(windowValue.remainingPercent))
     ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
     : 0;
   const critical = !windowValue.inactive && remaining <= 10;
+  const pace = windowValue.inactive ? null : windowPace(windowValue, paceKeyForWindow(null, windowValue), provider);
   const reset = windowValue.resetAt
     ? formatReset(windowValue.resetAt)
     : windowValue.inactive ? T('inactiveFooter') : T('noResetFooter');
-  const tip = `${T('remainingTitle', { label: scopedWindowLabel(windowValue) })} ${remaining}% · ${reset}`;
-  return `<span class="quota-scoped-chip${critical ? ' critical' : ''}" title="${escapeHtml(tip)}">${escapeHtml(String(windowValue.name).trim())} <b>${remaining}%</b></span>`;
+  const tipParts = [`${T('remainingTitle', { label: scopedWindowLabel(windowValue) })} ${remaining}%`, reset];
+  if (pace?.ready) tipParts.push(paceTickTip(pace));
+  const tier = !critical && ['warning', 'serious'].includes(pace?.tier) ? pace.tier : '';
+  const icon = tier ? `<i class="pace-icon tier-${tier}" aria-label="${escapeHtml(T('paceAheadShort'))}">▲</i>` : '';
+  return `<span class="quota-scoped-chip${critical ? ' critical' : ''}" title="${escapeHtml(tipParts.join(' · '))}">${icon}${escapeHtml(String(windowValue.name).trim())} <b>${remaining}%</b></span>`;
+}
+
+// 专项限额自己的细进度条：挂在底部文字下方、卡片的下内边距里，不改变卡片高度。
+function quotaScopedBarTemplate(windowValue, provider = 'claude') {
+  const remaining = Number.isFinite(Number(windowValue.remainingPercent))
+    ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
+    : 0;
+  const critical = !windowValue.inactive && remaining <= 10;
+  const pace = windowValue.inactive ? null : windowPace(windowValue, paceKeyForWindow(null, windowValue), provider);
+  return `<span class="quota-scoped-bar${critical ? ' critical' : ''}${!critical && pace?.tier === 'serious' ? ' pace-serious' : ''}" style="--scoped-percent:${remaining}%;" aria-hidden="true"><i></i>${paceTickTemplate(pace)}</span>`;
+}
+
+// ---- 节奏刻度 ----
+// 进度条显示的是「剩余」，所以匀速刻度放在「按匀速此刻应剩」的位置：填充短于刻度就是用得比匀速快。
+
+function paceKeyForWindow(activityWindowKey, windowValue) {
+  if (activityWindowKey === 'fiveHour') return 'five';
+  if (activityWindowKey === 'week') return 'week';
+  return `extra:${String(windowValue?.name || '').trim() || 'limit'}`;
+}
+
+function windowPace(windowValue, paceKey, provider) {
+  if (!PACE || !windowValue) return null;
+  return PACE.computePace(windowValue, { durationMs: PACE.windowDurationMs(paceKey, provider) });
+}
+
+function paceTickTemplate(pace) {
+  if (!pace?.ready || pace.elapsedPercent === null) return '';
+  const left = clamp(100 - pace.elapsedPercent, 0, 100);
+  return `<span class="quota-pace-tick" style="--pace-left:${left.toFixed(1)}%;"></span>`;
+}
+
+function paceTickTip(pace) {
+  const expected = Math.round(clamp(100 - pace.elapsedPercent, 0, 100));
+  if (!pace.lastsUntilReset && pace.runOutAt) {
+    return T('paceTickTipAhead', { v: expected, delta: Math.round(Math.abs(pace.delta)), time: formatResetClock(pace.runOutAt) });
+  }
+  return T('paceTickTip', { v: expected });
+}
+
+function paceBadgeTemplate(pace) {
+  if (!pace?.ready || !['warning', 'serious'].includes(pace.tier)) return '';
+  const delta = Math.round(Math.abs(pace.delta));
+  return `<em class="pace-badge" title="${escapeHtml(paceTickTip(pace))}"><i class="pace-icon tier-${pace.tier}" aria-hidden="true">▲</i>${escapeHtml(T('paceAheadBadge', { delta }))}</em>`;
 }
 
 function quotaSlimRowTemplate(windowValue, label) {
@@ -1069,13 +1337,14 @@ function quotaSlimRowTemplate(windowValue, label) {
     ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
     : 0;
   const critical = !windowValue.inactive && remaining <= 10;
+  const pace = windowValue.inactive ? null : windowPace(windowValue, paceKeyForWindow(null, windowValue), currentProviderKey());
   const footer = windowValue.resetAt
     ? formatReset(windowValue.resetAt)
     : windowValue.inactive ? T('inactiveFooter') : T('noResetFooter');
   return `
-    <div class="quota-slim-row${critical ? ' critical' : ''}" style="--quota-percent:${remaining}%;">
+    <div class="quota-slim-row${critical ? ' critical' : ''}${!critical && pace?.tier === 'serious' ? ' pace-serious' : ''}" style="--quota-percent:${remaining}%;"${pace?.ready ? ` title="${escapeHtml(paceTickTip(pace))}"` : ''}>
       <span class="quota-slim-name">${escapeHtml(T('remainingTitle', { label }))}</span>
-      <span class="quota-slim-bar" aria-hidden="true"><i></i></span>
+      <span class="quota-slim-bar" aria-hidden="true"><i></i>${paceTickTemplate(pace)}</span>
       <strong>${remaining}%</strong>
       <small>${escapeHtml(footer)}</small>
     </div>
@@ -1487,6 +1756,14 @@ function renderTokenActivity(tokenState) {
       n: windowDays,
       total: formatCostUsd(totalCost)
     });
+  const unpricedTokens = heatmap.days.reduce((sum, day) => sum + Number(day.unpricedTokens || 0), 0);
+  const unpricedModels = [...new Set(heatmap.days.flatMap((day) => day.unpricedModels || []))];
+  const unpricedLine = unpricedTokens > 0
+    ? T('costUnpriced', {
+        v: formatTokenCount(unpricedTokens),
+        models: unpricedModels.slice(0, 2).map((model) => (model === '?' ? T('modelUnknown') : formatModelName(model))).join(' / ')
+      })
+    : '';
 
   const markup = `
     <section class="token-card">
@@ -1542,8 +1819,10 @@ function renderTokenActivity(tokenState) {
             ${detailMetric(T('windowUsed', { n: windowDays }), T('cacheHitRate', { v: formatCacheHitRate(totalCachedInput, totalInput) }))}
             ${detailMetric(formatMonthDay(selectedDay.day), `${detailSessions} · ${detailCache}`)}
           </dl>
+          ${projectBreakdownHtml(selectedDay)}
           <p class="detail-note">${escapeHtml(costLine)}</p>
-          <p class="detail-note">${escapeHtml(T('costHint'))}</p>
+          ${unpricedLine ? `<p class="detail-note">${escapeHtml(unpricedLine)}</p>` : ''}
+          <p class="detail-note">${escapeHtml(T('costHint', { date: formatMonthDay(activity.pricingAsOf || '') }))}</p>
         </div>
       </details>
     </section>
@@ -1552,6 +1831,32 @@ function renderTokenActivity(tokenState) {
     activeTokenBar = null;
     hideChartTooltip();
   }
+}
+
+// 单日详情里的项目拆分：横条长度是当天 token 占比，数值和费用写在右侧（文字不用序列色）。
+function projectBreakdownHtml(day) {
+  const rows = Array.isArray(day?.projects) ? day.projects.filter((row) => Number(row.tokens) > 0) : [];
+  if (!rows.length) return '';
+  const max = Math.max(1, ...rows.map((row) => Number(row.tokens) || 0));
+  return `
+    <div class="project-breakdown">
+      <p class="project-title">${escapeHtml(T('projectsTitle', { day: formatMonthDay(day.day) }))}</p>
+      <ul>
+        ${rows.map((row) => {
+          const label = row.name
+            || (row.other ? T('projectsOther', { n: row.other }) : T('projectUnknown'));
+          const width = Math.max(2, (Number(row.tokens) / max) * 100).toFixed(1);
+          const value = `${formatTokenCount(row.tokens, { withUnit: false })} · ${formatCostUsd(row.costUsd)}`;
+          return `
+            <li title="${escapeHtml(`${label}${T('colonSep')}${T('sessionsCount', { n: Number(row.sessions || 0) })}`)}">
+              <span class="project-name">${escapeHtml(label)}</span>
+              <span class="project-bar"><i style="width:${width}%"></i></span>
+              <span class="project-value">${escapeHtml(value)}</span>
+            </li>`;
+        }).join('')}
+      </ul>
+    </div>
+  `;
 }
 
 const HEATMAP_ROWS = 3;
@@ -1598,7 +1903,10 @@ function createTokenHeatmap(rawDays) {
       inputTokens: future || !hasCacheMetrics ? null : Math.max(0, Number(source.inputTokens)),
       cachedInputTokens: future || !hasCacheMetrics ? null : Math.max(0, Number(source.cachedInputTokens)),
       costUsd: future ? 0 : Number(source.costUsd || 0),
+      unpricedTokens: future ? 0 : Number(source.unpricedTokens || 0),
+      unpricedModels: Array.isArray(source.unpricedModels) ? source.unpricedModels : [],
       models: Array.isArray(source.models) ? source.models : [],
+      projects: future || !Array.isArray(source.projects) ? [] : source.projects,
       future
     };
     if (isSameDay(date, todayDate)) today = item;
@@ -1623,7 +1931,10 @@ function createTokenHeatmap(rawDays) {
       inputTokens: null,
       cachedInputTokens: null,
       costUsd: 0,
+      unpricedTokens: 0,
+      unpricedModels: [],
       models: [],
+      projects: [],
       level: 0
     },
     columnCount: HEATMAP_COLS,
@@ -1860,7 +2171,7 @@ function renderIq(radarState, provider) {
     renderRadarSummary([], provider);
     const paused = radarState?.errorCode === RADAR_PAUSED_CODE;
     updateHtml(els.iqGrid, paused
-      ? `<div class="empty radar-paused"><strong>${escapeHtml(T('radarPaused'))}</strong><p>${escapeHtml(T('radarPausedHint'))}</p></div>`
+      ? `<div class="empty radar-paused"><strong>${escapeHtml(T('radarPaused'))}</strong><p>${escapeHtml(T('radarPausedHint'))}</p>${serviceComponentsTemplate(currentState ? activeSlices(currentState).service : null)}</div>`
       : emptyBlock(radarState?.error || T('noIqData')));
     if (els.expandModels) els.expandModels.hidden = true;
     return;
@@ -1902,6 +2213,35 @@ function renderIq(radarState, provider) {
   els.radarBriefStatus.textContent = radarState.error || stale ? T('radarAttention')
     : partial ? T('radarPartialShort', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }) : '';
 }
+
+// 雷达停更时用官方状态页补位：逐个列出相关组件的状态，颜色只在小圆点上，文字说明状态。
+function serviceComponentsTemplate(slice) {
+  const data = slice?.data;
+  if (!data?.components?.length) return '';
+  const rows = data.components.map((component) => {
+    const level = SERVICE_LEVEL_TONE[component.level] ? component.level : 'none';
+    return `<li class="service-row"><span class="status-item ${SERVICE_LEVEL_TONE[level]}"><i aria-hidden="true"></i>${escapeHtml(component.name)}</span><b>${escapeHtml(T(`serviceLevel_${level}`))}</b></li>`;
+  }).join('');
+  const incidents = (data.incidents || []).map((incident) => `<li class="service-incident">${escapeHtml(incident.name)}</li>`).join('');
+  const home = typeof data.home === 'string' && data.home.startsWith('https://') ? data.home : '';
+  return `
+    <div class="service-status-card">
+      <div class="service-status-head">
+        <span>${escapeHtml(T('serviceStatusTitle'))}</span>
+        ${slice.fetchedAt ? `<small>${escapeHtml(T('updatedAt', { time: formatShortTime(slice.fetchedAt) }))}</small>` : ''}
+      </div>
+      <ul>${rows}${incidents}</ul>
+      ${home ? `<button type="button" class="text-button" data-open-url="${escapeHtml(home)}">${escapeHtml(T('serviceStatusOpen'))}</button>` : ''}
+    </div>
+  `;
+}
+
+els.iqGrid?.addEventListener('click', (event) => {
+  const link = event.target.closest('[data-open-url]');
+  if (!link || !els.iqGrid.contains(link)) return;
+  event.preventDefault();
+  window.codexMeter.openExternal(link.dataset.openUrl);
+});
 
 function renderIqCards(allItems, provider = currentProviderKey()) {
   const latestOnly = Boolean(radarLatestByProvider[provider]);
@@ -2492,6 +2832,19 @@ function tokenModelValue(model) {
   return Math.max(0, Number(model?.value ?? model?.tokens ?? model?.weighted ?? 0) || 0);
 }
 
+// 曲线的十字线提示：内容随指针位置变化，每次都重算尺寸再定位。
+function showTrendTooltip(markup, event) {
+  if (!els.chartTooltip) return;
+  tooltipBar = null;
+  if (els.chartTooltip.innerHTML !== markup) els.chartTooltip.innerHTML = markup;
+  els.chartTooltip.classList.add('visible', 'trend-tooltip');
+  const size = els.chartTooltip.getBoundingClientRect();
+  const margin = 10;
+  const x = clamp(event.clientX + 12, margin, window.innerWidth - size.width - margin);
+  const y = clamp(event.clientY - size.height - 12, margin, window.innerHeight - size.height - margin);
+  els.chartTooltip.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+}
+
 function hideChartTooltip() {
   if (!els.chartTooltip) return;
   if (tooltipFrame) window.cancelAnimationFrame(tooltipFrame);
@@ -2499,7 +2852,7 @@ function hideChartTooltip() {
   tooltipBar = null;
   tooltipPointer = null;
   tooltipSize = null;
-  els.chartTooltip.classList.remove('visible');
+  els.chartTooltip.classList.remove('visible', 'trend-tooltip');
 }
 
 function statusLabel(status) {
@@ -2634,6 +2987,8 @@ function clamp(value, min, max) {
 function formatReset(value) {
   if (!value) return T('noResetFooter');
   const diffMs = Number(value) - Date.now();
+  // 过了 resetAt 而接口还没返回新窗口：明确说「已重置」，不再一直显示「即将重置」。
+  if (diffMs <= 0) return T('resetPassed');
   const totalMinutes = Math.max(0, Math.round(diffMs / 60_000));
   const days = Math.floor(totalMinutes / 1440);
   const hours = Math.floor((totalMinutes % 1440) / 60);

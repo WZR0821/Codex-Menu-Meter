@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('codexMeter', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   getVersion: () => ipcRenderer.invoke('app:version'),
   updateSettings: (settings) => ipcRenderer.invoke('settings:update', settings),
+  testWebhook: (url) => ipcRenderer.invoke('alerts:test-webhook', url),
   openMobile: () => ipcRenderer.invoke('mobile:open'),
   copyMobileLink: () => ipcRenderer.invoke('mobile:copy-link'),
   rotateMobileToken: () => ipcRenderer.invoke('mobile:rotate-token'),

@@ -33,6 +33,18 @@
             </select>
           </label>
 
+          <label class="setting-row" for="appearance">
+            <span>
+              <strong data-i18n="appearance">外观</strong>
+              <small data-i18n="appearanceHint">面板和设置窗口的明暗</small>
+            </span>
+            <select id="appearance">
+              <option value="light" data-i18n="appearanceLight">浅色</option>
+              <option value="system" data-i18n="appearanceSystem">跟随系统</option>
+              <option value="dark" data-i18n="appearanceDark">深色</option>
+            </select>
+          </label>
+
           <label class="setting-row switch-row" for="openAtLogin">
             <span>
               <strong data-i18n="openAtLogin">开机自启动</strong>
@@ -60,15 +72,6 @@
             <span class="switch"></span>
           </label>
 
-          <label class="setting-row switch-row" for="notificationsEnabled">
-            <span>
-              <strong data-i18n="notifications">额度提醒通知</strong>
-              <small data-i18n="notificationsHint">剩余 20% / 5% 时提醒，重置后通知满血复活</small>
-            </span>
-            <input id="notificationsEnabled" type="checkbox" />
-            <span class="switch"></span>
-          </label>
-
           <label class="setting-row switch-row" for="hotkeyEnabled">
             <span>
               <strong data-i18n="hotkey">全局快捷键 ⌥⌘U</strong>
@@ -77,6 +80,52 @@
             <input id="hotkeyEnabled" type="checkbox" />
             <span class="switch"></span>
           </label>
+        </section>
+
+        <section class="settings-section alerts-section">
+          <p class="section-label" data-i18n="alertsSection">提醒</p>
+
+          <label class="setting-row switch-row" for="notificationsEnabled">
+            <span>
+              <strong data-i18n="notifications">额度提醒通知</strong>
+              <small data-i18n="notificationsHint">低于阈值时提醒，用尽后在恢复时再通知</small>
+            </span>
+            <input id="notificationsEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row" for="alertThresholds">
+            <span>
+              <strong data-i18n="alertThresholds">提醒阈值</strong>
+              <small data-i18n="alertThresholdsHint">按剩余百分比，含 Fable 等按模型的周限额</small>
+            </span>
+            <select id="alertThresholds">
+              <option value="20,5" data-i18n="alertThresholds205">剩余 20% / 5%</option>
+              <option value="30,10" data-i18n="alertThresholds3010">剩余 30% / 10%</option>
+              <option value="50,20,5" data-i18n="alertThresholds50205">剩余 50% / 20% / 5%</option>
+              <option value="0" data-i18n="alertThresholds0">仅用尽时</option>
+            </select>
+          </label>
+
+          <label class="setting-row switch-row" for="paceAlertsEnabled">
+            <span>
+              <strong data-i18n="paceAlerts">节奏预警</strong>
+              <small data-i18n="paceAlertsHint">按目前速度会在重置前用尽时提前提醒一次</small>
+            </span>
+            <input id="paceAlertsEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <div class="webhook-setup">
+            <label class="mobile-link-row" for="webhookUrl">
+              <span data-i18n="webhookUrl">推送到手机</span>
+              <input id="webhookUrl" type="url" placeholder="https://api.day.app/… · https://ntfy.sh/…" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="webhook-foot">
+              <small id="webhookHint" data-i18n="webhookHint">填写 Bark 或 ntfy 地址后，提醒会同时推送到手机；留空则不推送</small>
+              <button id="testWebhook" type="button" data-i18n="webhookTest">发送测试</button>
+            </div>
+          </div>
         </section>
 
         <section class="settings-section">
@@ -143,6 +192,18 @@
             </span>
             <input id="mobileEnabled" type="checkbox" />
             <span class="switch"></span>
+          </label>
+
+          <label class="setting-row" for="mobileListenScope" id="mobileListenScopeRow">
+            <span>
+              <strong data-i18n="mobileListenScope">访问范围</strong>
+              <small data-i18n="mobileListenScopeHint">局域网内是明文 HTTP，公共网络建议只开 Tailscale</small>
+            </span>
+            <select id="mobileListenScope">
+              <option value="lan" data-i18n="mobileScopeLan">局域网 + Tailscale</option>
+              <option value="tailscale" data-i18n="mobileScopeTailscale">仅 Tailscale</option>
+              <option value="local" data-i18n="mobileScopeLocal">仅本机</option>
+            </select>
           </label>
 
           <div class="mobile-details" id="mobileDetails" hidden>
@@ -257,6 +318,7 @@
 
     <script src="./i18n.js"></script>
     <script src="./provider-config.js"></script>
+    <script src="./theme.js"></script>
     <script src="./settings.js"></script>
   </body>
 </html>

@@ -226,3 +226,79 @@ body.settings-surface.light-theme.apple-theme .action-row:hover { background-col
 body.settings-surface.light-theme.apple-theme .action-row:active { background-color: rgba(0, 0, 0, 0.07); transform: none; }
 body.settings-surface.light-theme.apple-theme .action-row.danger strong { color: var(--a-red-text); }
 body.settings-surface.light-theme.apple-theme .action-row.danger:hover { background-color: rgba(255, 59, 48, 0.07); }
+
+/* ---- 提醒：推送地址 ---- */
+body.settings-surface.light-theme.apple-theme .webhook-setup {
+  padding: 2px 14px 12px;
+  background-image: linear-gradient(var(--a-separator), var(--a-separator));
+  background-repeat: no-repeat;
+  background-position: right top;
+  background-size: calc(100% - 14px) 1px;
+}
+body.settings-surface.light-theme.apple-theme .webhook-setup .mobile-link-row { margin-top: 10px; }
+body.settings-surface.light-theme.apple-theme .webhook-foot {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 7px;
+}
+body.settings-surface.light-theme.apple-theme .webhook-foot small {
+  min-width: 0;
+  line-height: 1.35;
+}
+body.settings-surface.light-theme.apple-theme .webhook-foot button {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--a-fill);
+  color: var(--a-label);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+body.settings-surface.light-theme.apple-theme .webhook-foot button:hover { background: rgba(118, 118, 128, 0.2); }
+body.settings-surface.light-theme.apple-theme .webhook-foot button:disabled { cursor: default; opacity: 0.45; }
+
+/* ---- 0.11：深色外观 ----
+   系统色变量在 apple.css 的深色段里已经换掉，这里只补上面写死了浅色的几处。
+   二维码底板保持白色：深底二维码很多相机扫不出来。 */
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .settings-scroll::-webkit-scrollbar-thumb {
+  background: rgba(235, 235, 245, 0.28);
+  background-clip: content-box;
+}
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .switch {
+  background: rgba(120, 120, 128, 0.36);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+}
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .switch-row input:checked + .switch { background: var(--a-green); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme select {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%230a84ff'/%3E%3Cpath d='M5 6.6 8 3.8l3 2.8M5 9.4l3 2.8 3-2.8' fill='none' stroke='%23fff' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 5px center / 16px 16px no-repeat,
+    #48484a;
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 0.5px 2px rgba(0, 0, 0, 0.4);
+  color: var(--a-label);
+}
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme select:focus {
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 0.5px 2px rgba(0, 0, 0, 0.4);
+}
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme select option { background: #2c2c2e; color: var(--a-label); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme :is(.key-input, .mobile-link-row input) {
+  background: #1f1f21;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.16);
+}
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme :is(.key-input, .mobile-link-row input)::placeholder { color: var(--a-label-3); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme :is(select, .key-input, .mobile-link-row input):focus {
+  outline-color: rgba(10, 132, 255, 0.55);
+}
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .switch-row input:focus-visible + .switch { outline-color: rgba(10, 132, 255, 0.55); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .mobile-qr-wrap { box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .tailscale-row.ready .tailscale-state { background: rgba(48, 209, 88, 0.2); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .action-row:hover { background-color: rgba(255, 255, 255, 0.05); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .action-row:active { background-color: rgba(255, 255, 255, 0.09); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .action-row.danger:hover { background-color: rgba(255, 69, 58, 0.14); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme :is(.mobile-actions button:hover, .webhook-foot button:hover) { background: rgba(118, 118, 128, 0.4); }
+html[data-appearance="dark"] body.settings-surface.light-theme.apple-theme .mobile-actions button:active { background: rgba(118, 118, 128, 0.5); }

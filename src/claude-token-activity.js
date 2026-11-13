@@ -25,6 +25,10 @@ function parseClaudeTranscriptLines(raw) {
     const cacheCreationTokens = nonNegativeFiniteNumber(usage.cache_creation_input_tokens);
     const cachedInputTokens = nonNegativeFiniteNumber(usage.cache_read_input_tokens);
     const totalInputTokens = inputTokens + cacheCreationTokens + cachedInputTokens;
+    // 缓存写分 5 分钟和 1 小时两档，价格差一倍；旧记录没有拆分时按 5 分钟档。
+    const split = usage.cache_creation && typeof usage.cache_creation === 'object' ? usage.cache_creation : null;
+    const write1h = split ? Math.min(nonNegativeFiniteNumber(split.ephemeral_1h_input_tokens), cacheCreationTokens) : 0;
+    const write5m = cacheCreationTokens - write1h;
     const tokens = totalInputTokens + outputTokens;
     if (tokens <= 0) continue;
 
@@ -43,8 +47,14 @@ function parseClaudeTranscriptLines(raw) {
       // Claude 的非缓存输入是 input + cache_creation，只有 cache_read 才是命中缓存的部分。
       // 漏掉 cache_creation 会把「读写」少算十几倍——它恰恰是模型第一次真正处理的新增内容。
       ioTokens: inputTokens + cacheCreationTokens + outputTokens,
+      baseInputTokens: inputTokens,
+      cacheWrite5mTokens: write5m,
+      cacheWrite1hTokens: write1h,
+      outputTokens,
+      speed: usage.speed === 'fast' ? 'fast' : 'standard',
       model: String(message.model || '').trim() || null,
-      sessionId: record.sessionId || null
+      sessionId: record.sessionId || null,
+      cwd: typeof record.cwd === 'string' && record.cwd ? record.cwd : null
     });
   }
   return entries;

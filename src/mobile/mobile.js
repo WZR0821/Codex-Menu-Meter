@@ -55,7 +55,6 @@ const TEXT = {
     allModels: '全部模型',
     iqMetricGraded: '已判题次',
     sourceDetails: '筛选与数据说明',
-    activityDetails: '统计详情',
     quotaDetails: '使用明细',
     metricCoverage: '测评覆盖',
     radarAttention: '数据需留意 · 展开数据说明查看',
@@ -110,13 +109,11 @@ const TEXT = {
     resetKindWeekly: '一周重置',
     resetKindFull: '完全重置',
     resetWithheld: '官方接口没有向本应用提供重置卡，可在 Claude Code 里输入 /limit-reset 查看',
-    recentDays: '近 30 天',
     updated: '更新 {time}',
     remaining: '{label} 剩余',
     label5h: '5 小时',
     labelWeek: '一周',
     noReset: '暂无重置时间',
-    resetAt: '{time} 重置',
     today: '今日 Token',
     total: '近 30 天',
     io: '读写 {value}',
@@ -140,7 +137,48 @@ const TEXT = {
     sharedUsed: '共享用量',
     reset: '重置',
     tier: '套餐',
-    unavailable: '不可用'
+    unavailable: '不可用',
+    // 以下与桌面面板的文案保持一致（src/i18n.js）
+    todayUsed: '今天已使用',
+    windowUsed: '近 30 天已使用',
+    resetSoon: '即将重置',
+    resetInDH: '{d}天{h}小时后重置',
+    resetInD: '{d}天后重置',
+    resetInHM: '{h}小时{m}分钟后重置',
+    resetInH: '{h}小时后重置',
+    resetInM: '{m}分钟后重置',
+    resetTime: '重置时间',
+    inactiveFooter: '使用后开始计时',
+    unlimitedBadge: '无限制',
+    unlimitedFooter: '已取消 5 小时限制',
+    radarPaused: '雷达数据源暂不可用',
+    radarPausedHint: '原雷达站已停止提供数据。额度和重置时间来自官方接口，不受影响。',
+    resetPassed: '已重置',
+    dataAsOf: '数据截至 {time}',
+    cloudMacStale: '电脑未上传 · 上次 {time}',
+    windowName5h: '5 小时',
+    windowNameWeek: '周额度',
+    windowNameScoped: '{name}',
+    paceRunOut: '{window}：比匀速快 {delta} 个点，约 {time} 用完',
+    paceBehind: '{window}：比匀速慢 {delta} 个点，重置前用不完',
+    paceSteady: '{window}：接近匀速，重置前用不完',
+    paceEarly: '{window}：窗口刚开始，暂不预测',
+    paceExhausted: '{window}：已用完，{time} 恢复',
+    paceResetPending: '{window}：已过重置时间，等待新数据',
+    paceUnknown: '{window}：没有重置时间，无法判断节奏',
+    paceAheadBadge: '偏快 {delta}',
+    paceAheadShort: '节奏偏快',
+    trendAxisStart: '24 小时前',
+    trendAxisNow: '现在',
+    trendPaceLegend: '匀速',
+    trendUsed: '{label} {value}%',
+    trendReadout: '{time} 已用：{values}',
+    trendLabel: '近 24 小时已用额度曲线',
+    serviceLevel_maintenance: '维护中',
+    serviceLevel_minor: '性能下降',
+    serviceLevel_major: '部分故障',
+    serviceLevel_critical: '严重故障',
+    serviceStatusLine: '{name} 官方状态：{level}'
   },
   'en-US': {
     connecting: 'Connecting to Mac',
@@ -198,7 +236,6 @@ const TEXT = {
     allModels: 'All models',
     iqMetricGraded: 'Graded runs',
     sourceDetails: 'Filters & data notes',
-    activityDetails: 'Activity details',
     quotaDetails: 'Usage details',
     metricCoverage: 'Coverage',
     radarAttention: 'Data needs attention · expand data notes',
@@ -253,13 +290,11 @@ const TEXT = {
     resetKindWeekly: 'Weekly reset',
     resetKindFull: 'Full reset',
     resetWithheld: 'The official API does not return reset credits to this app. Run /limit-reset in Claude Code to view them.',
-    recentDays: 'Last 30 days',
     updated: 'Updated {time}',
     remaining: '{label} left',
     label5h: '5 hours',
     labelWeek: 'One week',
     noReset: 'No reset time',
-    resetAt: 'Resets {time}',
     today: 'Today',
     total: 'Last 30 days',
     io: 'I/O {value}',
@@ -283,7 +318,47 @@ const TEXT = {
     sharedUsed: 'Shared use',
     reset: 'Reset',
     tier: 'Tier',
-    unavailable: 'Unavailable'
+    unavailable: 'Unavailable',
+    todayUsed: 'Today used',
+    windowUsed: '30-day used',
+    resetSoon: 'Resetting soon',
+    resetInDH: 'Resets in {d}d {h}h',
+    resetInD: 'Resets in {d}d',
+    resetInHM: 'Resets in {h}h {m}m',
+    resetInH: 'Resets in {h}h',
+    resetInM: 'Resets in {m}m',
+    resetTime: 'Resets at',
+    inactiveFooter: 'Timer starts after first use',
+    unlimitedBadge: 'Unlimited',
+    unlimitedFooter: 'No 5-hour limit',
+    radarPaused: 'Radar source unavailable',
+    radarPausedHint: 'The radar site no longer publishes data. Quota and reset times come from the official API and are unaffected.',
+    resetPassed: 'Reset',
+    dataAsOf: 'Data as of {time}',
+    cloudMacStale: 'Mac not syncing · Last {time}',
+    windowName5h: '5h',
+    windowNameWeek: 'Weekly',
+    windowNameScoped: '{name}',
+    paceRunOut: '{window}: {delta} pts ahead, runs out ~{time}',
+    paceBehind: '{window}: {delta} pts under pace, lasts until reset',
+    paceSteady: '{window}: near even pace, lasts until reset',
+    paceEarly: '{window}: window just started, no projection yet',
+    paceExhausted: '{window}: used up, back at {time}',
+    paceResetPending: '{window}: reset passed, waiting for fresh data',
+    paceUnknown: '{window}: no reset time, pace unknown',
+    paceAheadBadge: '+{delta} pts',
+    paceAheadShort: 'Running fast',
+    trendAxisStart: '24h ago',
+    trendAxisNow: 'Now',
+    trendPaceLegend: 'Even pace',
+    trendUsed: '{label} {value}%',
+    trendReadout: '{time} used: {values}',
+    trendLabel: 'Quota used over the last 24 hours',
+    serviceLevel_maintenance: 'Maintenance',
+    serviceLevel_minor: 'Degraded',
+    serviceLevel_major: 'Partial outage',
+    serviceLevel_critical: 'Major outage',
+    serviceStatusLine: '{name} status: {level}'
   },
   'ja-JP': {
     connecting: 'Mac に接続中',
@@ -341,7 +416,6 @@ const TEXT = {
     allModels: '全モデル',
     iqMetricGraded: '累計採点数',
     sourceDetails: '絞り込みとデータについて',
-    activityDetails: '利用の詳細',
     quotaDetails: '使用内訳',
     metricCoverage: '測定範囲',
     radarAttention: 'データに注意・詳細をご確認ください',
@@ -396,13 +470,11 @@ const TEXT = {
     resetKindWeekly: '週間リセット',
     resetKindFull: 'フルリセット',
     resetWithheld: '公式 API はこのアプリにリセットカードを返しません。Claude Code で /limit-reset を実行して確認できます。',
-    recentDays: '直近 30 日',
     updated: '{time} 更新',
     remaining: '{label} 残量',
     label5h: '5 時間',
     labelWeek: '1 週間',
     noReset: 'リセット時刻なし',
-    resetAt: '{time} リセット',
     today: '今日の Token',
     total: '直近 30 日',
     io: '読み書き {value}',
@@ -426,7 +498,47 @@ const TEXT = {
     sharedUsed: '共有使用量',
     reset: 'リセット',
     tier: 'プラン',
-    unavailable: '利用不可'
+    unavailable: '利用不可',
+    todayUsed: '今日の使用量',
+    windowUsed: '直近30日の使用量',
+    resetSoon: 'まもなくリセット',
+    resetInDH: '{d}日{h}時間後リセット',
+    resetInD: '{d}日後リセット',
+    resetInHM: '{h}時間{m}分後リセット',
+    resetInH: '{h}時間後リセット',
+    resetInM: '{m}分後リセット',
+    resetTime: 'リセット時刻',
+    inactiveFooter: '使用開始後にカウント',
+    unlimitedBadge: '無制限',
+    unlimitedFooter: '5時間制限は廃止',
+    radarPaused: 'レーダーのデータ元は利用不可',
+    radarPausedHint: '元のレーダーサイトはデータ提供を終了しました。使用枠とリセット時刻は公式 API から取得しており、影響はありません。',
+    resetPassed: 'リセット済み',
+    dataAsOf: '{time} 時点のデータ',
+    cloudMacStale: 'Mac 未同期 · 最終 {time}',
+    windowName5h: '5時間',
+    windowNameWeek: '週間',
+    windowNameScoped: '{name}',
+    paceRunOut: '{window}：均等より {delta} pt 速く、{time} 頃に上限',
+    paceBehind: '{window}：均等より {delta} pt 遅く、リセットまで持ちます',
+    paceSteady: '{window}：ほぼ均等ペース、リセットまで持ちます',
+    paceEarly: '{window}：開始直後のため予測なし',
+    paceExhausted: '{window}：上限到達、{time} に回復',
+    paceResetPending: '{window}：リセット時刻を過ぎました。新しいデータ待ち',
+    paceUnknown: '{window}：リセット時刻がなくペース不明',
+    paceAheadBadge: '速め +{delta}',
+    paceAheadShort: 'ペース速め',
+    trendAxisStart: '24 時間前',
+    trendAxisNow: '現在',
+    trendPaceLegend: '均等ペース',
+    trendUsed: '{label} {value}%',
+    trendReadout: '{time} 使用：{values}',
+    trendLabel: '直近 24 時間の使用量の推移',
+    serviceLevel_maintenance: 'メンテナンス中',
+    serviceLevel_minor: 'パフォーマンス低下',
+    serviceLevel_major: '一部障害',
+    serviceLevel_critical: '重大な障害',
+    serviceStatusLine: '{name} 公式ステータス：{level}'
   }
 };
 
@@ -440,8 +552,12 @@ const els = {
   usageHeading: document.getElementById('usageHeading'),
   usageUpdated: document.getElementById('usageUpdated'),
   quotaGrid: document.getElementById('quotaGrid'),
+  serviceBanner: document.getElementById('serviceBanner'),
+  paceCard: document.getElementById('paceCard'),
+  tokenHeading: document.getElementById('tokenHeading'),
   tokenUpdated: document.getElementById('tokenUpdated'),
   tokenCard: document.getElementById('tokenCard'),
+  radarView: document.getElementById('radarView'),
   radarSubtabs: [...document.querySelectorAll('.radar-subtab')],
   radarSubviews: [...document.querySelectorAll('.radar-subview')],
   recommendedTitle: document.getElementById('recommendedTitle'),
@@ -528,6 +644,9 @@ let syncCredentials = null;
 let syncEtag = '';
 let syncUpdatedAt = null;
 let syncPollTimer = null;
+let connectionAlive = false;
+// 节奏计算和桌面面板共用 usage-pace.js（同目录，云端页面也带着它）。
+const PACE = window.CMM_PACE || null;
 let pairingFragmentInvalid = false;
 
 function T(key, params = {}) {
@@ -666,25 +785,46 @@ async function api(path, options = {}) {
   return response.json();
 }
 
+// 云端模式下，电脑每隔 heartbeatMs 至少上传一次（数据没变也传）。连续三次没等到，
+// 多半是电脑睡眠或断网：云端能连上，但内容已经旧了，状态点改成橙色并写明上次时间。
+function cloudSnapshotStale() {
+  const heartbeat = Number(currentState?.sync?.heartbeatMs) || 0;
+  return Boolean(syncUpdatedAt && heartbeat && Date.now() - syncUpdatedAt > heartbeat * 3);
+}
+
 function setConnection(connected) {
-  document.body.classList.toggle('offline', !connected);
+  connectionAlive = connected;
+  const macStale = connectionMode === 'cloud' && connected && cloudSnapshotStale();
+  document.body.classList.toggle('offline', !connected || macStale);
   if (connectionMode === 'cloud') {
     const time = syncUpdatedAt ? formatClock(syncUpdatedAt) : '--';
-    els.connectionLabel.textContent = connected
-      ? T('cloudLive', { time })
-      : T('cloudOffline', { time });
+    els.connectionLabel.textContent = !connected
+      ? T('cloudOffline', { time })
+      : macStale ? T('cloudMacStale', { time }) : T('cloudLive', { time });
     return;
   }
   els.connectionLabel.textContent = connected ? T('live') : T('offline');
 }
 
+// 用访问密钥换一个 HttpOnly Cookie。事件流（EventSource 不能带请求头）靠这个 Cookie 鉴权，
+// 密钥不进 URL，也就不会留在代理日志和浏览器历史里。
+async function ensureSession() {
+  if (!accessToken) return;
+  try {
+    await fetch('/api/session', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: 'no-store'
+    });
+  } catch {
+    // 连不上时由调用方处理。
+  }
+}
+
 function connectEvents() {
   eventSource?.close();
   clearTimeout(reconnectTimer);
-  const eventUrl = accessToken
-    ? `/api/events?token=${encodeURIComponent(accessToken)}`
-    : '/api/events';
-  eventSource = new EventSource(eventUrl);
+  eventSource = new EventSource('/api/events');
   eventSource.addEventListener('state', (event) => {
     try {
       applyState(JSON.parse(event.data));
@@ -696,7 +836,10 @@ function connectEvents() {
   eventSource.onerror = () => {
     setConnection(false);
     eventSource?.close();
-    reconnectTimer = window.setTimeout(connectEvents, 5000);
+    // Cookie 可能被清掉了：重连前先重新换一次。
+    reconnectTimer = window.setTimeout(() => {
+      ensureSession().finally(connectEvents);
+    }, 5000);
   };
 }
 
@@ -883,86 +1026,446 @@ function render() {
   document.body.dataset.provider = provider;
   document.body.dataset.view = activeView;
   if (!providerData) return;
-  restoreDisclosures();
-  if (activeView === 'usage') {
-    els.usageHeading.textContent = T('usageTitle', { name: providerData.label });
-    renderSection('usage', [providerData.usage, providerData.activity?.data?.windows], () => renderUsage(providerData.usage, providerData.activity));
-    renderSection('activity', [providerData.activity, selectedDayByProvider[provider], isoDate(new Date())], () => renderActivity(providerData.activity));
+  // 附加平台（Kimi / GLM / Qwen）只有额度，没有本机 Token 记录和雷达：对应的区块收起来。
+  const hasActivity = Boolean(providerData.activity);
+  const hasRadar = Boolean(providerData.radar);
+  document.body.dataset.providerKind = hasActivity || hasRadar ? 'main' : 'extra';
+  els.tokenHeading.hidden = !hasActivity;
+  els.tokenCard.hidden = !hasActivity;
+  if (!hasRadar && activeView === 'radar') {
+    selectView('usage');
     return;
   }
+  restoreDisclosures();
+  if (activeView === 'usage') {
+    // 套餐名只有 Claude 显示，和桌面面板一致。
+    const planLabel = provider === 'claude' && providerData.usage?.data?.planType
+      ? ` · ${formatPlanType(providerData.usage.data.planType)}`
+      : '';
+    els.usageHeading.textContent = T('usageTitle', { name: providerData.label }) + planLabel;
+    // 卡片上写的是「多久后重置」，所以分钟数也算进签名：数据没变，过一分钟也要重画。
+    renderSection('usage', [providerData.usage, providerData.activity?.data?.windows, minuteStamp()], () => renderUsage(providerData.usage, providerData.activity));
+    renderServiceBanner(providerData.serviceStatus, provider === 'claude' ? 'Claude' : 'OpenAI');
+    if (hasActivity) {
+      renderSection('activity', [providerData.activity, selectedDayByProvider[provider], isoDate(new Date())], () => renderActivity(providerData.activity));
+    }
+    renderSection('pace', [providerData.usage?.data, providerData.history?.day?.at(-1)?.t, minuteStamp()], () => renderPaceCard(providerData.usage?.data, providerData.history));
+    fitPaceCard();
+    return;
+  }
+  els.paceCard.hidden = true;
   renderRadar(providerData.radar, providerData.usage, providerData.activity);
 }
 
+function minuteStamp() {
+  return Math.floor(Date.now() / 60_000);
+}
+
+function formatPlanType(value) {
+  const text = String(value || '').trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
+}
+
+const MAIN_PROVIDERS = ['codex', 'claude'];
+
 function renderUsage(usageSlice, activitySlice) {
-  els.usageUpdated.textContent = formatUpdated(usageSlice?.fetchedAt);
+  // 获取失败或超过 staleAfterMs 没刷新：标题右侧改成橙色的「数据截至 hh:mm」，卡片照常显示上次的数。
+  const stale = Boolean(usageSlice?.data && usageSlice.fetchedAt)
+    && (usageSlice.status === 'error' || Boolean(PACE?.isStale(usageSlice.fetchedAt, usageSlice.staleAfterMs)));
+  els.usageUpdated.textContent = stale
+    ? T('dataAsOf', { time: formatClock(usageSlice.fetchedAt) })
+    : formatUpdated(usageSlice?.fetchedAt);
+  els.usageUpdated.classList.toggle('stale', stale);
   const usage = usageSlice?.data;
   if (!usage) {
     updateHtml(els.quotaGrid, empty(usageSlice?.error));
     return;
   }
   const activityWindows = activitySlice?.data?.windows || {};
+  const isExtra = !MAIN_PROVIDERS.includes(provider);
   const cards = [];
   if (usage.fiveHourUnlimited) {
-    cards.push(quotaTemplate({ remainingPercent: 100 }, T('label5h'), true, activityWindows.fiveHour, 'fiveHour'));
+    cards.push(unlimitedTemplate(T('label5h'), activityWindows.fiveHour));
   } else if (usage.primaryWindow) {
-    cards.push(quotaTemplate(usage.primaryWindow, T('label5h'), false, activityWindows.fiveHour, 'fiveHour'));
+    cards.push(quotaTemplate(usage.primaryWindow, T('label5h'), {
+      kind: 'five',
+      activityWindow: activityWindows.fiveHour,
+      detailKey: 'fiveHour'
+    }));
   }
   if (usage.secondaryWindow) {
-    cards.push(quotaTemplate(usage.secondaryWindow, T('labelWeek'), false, activityWindows.week, 'week'));
+    cards.push(quotaTemplate(usage.secondaryWindow, T('labelWeek'), {
+      kind: 'week',
+      activityWindow: activityWindows.week,
+      detailKey: 'week'
+    }));
   }
-  for (const windowValue of usage.extraWindows || []) {
-    cards.push(quotaTemplate(windowValue, windowValue.name || T('labelWeek')));
-  }
-  updateHtml(els.quotaGrid, cards.length ? cards.join('') : empty(usageSlice?.error));
+  // 附加平台的额外窗口本身就是主要信息，保持整张卡。GPT / Claude 的专项周限额（例如 Fable）
+  // 是补充信息：手机上卡片窄，并进「一周」卡会把重置时间挤掉，所以在两张卡下面单占一行。
+  // 专项限额不止一项时两两并排、只留名称和百分比，免得把 Token 活动挤出一屏。
+  const extraWindows = usage.extraWindows || [];
+  const compact = !isExtra && extraWindows.length > 1;
+  const slimRows = [];
+  extraWindows.forEach((windowValue, index) => {
+    const name = String(windowValue.name || '').trim();
+    if (isExtra) {
+      cards.push(quotaTemplate(windowValue, name || T('labelWeek'), { kind: 'extra', detailKey: `extra-${index}` }));
+    } else {
+      // 「一周 · 」前缀单独包一层：窄屏上先省掉它，把位置让给重置倒计时。
+      slimRows.push(quotaSlimRowTemplate(windowValue, name || T('labelWeek'), name && !compact ? T('labelWeek') : ''));
+    }
+  });
+  const markup = `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows${compact ? ' compact' : ''}">${slimRows.join('')}</div>` : ''}`;
+  updateHtml(els.quotaGrid, markup || empty(usageSlice?.error));
 }
 
-function quotaTemplate(windowValue, label, unlimited = false, activityWindow = null, activityWindowKey = null) {
-  const remaining = unlimited ? 100 : clamp(Math.round(Number(windowValue.remainingPercent) || 0), 0, 100);
-  const color = remaining <= 20 ? 'var(--danger)' : remaining <= 50 ? 'var(--warning)' : 'var(--accent)';
-  const reset = unlimited ? '∞' : windowValue.resetAt ? formatClock(windowValue.resetAt) : '--';
-  const footer = unlimited ? 'Unlimited' : windowValue.resetAt
-    ? T('resetAt', { time: formatDateTime(windowValue.resetAt) })
-    : T('noReset');
+function remainingPercentOf(windowValue) {
+  return clamp(Math.round(Number(windowValue?.remainingPercent) || 0), 0, 100);
+}
+
+function quotaFooter(windowValue) {
+  if (windowValue.resetAt) return formatReset(windowValue.resetAt);
+  return T(windowValue.inactive ? 'inactiveFooter' : 'noReset');
+}
+
+function quotaTemplate(windowValue, label, { kind = 'five', activityWindow = null, detailKey = null } = {}) {
+  const remaining = remainingPercentOf(windowValue);
+  const critical = !windowValue.inactive && remaining <= 10;
+  const pace = windowPace(windowValue, kind === 'five' ? 'five' : kind === 'week' ? 'week' : extraPaceKey(windowValue));
+  const serious = !critical && pace?.tier === 'serious';
   return `
-    <article class="quota-card" style="--quota:${remaining}%; --quota-color:${color}">
-      <div class="quota-top">
-        <span>${escapeHtml(T('remaining', { label }))}</span>
-        <span class="quota-reset">${escapeHtml(reset)}</span>
-      </div>
-      <strong class="quota-value">${unlimited ? '∞' : `${remaining}%`}</strong>
-      <div class="quota-progress"><i></i></div>
-      <small>${escapeHtml(footer)}</small>
-      ${quotaActivityTemplate(activityWindowKey, activityWindow)}
+    <article class="quota-card quota-card-${kind}${critical ? ' critical' : ''}${serious ? ' pace-serious' : ''}" style="--quota:${remaining}%">
+      <div class="quota-top">${escapeHtml(T('remaining', { label }))}</div>
+      <div class="quota-value-row"><strong class="quota-value">${remaining}%</strong>${critical ? '' : paceFlagHtml(pace)}</div>
+      <div class="quota-progress" aria-hidden="true"><i></i>${paceTickHtml(pace)}</div>
+      <small>${escapeHtml(quotaFooter(windowValue))}</small>
+      ${quotaActivityTemplate(detailKey, activityWindow, windowValue)}
     </article>
   `;
 }
 
-function quotaActivityTemplate(windowKey, activityWindow) {
-  if (!activityWindow) return '';
-  const tone = cacheHitTone(activityWindow.cachedInputTokens, activityWindow.inputTokens);
-  const titleKey = windowKey === 'fiveHour' ? 'windowUsage5h' : 'windowUsageWeek';
+function unlimitedTemplate(label, activityWindow = null) {
   return `
-    <details class="quota-activity inline-details" data-detail="quota-${escapeHtml(windowKey)}">
-      <summary>${escapeHtml(T('quotaDetails'))}</summary>
-      <div class="disclosure-content">
-      <div class="quota-activity-head">
-        <span>${escapeHtml(T(titleKey))}</span>
-        <b>${escapeHtml(T('totalShort', { value: formatTokens(activityWindow.tokens, false) }))}</b>
+    <article class="quota-card quota-card-five quota-card-unlimited" style="--quota:100%">
+      <div class="quota-top">${escapeHtml(T('remaining', { label }))}</div>
+      <strong class="quota-value">${escapeHtml(T('unlimitedBadge'))}</strong>
+      <div class="quota-progress" aria-hidden="true"><i></i></div>
+      <small>${escapeHtml(T('unlimitedFooter'))}</small>
+      ${quotaActivityTemplate('fiveHour', activityWindow)}
+    </article>
+  `;
+}
+
+function quotaSlimRowTemplate(windowValue, label, prefix = '') {
+  const remaining = remainingPercentOf(windowValue);
+  const critical = !windowValue.inactive && remaining <= 10;
+  const pace = windowPace(windowValue, extraPaceKey(windowValue));
+  const serious = !critical && pace?.tier === 'serious';
+  // 行内没有空位放「偏快 N」：只在名称前放一个 ▲，颜色只落在图标上。
+  const icon = !critical && ['warning', 'serious'].includes(pace?.tier)
+    ? `<i class="pace-icon tier-${pace.tier}" role="img" aria-label="${escapeHtml(T('paceAheadShort'))}">▲</i>`
+    : '';
+  const prefixHtml = prefix ? `<span class="quota-slim-prefix">${escapeHtml(prefix)} · </span>` : '';
+  return `
+    <div class="quota-slim-row${critical ? ' critical' : ''}${serious ? ' pace-serious' : ''}" style="--quota:${remaining}%">
+      <span class="quota-slim-name">${icon}${prefixHtml}${escapeHtml(T('remaining', { label }))}</span>
+      <small>${escapeHtml(quotaFooter(windowValue))}</small>
+      <strong>${remaining}%</strong>
+      <span class="quota-slim-bar" aria-hidden="true"><i></i>${paceTickHtml(pace)}</span>
+    </div>
+  `;
+}
+
+// ---- 节奏 ----
+// 进度条显示的是「剩余」，匀速刻度放在「按匀速此刻应剩」的位置：填充短于刻度就是用得比匀速快。
+// 只给 GPT / Claude 算：附加平台的窗口长度不固定，算出来没有意义。
+function extraPaceKey(windowValue) {
+  return `extra:${String(windowValue?.name || '').trim() || 'limit'}`;
+}
+
+function windowPace(windowValue, key) {
+  if (!PACE || !windowValue || windowValue.inactive || !MAIN_PROVIDERS.includes(provider)) return null;
+  return PACE.computePace(windowValue, { durationMs: PACE.windowDurationMs(key, provider) });
+}
+
+function paceTickHtml(pace) {
+  if (!pace?.ready || pace.elapsedPercent === null) return '';
+  const left = clamp(100 - pace.elapsedPercent, 0, 100);
+  return `<span class="pace-tick" style="--pace-left:${left.toFixed(1)}%"></span>`;
+}
+
+function paceFlagHtml(pace) {
+  if (!pace?.ready || !['warning', 'serious'].includes(pace.tier)) return '';
+  const delta = Math.round(Math.abs(pace.delta));
+  return `<em class="pace-flag tier-${pace.tier}" aria-label="${escapeHtml(T('paceAheadShort'))}"><i aria-hidden="true">▲</i><span>${escapeHtml(T('paceAheadBadge', { delta }))}</span></em>`;
+}
+
+function paceWindowName(entry) {
+  if (entry.key === 'five') return T('windowName5h');
+  if (entry.key === 'week') return T('windowNameWeek');
+  return T('windowNameScoped', { name: entry.name || '' });
+}
+
+// 和桌面面板 paceLine 同一套判断，文案按手机宽度缩短。
+function paceLineFor(entry) {
+  const pace = entry?.pace;
+  if (!pace) return null;
+  const window = paceWindowName(entry);
+  const delta = Math.round(Math.abs(pace.delta || 0));
+  switch (pace.status) {
+    case 'exhausted':
+      return { text: T('paceExhausted', { window, time: formatMoment(pace.resetAt) }), tier: 'critical' };
+    case 'reset':
+      return { text: T('paceResetPending', { window }), tier: 'neutral' };
+    case 'early':
+      return { text: T('paceEarly', { window }), tier: 'neutral' };
+    case 'unknown':
+    case 'idle':
+      return { text: T('paceUnknown', { window }), tier: 'neutral' };
+    default:
+      break;
+  }
+  if (!pace.lastsUntilReset && pace.runOutAt) {
+    return { text: T('paceRunOut', { window, delta, time: formatMoment(pace.runOutAt) }), tier: pace.tier };
+  }
+  if (pace.status === 'behind') return { text: T('paceBehind', { window, delta }), tier: 'good' };
+  return { text: T('paceSteady', { window }), tier: 'good' };
+}
+
+// 今天之内只写时刻，跨天带上日期（周限额的用完时间常在几天后）。
+function formatMoment(value) {
+  const date = new Date(Number(value) || value);
+  if (Number.isNaN(date.getTime())) return '--';
+  const today = new Date();
+  return date.toDateString() === today.toDateString() ? formatClock(date.getTime()) : formatDateTime(date.getTime());
+}
+
+// ---- 官方状态 ----
+const SERVICE_LEVELS = ['maintenance', 'minor', 'major', 'critical'];
+
+function renderServiceBanner(status, name) {
+  const banner = els.serviceBanner;
+  const level = SERVICE_LEVELS.includes(status?.level) ? status.level : null;
+  document.body.classList.toggle('service-alert', Boolean(level));
+  if (!level) {
+    banner.hidden = true;
+    return;
+  }
+  const affected = (status.components || []).filter((item) => item.level && item.level !== 'none').map((item) => item.name);
+  const detail = status.incidents?.[0]?.name || affected.join(' / ');
+  banner.className = `service-banner level-${level}`;
+  if (status.home && /^https:\/\//.test(status.home)) banner.href = status.home;
+  else banner.removeAttribute('href');
+  updateHtml(banner, `<i class="service-dot" aria-hidden="true"></i><b>${escapeHtml(T('serviceStatusLine', { name, level: T(`serviceLevel_${level}`) }))}</b>${detail ? `<span>${escapeHtml(detail)}</span>` : ''}`);
+  banner.hidden = false;
+}
+
+// ---- 近 24 小时曲线 + 节奏说明 ----
+// 曲线画「已用 %」（和桌面面板的额度曲线一致），虚线是当前最紧那个窗口的匀速线。
+// 按住或滑过曲线，第一行换成那个时刻的读数；松手 1.5 秒后恢复节奏说明。
+const MINI_TREND_SPAN_MS = 24 * 3600_000;
+const MINI_TREND_GAP_MS = 45 * 60_000;
+const MINI_TREND_W = 300;
+const MINI_TREND_H = 52;
+const MINI_TREND_PAD = 3;
+let miniTrendModel = null;
+let miniTrendRestoreTimer = null;
+
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function miniTrendX(t, start) {
+  return clamp((t - start) / MINI_TREND_SPAN_MS, 0, 1) * MINI_TREND_W;
+}
+
+function miniTrendY(value) {
+  const usable = MINI_TREND_H - MINI_TREND_PAD * 2;
+  return MINI_TREND_PAD + (1 - clamp(value, 0, 100) / 100) * usable;
+}
+
+function miniTrendSeries(usage, points) {
+  const series = [];
+  if (!usage.fiveHourUnlimited && usage.primaryWindow) series.push({ key: 'five', cls: 'five', label: T('label5h'), read: (point) => point.five });
+  if (usage.secondaryWindow) series.push({ key: 'week', cls: 'week', label: T('labelWeek'), read: (point) => point.week });
+  // 专项周限额只画一条：两条同色的线分不清，第二条以后只看卡片。
+  const scoped = (usage.extraWindows || []).find((item) => item && !item.inactive && String(item.name || '').trim());
+  if (provider === 'claude' && scoped) {
+    const name = String(scoped.name).trim();
+    series.push({ key: `extra:${name}`, cls: 'scoped', label: name, read: (point) => point.ex?.[name] });
+  }
+  return series.filter((item) => points.some((point) => finiteOrNull(item.read(point)) !== null));
+}
+
+function miniTrendPath(points, read, start, now) {
+  let path = '';
+  let previous = null;
+  for (const point of points) {
+    const t = Number(point.t);
+    const value = finiteOrNull(read(point));
+    if (!(t >= start && t <= now) || value === null) {
+      previous = null;
+      continue;
+    }
+    const command = previous === null || t - previous > MINI_TREND_GAP_MS ? 'M' : 'L';
+    path += `${command}${miniTrendX(t, start).toFixed(1)} ${miniTrendY(value).toFixed(1)}`;
+    previous = t;
+  }
+  return path;
+}
+
+function renderPaceCard(usage, history) {
+  const card = els.paceCard;
+  const points = (Array.isArray(history?.day) ? history.day : []).filter((point) => Number.isFinite(Number(point?.t)));
+  const now = Date.now();
+  const start = now - MINI_TREND_SPAN_MS;
+  const series = usage && MAIN_PROVIDERS.includes(provider) ? miniTrendSeries(usage, points) : [];
+  const entries = usage && PACE ? PACE.listWindows(usage, { provider, now }) : [];
+  const focus = PACE?.mostUrgent(entries) || null;
+  const line = paceLineFor(focus);
+  // 近 24 小时少于两个点时画不出曲线（刚升级或刚配对），整张卡先不显示。
+  const plotted = series.some((item) => points.filter((point) => Number(point.t) >= start && finiteOrNull(item.read(point)) !== null).length >= 2);
+  if (!series.length || !line || !plotted) {
+    miniTrendModel = null;
+    card.dataset.ready = '';
+    updateHtml(card, '');
+    return;
+  }
+  const grid = [0, 50, 100].map((value) => `<line class="mini-grid${value === 0 ? ' base' : ''}" x1="0" x2="${MINI_TREND_W}" y1="${miniTrendY(value).toFixed(1)}" y2="${miniTrendY(value).toFixed(1)}" vector-effect="non-scaling-stroke"/>`).join('');
+  const focusSeries = series.find((item) => item.key === focus.key);
+  let guide = '';
+  const pace = focus.pace;
+  if (focusSeries && pace?.ready && pace.startAt && pace.durationMs) {
+    const from = Math.max(pace.startAt, start);
+    const to = Math.min(now, pace.resetAt || now);
+    if (to > from) {
+      const at = (t) => miniTrendY(((t - pace.startAt) / pace.durationMs) * 100);
+      guide = `<path class="mini-guide series-${focusSeries.cls}" d="M${miniTrendX(from, start).toFixed(1)} ${at(from).toFixed(1)}L${miniTrendX(to, start).toFixed(1)} ${at(to).toFixed(1)}" vector-effect="non-scaling-stroke"/>`;
+    }
+  }
+  const paths = series.map((item) => `<path class="mini-series series-${item.cls}" d="${miniTrendPath(points, item.read, start, now)}" vector-effect="non-scaling-stroke"/>`).join('');
+  // 末端圆点用 HTML 画：SVG 横向拉伸时圆会变形。
+  const dots = series.map((item) => {
+    const last = points.filter((point) => Number(point.t) >= start && finiteOrNull(item.read(point)) !== null).at(-1);
+    if (!last) return '';
+    const left = (miniTrendX(Number(last.t), start) / MINI_TREND_W) * 100;
+    return `<span class="mini-dot series-${item.cls}" style="left:${left.toFixed(2)}%;top:${miniTrendY(finiteOrNull(item.read(last))).toFixed(1)}px"></span>`;
+  }).join('');
+  const legend = series.map((item) => `<span class="mini-key series-${item.cls}"><i></i>${escapeHtml(item.label)}</span>`).join('')
+    + (guide ? `<span class="mini-key mini-key-guide"><i></i>${escapeHtml(T('trendPaceLegend'))}</span>` : '');
+  const icon = ['warning', 'serious', 'critical'].includes(line.tier)
+    ? `<i class="pace-icon tier-${line.tier}" aria-hidden="true">▲</i>`
+    : '';
+  miniTrendModel = { points, series, start, defaultHtml: `${icon}<span>${escapeHtml(line.text)}</span>` };
+  card.dataset.ready = '1';
+  updateHtml(card, `
+    <div class="pace-line" aria-live="polite">${miniTrendModel.defaultHtml}</div>
+    <div class="mini-trend" role="img" aria-label="${escapeHtml(T('trendLabel'))}">
+      <div class="mini-plot">
+        <svg viewBox="0 0 ${MINI_TREND_W} ${MINI_TREND_H}" preserveAspectRatio="none" aria-hidden="true">${grid}${guide}${paths}</svg>
+        ${dots}
+        <span class="mini-cursor" hidden></span>
       </div>
-      <small>
-        <span>${escapeHtml(T('io', { value: formatTokens(activityWindow.ioTokens, false) }))}</span>
-        <em class="cache-hit-rate ${tone}">${escapeHtml(T('cacheHitShort', {
-          value: formatCacheHitRate(activityWindow.cachedInputTokens, activityWindow.inputTokens)
-        }))}</em>
-      </small>
-      </div>
+      ${[100, 50, 0].map((value) => `<span class="mini-y" aria-hidden="true" style="top:${miniTrendY(value).toFixed(1)}px">${value}%</span>`).join('')}
+    </div>
+    <div class="mini-trend-foot">
+      <span>${escapeHtml(T('trendAxisStart'))}</span>
+      <span class="mini-legend">${legend}</span>
+      <span>${escapeHtml(T('trendAxisNow'))}</span>
+    </div>
+  `);
+}
+
+function showMiniTrendReadout(event) {
+  const chart = event.target.closest?.('.mini-trend');
+  const plot = chart?.querySelector('.mini-plot');
+  if (!plot || !miniTrendModel) return;
+  clearTimeout(miniTrendRestoreTimer);
+  const rect = plot.getBoundingClientRect();
+  const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+  const { points, series, start } = miniTrendModel;
+  const t = start + ratio * MINI_TREND_SPAN_MS;
+  let nearest = null;
+  for (const point of points) {
+    const distance = Math.abs(Number(point.t) - t);
+    if (Number(point.t) >= start && (!nearest || distance < nearest.distance)) nearest = { point, distance };
+  }
+  const line = els.paceCard.querySelector('.pace-line');
+  const cursor = chart.querySelector('.mini-cursor');
+  if (!nearest || nearest.distance > MINI_TREND_GAP_MS || !line || !cursor) return;
+  const values = series
+    .map((item) => {
+      const value = finiteOrNull(item.read(nearest.point));
+      return value === null ? '' : T('trendUsed', { label: item.label, value: Math.round(value) });
+    })
+    .filter(Boolean);
+  line.innerHTML = `<span>${escapeHtml(T('trendReadout', { time: formatClock(Number(nearest.point.t)), values: values.join(' · ') }))}</span>`;
+  cursor.style.left = `${((miniTrendX(Number(nearest.point.t), start) / MINI_TREND_W) * 100).toFixed(2)}%`;
+  cursor.hidden = false;
+}
+
+function hideMiniTrendReadout(event) {
+  if (!event.target.closest?.('.mini-trend') || !miniTrendModel) return;
+  clearTimeout(miniTrendRestoreTimer);
+  const restore = () => {
+    const line = els.paceCard.querySelector('.pace-line');
+    const cursor = els.paceCard.querySelector('.mini-cursor');
+    if (line && miniTrendModel) line.innerHTML = miniTrendModel.defaultHtml;
+    if (cursor) cursor.hidden = true;
+  };
+  if (event.pointerType === 'mouse') restore();
+  else miniTrendRestoreTimer = window.setTimeout(restore, 1500);
+}
+
+// 先放出来量一次：整页超出一屏就收起（小屏、展开明细、有故障横幅时）。
+function fitPaceCard() {
+  const card = els.paceCard;
+  if (!card) return;
+  if (activeView !== 'usage' || card.dataset.ready !== '1') {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  if (document.documentElement.scrollHeight > window.innerHeight + 1) card.hidden = true;
+}
+
+// 卡片右上角箭头点开的明细：具体的重置时刻，加上同一周期内的本机 Token 用量。
+function quotaActivityTemplate(detailKey, activityWindow, windowValue = null) {
+  const rows = [];
+  if (windowValue?.resetAt) {
+    rows.push(`<div class="quota-activity-row"><span>${escapeHtml(T('resetTime'))}</span><b>${escapeHtml(formatDateTime(windowValue.resetAt))}</b></div>`);
+  }
+  if (activityWindow) {
+    const tone = cacheHitTone(activityWindow.cachedInputTokens, activityWindow.inputTokens);
+    const titleKey = detailKey === 'fiveHour' ? 'windowUsage5h' : 'windowUsageWeek';
+    rows.push(`<div class="quota-activity-row"><span>${escapeHtml(T(titleKey))}</span><b>${escapeHtml(T('totalShort', { value: formatTokens(activityWindow.tokens, false) }))}</b></div>`);
+    rows.push(`<div class="quota-activity-row">
+      <span>${escapeHtml(T('io', { value: formatTokens(activityWindow.ioTokens, false) }))}</span>
+      <em class="cache-hit-rate ${tone}">${escapeHtml(T('cacheHitShort', {
+        value: formatCacheHitRate(activityWindow.cachedInputTokens, activityWindow.inputTokens)
+      }))}</em>
+    </div>`);
+  }
+  if (!detailKey || !rows.length) return '';
+  return `
+    <details class="quota-activity inline-details" data-detail="quota-${escapeHtml(detailKey)}">
+      <summary aria-label="${escapeHtml(T('quotaDetails'))}"><span>${escapeHtml(T('quotaDetails'))}</span></summary>
+      <div class="disclosure-content">${rows.join('')}</div>
     </details>
   `;
 }
 
+// 大数字和单位分开排：数字用圆体，单位用小一号的次要色。
+function tokenValueHtml(value) {
+  const unit = lang === 'en-US' ? 'tokens' : 'token';
+  return `${escapeHtml(formatTokens(value, false))}<small> ${unit}</small>`;
+}
+
 function renderActivity(activitySlice) {
   const activity = activitySlice?.data;
-  els.tokenUpdated.textContent = activity ? T('recentDays') : formatUpdated(activitySlice?.fetchedAt);
+  els.tokenUpdated.textContent = formatUpdated(activitySlice?.fetchedAt);
   if (!activity) {
     updateHtml(els.tokenCard, empty(activitySlice?.error));
     return;
@@ -979,29 +1482,28 @@ function renderActivity(activitySlice) {
   updateHtml(els.tokenCard, `
     <div class="token-summary">
       <div>
-        <span>${escapeHtml(T('today'))}</span>
-        <strong>${escapeHtml(formatTokens(today.tokens))}</strong>
+        <span>${escapeHtml(T('todayUsed'))}</span>
+        <strong>${tokenValueHtml(today.tokens)}</strong>
       </div>
       <div>
-        <span>${escapeHtml(T('total'))}</span>
-        <strong>${escapeHtml(formatTokens(total))}</strong>
+        <span>${escapeHtml(T('windowUsed'))}</span>
+        <strong>${tokenValueHtml(total)}</strong>
       </div>
     </div>
-    <div class="token-detail"><strong id="selectedDayLabel">${escapeHtml(`${formatDay(selectedDay.day)} · ${formatTokens(selectedDay.tokens)}`)}</strong></div>
-    <details class="inline-details" data-detail="token-metrics">
-      <summary>${escapeHtml(T('activityDetails'))}</summary>
-      <div class="disclosure-content">
     <div class="heatmap">
       ${days.map((day) => `
         <button
           class="heat-cell${day.day === selectedDay.day ? ' active' : ''}"
           type="button"
           data-day="${escapeHtml(day.day)}"
-          style="--level:${heatLevel(day.tokens, max)}"
+          data-level="${heatLevel(day.tokens, max)}"
           aria-label="${escapeHtml(day.day)}"
         >${escapeHtml(day.day.slice(-2).replace(/^0/, ''))}</button>
       `).join('')}
     </div>
+    <details class="inline-details token-more" data-detail="token-metrics">
+      <summary><span id="selectedDayLabel">${escapeHtml(`${formatDay(selectedDay.day)} · ${formatTokens(selectedDay.tokens)}`)}</span></summary>
+      <div class="disclosure-content">
         <dl class="detail-metrics">
           ${detailMetric(T('today'), T('io', { value: formatTokens(today.ioTokens, false) }))}
           ${detailMetric(T('total'), T('io', { value: formatTokens(totalIo, false) }))}
@@ -1044,8 +1546,9 @@ function normalizeDays(rawDays) {
 function tokenDetailTemplate(day) {
   const detailMeta = `${T('sessions', { count: day.threads })} · ${T('cost', { value: formatUsd(day.costUsd) })}`;
   const cacheText = T('cacheHit', { value: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) });
+  // 日期和总量已经写在这一栏的标题行里，这里只补会话数、折算成本和命中率。
   return `
-    <strong>${escapeHtml(`${formatDay(day.day)} · ${formatTokens(day.tokens)}`)}</strong>
+    <strong>${escapeHtml(formatDay(day.day))}</strong>
     <span>${escapeHtml(detailMeta)} · <em class="cache-hit-rate ${cacheHitTone(day.cachedInputTokens, day.inputTokens)}">${escapeHtml(cacheText)}</em></span>
   `;
 }
@@ -1059,8 +1562,10 @@ function renderRadar(radarSlice, usageSlice, activitySlice) {
   els.iqUpdated.textContent = formatRadarTime(updatedAt) || formatUpdated(radarSlice?.fetchedAt);
   if (radar?.modelIq?.timestampBasis === 'read') els.iqUpdated.textContent = T('radarReadAt', { t: formatDateTime(updatedAt) });
   els.radarSource.textContent = provider === 'claude' ? T('sourceClaude') : T('sourceCodex');
+  // 没有任何雷达数据时，推荐模型卡和排序按钮都是空壳，收起来只留一句说明。
+  els.radarView.classList.toggle('radar-no-data', !radar);
   if (activeRadarView === 'intelligence') {
-    renderSection('iq', [radarSlice, radarSortByProvider[provider], radarExpandedByProvider[provider], radarLatestByProvider[provider]], () => renderIqCards(items, radarSlice?.error));
+    renderSection('iq', [radarSlice, radarSortByProvider[provider], radarExpandedByProvider[provider], radarLatestByProvider[provider]], () => renderIqCards(items, radarSlice));
     const timestamp = Date.parse(updatedAt);
     const notices = [];
     if (radar?.modelIq?.scoreMode === 'radar-bench-v2-150') {
@@ -1096,7 +1601,10 @@ function radarItemsForProvider(radar) {
   return provider === 'claude' ? radar.items || [] : radar.modelIq?.items || [];
 }
 
-function renderIqCards(allItems, error = null) {
+const RADAR_PAUSED_CODE = 'radar-source-unavailable';
+
+function renderIqCards(allItems, radarSlice = null) {
+  const error = radarSlice?.error || null;
   const latestOnly = Boolean(radarLatestByProvider[provider]);
   const items = latestOnly ? allItems.filter((item) => item.isLatest && item.isCurrentGeneration) : allItems;
   const names = provider === 'codex'
@@ -1109,7 +1617,10 @@ function renderIqCards(allItems, error = null) {
   els.latestModelsFilter.setAttribute('aria-pressed', String(latestOnly));
   if (!items.length) {
     renderRadarSummary([]);
-    updateHtml(els.iqList, empty(error || T('noIqData')));
+    const paused = !radarSlice?.data && radarSlice?.errorCode === RADAR_PAUSED_CODE;
+    updateHtml(els.iqList, paused
+      ? `<div class="empty radar-paused"><strong>${escapeHtml(T('radarPaused'))}</strong><p>${escapeHtml(T('radarPausedHint'))}</p></div>`
+      : empty(error || T('noIqData')));
     els.expandModels.hidden = true;
     return;
   }
@@ -1556,6 +2067,8 @@ function selectView(view) {
   });
   els.views.forEach((node) => node.classList.toggle('active', node.id === `${view}View`));
   if (view === 'radar') syncRadarView();
+  // render() 跑在切换 active 之前，那时量到的是另一个视图的高度：切完再量一次曲线卡。
+  fitPaceCard();
 }
 
 function showToast(message) {
@@ -1597,13 +2110,37 @@ function formatDay(day) {
   return new Intl.DateTimeFormat(lang, { month: 'short', day: 'numeric' }).format(date);
 }
 
+// 和桌面面板的 formatTokenCount（src/i18n.js）同一套写法，两边看到的数字才一样。
 function formatTokens(value, withUnit = true) {
   const number = Number(value) || 0;
-  const formatted = new Intl.NumberFormat(lang, {
-    notation: number >= 10_000 ? 'compact' : 'standard',
-    maximumFractionDigits: number >= 10_000 ? 1 : 0
-  }).format(number);
-  return withUnit ? `${formatted} token` : formatted;
+  if (lang === 'en-US') {
+    const unit = withUnit ? ' tokens' : '';
+    if (number >= 1e9) return `${(number / 1e9).toFixed(2)}B${unit}`;
+    if (number >= 1e6) return `${(number / 1e6).toFixed(2)}M${unit}`;
+    if (number >= 1e4) return `${(number / 1e3).toFixed(1)}K${unit}`;
+    return `${new Intl.NumberFormat('en-US').format(Math.round(number))}${unit}`;
+  }
+  const unit = withUnit ? ' token' : '';
+  const hundredMillion = lang === 'ja-JP' ? '億' : '亿';
+  if (number >= 1e8) return `${(number / 1e8).toFixed(2)} ${hundredMillion}${unit}`;
+  if (number >= 1e4) return `${(number / 1e4).toFixed(2)} 万${unit}`;
+  return `${new Intl.NumberFormat('en-US').format(Math.round(number))}${unit}`;
+}
+
+// 相对重置时间，四舍五入到分钟，和桌面面板、Touch Bar 的写法一致。
+function formatReset(value) {
+  const diffMs = Number(value) - Date.now();
+  // 过了 resetAt 而数据还没换成新窗口：写「已重置」，不再一直停在「即将重置」（和桌面面板一致）。
+  if (diffMs <= 0) return T('resetPassed');
+  const totalMinutes = Math.max(0, Math.round(diffMs / 60_000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return hours > 0 ? T('resetInDH', { d: days, h: hours }) : T('resetInD', { d: days });
+  if (hours > 0 && minutes > 0) return T('resetInHM', { h: hours, m: minutes });
+  if (hours > 0) return T('resetInH', { h: hours });
+  if (minutes > 0) return T('resetInM', { m: minutes });
+  return T('resetSoon');
 }
 
 function formatUsd(value) {
@@ -1764,12 +2301,30 @@ els.pairingInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') submitPairingCode();
 });
 els.syncDeviceButton.addEventListener('click', unpairCloudDevice);
+els.paceCard.addEventListener('pointerdown', showMiniTrendReadout);
+els.paceCard.addEventListener('pointermove', showMiniTrendReadout);
+els.paceCard.addEventListener('pointerup', hideMiniTrendReadout);
+els.paceCard.addEventListener('pointercancel', hideMiniTrendReadout);
+els.paceCard.addEventListener('pointerleave', hideMiniTrendReadout, true);
 
 document.addEventListener('visibilitychange', () => {
-  if (connectionMode === 'cloud' && document.visibilityState === 'visible' && syncCredentials) {
+  if (document.visibilityState !== 'visible') return;
+  if (currentState) render();
+  if (connectionMode === 'cloud' && syncCredentials) {
     refreshCloudState().catch(() => setConnection(false));
   }
 });
+
+// 「多久后重置」要跟着时间走：数据没更新时也每半分钟检查一次，分钟数变了才会真的重画。
+window.setInterval(() => {
+  if (!currentState || document.visibilityState !== 'visible') return;
+  render();
+  if (connectionMode === 'cloud') setConnection(connectionAlive);
+}, 30_000);
+
+// 曲线卡只在一屏放得下时出现：转屏、展开明细都要重新量一次。
+window.addEventListener('resize', () => fitPaceCard());
+document.addEventListener('toggle', () => fitPaceCard(), true);
 
 async function start() {
   if (window.CMM_MOBILE_MODE === 'cloud') {
@@ -1784,13 +2339,7 @@ async function start() {
   els.connectionLabel.textContent = T('connecting');
   selectView(activeView);
   try {
-    if (accessToken) {
-      await fetch('/api/session', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        cache: 'no-store'
-      });
-    }
+    await ensureSession();
     applyState(await api('/api/state'));
     setConnection(true);
     connectEvents();

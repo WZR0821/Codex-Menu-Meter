@@ -16,14 +16,16 @@ const CONTENT_TYPES = {
 const STATIC_FILES = new Map([
   ['/mobile/', 'index.html'],
   ['/mobile/index.html', 'index.html'],
-  ['/mobile/mobile.css', 'mobile.css'],
-  ['/mobile/minimal.css', 'minimal.css'],
-  ['/mobile/light.css', 'light.css'],
+  ['/mobile/app.css', 'app.css'],
   ['/mobile/runtime-config.js', 'runtime-config.js'],
   ['/mobile/cloud-sync-crypto.js', 'cloud-sync-crypto.js'],
+  ['/mobile/usage-pace.js', 'usage-pace.js'],
   ['/mobile/mobile.js', 'mobile.js'],
   ['/mobile/manifest.webmanifest', 'manifest.webmanifest'],
-  ['/mobile/icon.svg', 'icon.svg']
+  ['/mobile/icon.svg', 'icon.svg'],
+  ['/mobile/apple-touch-icon.png', 'apple-touch-icon.png'],
+  ['/mobile/icon-192.png', 'icon-192.png'],
+  ['/mobile/icon-512.png', 'icon-512.png']
 ]);
 const MOBILE_COOKIE_NAME = 'cmm_mobile_token';
 
@@ -92,7 +94,10 @@ function sanitizeUsageSlice(slice) {
   return {
     status: String(slice?.status || 'idle'),
     error: slice?.error ? String(slice.error) : null,
+    errorCode: slice?.errorCode ? String(slice.errorCode) : null,
     fetchedAt: safeNumber(slice?.fetchedAt),
+    staleAfterMs: safeNumber(slice?.staleAfterMs),
+    retryAt: safeNumber(slice?.retryAt),
     data: data ? {
       fiveHourUnlimited: Boolean(data.fiveHourUnlimited),
       planType: data.planType ? String(data.planType) : null,
@@ -206,6 +211,8 @@ function sanitizeRadarSlice(slice, provider) {
   const base = {
     status: String(slice?.status || 'idle'),
     error: slice?.error ? String(slice.error) : null,
+    // 手机端靠它区分「雷达数据源已下线」和普通读取失败
+    errorCode: slice?.errorCode ? String(slice.errorCode) : null,
     fetchedAt: safeNumber(slice?.fetchedAt),
     data: null
   };
@@ -258,6 +265,65 @@ function sanitizeRadarSlice(slice, provider) {
   return base;
 }
 
+const MOBILE_HISTORY_DAY_POINTS = 96;
+const MOBILE_HISTORY_WEEK_POINTS = 84;
+
+function roundPercent(value) {
+  const number = safeNumber(value);
+  return number === null ? null : Math.round(number * 10) / 10;
+}
+
+// 手机只画迷你曲线：抽稀到固定点数，百分比保留一位小数；首尾两点总是保留。
+function sanitizeHistorySeries(samples, maxPoints) {
+  if (!Array.isArray(samples) || !samples.length) return [];
+  const step = Math.max(1, Math.ceil(samples.length / maxPoints));
+  return samples
+    .filter((_, index) => index % step === 0 || index === samples.length - 1)
+    .map((sample) => {
+      const point = { t: safeNumber(sample?.t), five: roundPercent(sample?.five), week: roundPercent(sample?.week) };
+      if (sample?.ex && typeof sample.ex === 'object') {
+        const ex = {};
+        for (const [name, value] of Object.entries(sample.ex).slice(0, 4)) {
+          const rounded = roundPercent(value);
+          if (rounded !== null) ex[String(name).slice(0, 40)] = rounded;
+        }
+        if (Object.keys(ex).length) point.ex = ex;
+      }
+      return point;
+    })
+    .filter((point) => point.t !== null);
+}
+
+function sanitizeHistory(state, provider) {
+  const day = sanitizeHistorySeries(state?.usageHistory?.[provider], MOBILE_HISTORY_DAY_POINTS);
+  const week = sanitizeHistorySeries(state?.usageHistoryWeek?.[provider], MOBILE_HISTORY_WEEK_POINTS);
+  return day.length || week.length ? { day, week } : null;
+}
+
+const STATUS_LEVELS = ['none', 'maintenance', 'minor', 'major', 'critical'];
+
+// 官方状态页摘要：只带等级、相关组件和未解决事件的标题，不带链接以外的任何字段。
+function sanitizeServiceStatus(slice) {
+  const data = slice?.data;
+  if (!data || typeof data !== 'object') return null;
+  const level = (value) => (STATUS_LEVELS.includes(value) ? value : 'none');
+  return {
+    level: level(data.level),
+    fetchedAt: safeNumber(slice.fetchedAt),
+    home: typeof data.home === 'string' && /^https:\/\//.test(data.home) ? data.home : null,
+    components: Array.isArray(data.components)
+      ? data.components.slice(0, 6).map((component) => ({ name: String(component?.name || '').slice(0, 60), level: level(component?.level) }))
+      : [],
+    incidents: Array.isArray(data.incidents)
+      ? data.incidents.slice(0, 3).map((incident) => ({
+          name: String(incident?.name || '').slice(0, 160),
+          impact: level(incident?.impact),
+          updatedAt: safeNumber(incident?.updatedAt)
+        }))
+      : []
+  };
+}
+
 function createMobilePayload(state) {
   const providers = {};
   const enabled = Array.isArray(state?.enabledProviders) ? state.enabledProviders : ['codex'];
@@ -267,7 +333,9 @@ function createMobilePayload(state) {
       label: 'GPT',
       usage: sanitizeUsageSlice(state.usage),
       activity: sanitizeActivitySlice(state.tokenActivity),
-      radar: sanitizeRadarSlice(state.radar, 'codex')
+      radar: sanitizeRadarSlice(state.radar, 'codex'),
+      history: sanitizeHistory(state, 'codex'),
+      serviceStatus: sanitizeServiceStatus(state.codexStatus)
     };
   }
   if (enabled.includes('claude')) {
@@ -275,7 +343,9 @@ function createMobilePayload(state) {
       label: 'Claude',
       usage: sanitizeUsageSlice(state.claudeUsage),
       activity: sanitizeActivitySlice(state.claudeActivity),
-      radar: sanitizeRadarSlice(state.claudeRadar, 'claude')
+      radar: sanitizeRadarSlice(state.claudeRadar, 'claude'),
+      history: sanitizeHistory(state, 'claude'),
+      serviceStatus: sanitizeServiceStatus(state.claudeStatus)
     };
   }
   for (const provider of ['kimi', 'glm', 'qwen']) {
@@ -318,13 +388,20 @@ function extractCookie(request, name) {
   return '';
 }
 
-function extractToken(request, url) {
+// 接口只认请求头和 Cookie，不认 URL 里的 ?token=：地址会留在浏览器历史、代理和 Tailscale Serve 的日志里。
+// URL 里的密钥只用于首次打开页面和安装清单（见 serveStatic 和 manifest 分支），页面随后用它换 Cookie。
+function extractToken(request) {
   const authorization = request.headers.authorization || '';
   const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
   return bearer
     || extractCookie(request, MOBILE_COOKIE_NAME)
-    || url.searchParams.get('token')
     || '';
+}
+
+// 经反向代理（Tailscale Serve 等）转来的请求会带这些头；「仅本机」时拒绝。
+function isProxiedRequest(request) {
+  const headers = request.headers || {};
+  return Boolean(headers['x-forwarded-for'] || headers['x-forwarded-host'] || headers['tailscale-user-login']);
 }
 
 function sendJson(response, statusCode, body) {
@@ -349,14 +426,13 @@ function createMobileManifest(accessToken = '') {
     start_url: startUrl,
     scope: '/mobile/',
     display: 'standalone',
-    background_color: '#ffffff',
-    theme_color: '#ffffff',
-    icons: [{
-      src: '/mobile/icon.svg',
-      sizes: 'any',
-      type: 'image/svg+xml',
-      purpose: 'any maskable'
-    }]
+    background_color: '#f2f2f7',
+    theme_color: '#f2f2f7',
+    icons: [
+      { src: '/mobile/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+      { src: '/mobile/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      { src: '/mobile/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
+    ]
   };
 }
 
@@ -366,7 +442,8 @@ function createMobileServer({
   getState,
   onRefresh,
   host = '127.0.0.1',
-  port = 43821
+  port = 43821,
+  rejectProxied = false
 }) {
   let server = null;
   let address = null;
@@ -408,6 +485,10 @@ function createMobileServer({
 
   async function handleRequest(request, response) {
     const url = new URL(request.url || '/', `http://${host}`);
+    if (rejectProxied && isProxiedRequest(request)) {
+      sendJson(response, 403, { error: 'local_only' });
+      return;
+    }
     if (request.method === 'GET' && url.pathname === '/') {
       response.writeHead(302, { Location: '/mobile/' });
       response.end();
@@ -434,7 +515,7 @@ function createMobileServer({
       return;
     }
 
-    if (!tokenMatches(extractToken(request, url), getAccessToken())) {
+    if (!tokenMatches(extractToken(request), getAccessToken())) {
       sendJson(response, 401, { error: 'unauthorized' });
       return;
     }
@@ -548,10 +629,24 @@ function createMobileServer({
   };
 }
 
+// 云端上传去重用的内容签名：去掉每次都会变的时间戳和"刷新中"这类瞬时状态，
+// 只有用户能看到的数字或状态变了才重新加密上传。
+const TRANSIENT_SLICE_STATUSES = new Set(['refreshing', 'loading']);
+
+function mobilePayloadSignature(payload) {
+  return JSON.stringify(payload, (key, value) => {
+    // 历史每次刷新都会多一个点；数字没变时靠心跳顺带更新，不单独触发上传。
+    if (key === 'serverTime' || key === 'fetchedAt' || key === 'generatedAt' || key === 'sync' || key === 'history') return undefined;
+    if (key === 'status' && TRANSIENT_SLICE_STATUSES.has(value)) return 'ok';
+    return value;
+  });
+}
+
 module.exports = {
   createAccessToken,
   createMobileManifest,
   createMobilePayload,
+  mobilePayloadSignature,
   createMobileServer,
   findPreferredLanAddress
 };

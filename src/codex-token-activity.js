@@ -35,6 +35,7 @@ function parseCodexRolloutLines(raw, state = {}) {
           || record.payload?.id
           || ''
         ).trim() || null;
+        state.cwd = typeof record.payload?.cwd === 'string' && record.payload.cwd ? record.payload.cwd : null;
       }
       continue;
     }
@@ -47,6 +48,9 @@ function parseCodexRolloutLines(raw, state = {}) {
     if (record?.type === 'turn_context') {
       const model = String(record.payload?.model || '').trim();
       if (model) state.model = model;
+      if (!state.isReplayingParentHistory && typeof record.payload?.cwd === 'string' && record.payload.cwd) {
+        state.cwd = record.payload.cwd;
+      }
       continue;
     }
 
@@ -71,8 +75,13 @@ function parseCodexRolloutLines(raw, state = {}) {
       ioTokens: (input - cached) + output,
       // 按 GPT-5.5/5.6 牌价比例加权（$5 输入 / $30 输出）：未缓存输入 1、缓存输入 0.1、输出 6。
       weighted: (input - cached) + cached * 0.1 + output * 6,
+      baseInputTokens: input - cached,
+      cacheWrite5mTokens: 0,
+      cacheWrite1hTokens: 0,
+      outputTokens: output,
       model: state.model || null,
-      sessionId: state.sessionId || null
+      sessionId: state.sessionId || null,
+      cwd: state.cwd || null
     });
   }
   return entries;

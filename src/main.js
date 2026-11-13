@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, ipcMain, nativeImage, nativeTheme, screen, shell, globalShortcut, Notification, clipboard, systemPreferences, net, session } = require('electron');
+const { app, BrowserWindow, Tray, ipcMain, nativeImage, nativeTheme, screen, shell, globalShortcut, Notification, clipboard, systemPreferences, net, session, powerMonitor } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs/promises');
 const os = require('os');
@@ -13,13 +13,18 @@ const { parseClaudeTranscriptLines } = require('./claude-token-activity');
 const { isCredentialUsable, isRefreshTokenExpired, mergeRefreshedOAuth } = require('./claude-credentials');
 const { parseClaudeTimestamp, normalizeClaudeOfficialUsage, resolveClaudePlan } = require('./claude-usage');
 const { buildActivityWindows } = require('./activity-windows');
+const pace = require('./mobile/usage-pace');
+const { normalizeWebhookUrl, buildWebhookRequest } = require('./push-webhook');
+const { PRICING_AS_OF, entryCostUsd } = require('./model-pricing');
+const { STATUS_PAGES, normalizeStatusSummary } = require('./service-status');
 const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
 const {
   createAccessToken,
   createMobilePayload,
   createMobileServer,
-  findPreferredLanAddress
+  findPreferredLanAddress,
+  mobilePayloadSignature
 } = require('./mobile-server');
 const {
   createCredentials: createCloudSyncCredentials,
@@ -84,10 +89,22 @@ const EXTRA_PROVIDER_META = Object.fromEntries(EXTRA_PROVIDER_IDS.map((id) => [i
 const CLAUDE_ENTRY_CACHE_MS = 30_000;
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json');
 const USAGE_HISTORY_PATH = path.join(app.getPath('userData'), 'usage-history.json');
-const USAGE_HISTORY_RETENTION_MS = 7 * 24 * 3600_000;
+const USAGE_HISTORY_RETENTION_MS = 30 * 24 * 3600_000;
+// 最近 24 小时保留原始样本，更早的压成 15 分钟一个。
+const USAGE_HISTORY_RAW_MS = 24 * 3600_000;
+const USAGE_HISTORY_COMPACT_BUCKET_MS = 15 * 60_000;
 const USAGE_HISTORY_VIEW_MS = 24 * 3600_000;
+const USAGE_HISTORY_WEEK_VIEW_MS = 7 * 24 * 3600_000;
 const USAGE_HISTORY_VIEW_POINTS = 200;
 const PANEL_HOTKEY = 'Alt+Command+U';
+// 剩余百分比阈值的预设（降序）；'0' 表示只在用尽时提醒。
+const ALERT_THRESHOLD_PRESETS = ['20,5', '30,10', '50,20,5', '0'];
+// standard：5h + 最紧的周限额；full：全部窗口；compact：只有数字；tightest：只显示最紧的一个；icon：只显示图标。
+const APPEARANCES = ['light', 'system', 'dark'];
+// lan：局域网 + Tailscale（0.0.0.0）；tailscale：只听 Tailscale 地址和本机；local：只听本机。
+const MOBILE_LISTEN_SCOPES = ['lan', 'tailscale', 'local'];
+const ALERT_STATE_PATH = path.join(app.getPath('userData'), 'alert-state.json');
+const WEBHOOK_TIMEOUT_MS = 8_000;
 const TOUCHBAR_STATE_PATH = path.join(app.getPath('userData'), 'touchbar-state.json');
 const TOUCHBAR_LOG_PATH = path.join(app.getPath('userData'), 'touchbar-helper.log');
 const MOBILE_ASSETS_DIR = path.join(__dirname, 'mobile');
@@ -99,6 +116,8 @@ const DEFAULT_CLOUD_SYNC_SERVER_URL = '';
 const CLOUD_SYNC_KEYCHAIN_SERVICE = 'Codex Menu Meter Cloud Sync';
 const CLOUD_SYNC_PUSH_DELAY_MS = 1800;
 const CLOUD_SYNC_RETRY_MS = 5 * 60_000;
+// 内容没变时不重复上传；但至少每隔这么久上传一次，让手机知道 Mac 还在线（同时带上最新的曲线）。
+const CLOUD_SYNC_HEARTBEAT_MS = CLOUD_SYNC_RETRY_MS;
 
 const USAGE_REFRESH_MS = 120_000;
 const CLAUDE_USAGE_REFRESH_MS = 5 * 60_000;
@@ -107,7 +126,24 @@ const CLAUDE_RECONNECT_POLL_MS = 8_000;
 const CLAUDE_RECONNECT_CODES = new Set(['claude-auth-expired', 'claude-no-creds']);
 const CLAUDE_LOGIN_COMMAND = 'claude auth login --claudeai';
 const EXTRA_USAGE_REFRESH_MS = 5 * 60_000;
+// 超过这么久没有成功刷新就标记「数据截至」：约为刷新间隔的 3 倍，偶尔一次失败不打扰。
+const STALE_AFTER_MS = {
+  usage: 3 * USAGE_REFRESH_MS,
+  claudeUsage: 3 * CLAUDE_USAGE_REFRESH_MS,
+  kimiUsage: 3 * EXTRA_USAGE_REFRESH_MS,
+  glmUsage: 3 * EXTRA_USAGE_REFRESH_MS,
+  qwenUsage: 3 * EXTRA_USAGE_REFRESH_MS
+};
+// 接口回 429 时按 retry-after 退避；没给就至少等这么久，并且不短于该接口的正常刷新间隔。
+const RATE_LIMIT_BACKOFF_MS = 10 * 60_000;
+const RATE_LIMIT_BACKOFF_MAX_MS = 60 * 60_000;
+// 睡眠唤醒或解锁后，网络往往要几秒才恢复；先等一下再刷新，失败的再补一次。
+const WAKE_REFRESH_DELAY_MS = 4_000;
+const WAKE_RETRY_DELAY_MS = 30_000;
+// 窗口到 resetAt 后接口通常要十几秒才切到新窗口。
+const RESET_REFRESH_DELAY_MS = 20_000;
 const RADAR_REFRESH_MS = 5 * 60_000;
+const SERVICE_STATUS_REFRESH_MS = 5 * 60_000;
 const MODEL_CATALOG_REFRESH_MS = 60_000;
 const TOKEN_ACTIVITY_REFRESH_MS = 5 * 60_000;
 const PANEL_FOLLOW_MS = 500;
@@ -147,12 +183,15 @@ const state = {
   language: 'zh-CN',
   enabledProviders: ['codex'],
   usageHistory: Object.fromEntries(PROVIDER_IDS.map((id) => [id, []])),
+  usageHistoryWeek: Object.fromEntries(PROVIDER_IDS.map((id) => [id, []])),
   usage: idleSlice(),
   radar: idleSlice(),
   tokenActivity: idleSlice(),
   claudeUsage: idleSlice(),
   claudeRadar: idleSlice(),
   claudeActivity: idleSlice(),
+  codexStatus: idleSlice(),
+  claudeStatus: idleSlice(),
   kimiUsage: idleSlice(),
   glmUsage: idleSlice(),
   qwenUsage: idleSlice()
@@ -164,8 +203,13 @@ const defaultSettings = {
   autoHideWithMenuBar: true,
   autoSwitchProvider: true,
   notificationsEnabled: true,
+  alertThresholds: '20,5',
+  paceAlertsEnabled: true,
+  webhookUrl: '',
+  appearance: 'light',
   hotkeyEnabled: true,
   mobileEnabled: false,
+  mobileListenScope: 'lan',
   mobileAccessToken: createAccessToken(),
   cloudSyncEnabled: false,
   cloudSyncServerUrl: process.env.CMM_SYNC_SERVER_URL || DEFAULT_CLOUD_SYNC_SERVER_URL,
@@ -194,6 +238,7 @@ let usageTimer = null;
 let claudeUsageTimer = null;
 let claudeReconnectTimer = null;
 let radarTimer = null;
+let serviceStatusTimer = null;
 let tokenActivityTimer = null;
 let extraUsageTimer = null;
 let panelFollowTimer = null;
@@ -240,7 +285,14 @@ let cloudSyncPushTimer = null;
 let cloudSyncRetryTimer = null;
 let cloudSyncInFlight = null;
 let cloudSyncPushPending = false;
+let lastCloudSyncSignature = null;
+let lastCloudSyncUploadAt = 0;
 const refreshJobs = new Map();
+// 被 429 限流的刷新任务：jobKey → 解除时间。期间定时刷新直接跳过，手动刷新也不绕过。
+const refreshBackoff = new Map();
+let wakeRefreshTimer = null;
+let wakeRetryTimer = null;
+let resetRefreshTimer = null;
 
 function runRefreshOnce(key, task) {
   if (refreshJobs.has(key)) return refreshJobs.get(key);
@@ -252,6 +304,8 @@ function runRefreshOnce(key, task) {
 }
 
 function refreshStateSlice(jobKey, stateKey, loadData, { formatError, onSettled } = {}) {
+  const blockedUntil = refreshBackoff.get(jobKey) || 0;
+  if (blockedUntil > Date.now()) return Promise.resolve(state[stateKey]);
   return runRefreshOnce(jobKey, async () => {
     const current = state[stateKey];
     state[stateKey] = {
@@ -267,15 +321,21 @@ function refreshStateSlice(jobKey, stateKey, loadData, { formatError, onSettled 
         data: await loadData(),
         error: null,
         errorCode: null,
-        fetchedAt: Date.now()
+        fetchedAt: Date.now(),
+        staleAfterMs: STALE_AFTER_MS[stateKey] || null,
+        retryAt: null
       };
+      refreshBackoff.delete(jobKey);
     } catch (error) {
+      const retryAt = error?.status === 429 ? noteRateLimited(jobKey, error) : null;
       state[stateKey] = {
         ...state[stateKey],
         status: 'error',
         error: formatError ? formatError(error) : error.message,
         // 渲染层按错误码决定展示形态（例如 Claude 断连时给出「重新连接」）。
-        errorCode: error?.code || (error?.status ? `http-${error.status}` : null)
+        errorCode: error?.code || (error?.status ? `http-${error.status}` : null),
+        staleAfterMs: STALE_AFTER_MS[stateKey] || null,
+        retryAt
       };
     }
 
@@ -283,6 +343,91 @@ function refreshStateSlice(jobKey, stateKey, loadData, { formatError, onSettled 
     sendState();
     return state[stateKey];
   });
+}
+
+function noteRateLimited(jobKey, error) {
+  const requested = Number(error?.retryAfterMs);
+  const delay = Math.min(
+    RATE_LIMIT_BACKOFF_MAX_MS,
+    Math.max(RATE_LIMIT_BACKOFF_MS, Number.isFinite(requested) ? requested : 0)
+  );
+  const retryAt = Date.now() + delay;
+  refreshBackoff.set(jobKey, retryAt);
+  return retryAt;
+}
+
+// 唤醒 / 解锁：定时器在睡眠期间不走，醒来后菜单栏还挂着几小时前的数字。
+function scheduleWakeRefresh(reason) {
+  if (wakeRefreshTimer) clearTimeout(wakeRefreshTimer);
+  if (wakeRetryTimer) clearTimeout(wakeRetryTimer);
+  wakeRefreshTimer = setTimeout(() => {
+    wakeRefreshTimer = null;
+    // 唤醒后只有过了 resetAt 的窗口还在显示旧数据，先刷一遍界面再去取新数据。
+    updateTrayTitle();
+    sendState();
+    refreshAll().catch(() => {});
+    scheduleResetRefresh();
+    wakeRetryTimer = setTimeout(() => {
+      wakeRetryTimer = null;
+      retryFailedUsageSlices();
+    }, WAKE_RETRY_DELAY_MS);
+    wakeRetryTimer.unref?.();
+  }, WAKE_REFRESH_DELAY_MS);
+  wakeRefreshTimer.unref?.();
+  logUsageEvent(`wake:${reason}`);
+}
+
+function retryFailedUsageSlices() {
+  if (state.usage.status === 'error') refreshUsage();
+  if (isProviderEnabled('claude', settings.providerSettings) && state.claudeUsage.status === 'error' && !claudeNeedsReconnect()) {
+    refreshClaudeUsage();
+  }
+  for (const id of enabledExtraIds()) {
+    if (state[`${id}Usage`].status === 'error') refreshExtraUsage(id);
+  }
+}
+
+// 在最早的一个 resetAt 之后补一次刷新：及时拿到新窗口、发出「已恢复」提醒，
+// 不用等下一轮定时刷新（Claude 是 5 分钟一轮）。
+function scheduleResetRefresh() {
+  if (resetRefreshTimer) clearTimeout(resetRefreshTimer);
+  resetRefreshTimer = null;
+  const now = Date.now();
+  let earliest = null;
+  for (const provider of PROVIDER_IDS) {
+    if (!isProviderEnabled(provider, settings.providerSettings)) continue;
+    const usage = usageSliceFor(provider)?.data;
+    for (const entry of pace.listWindows(usage, { provider, now })) {
+      const resetAt = Number(entry.window.resetAt);
+      if (!resetAt || resetAt <= now) continue;
+      if (!earliest || resetAt < earliest.resetAt) earliest = { provider, resetAt };
+    }
+  }
+  if (!earliest) return;
+  const delay = Math.min(earliest.resetAt - now + RESET_REFRESH_DELAY_MS, 24 * 3600_000);
+  resetRefreshTimer = setTimeout(() => {
+    resetRefreshTimer = null;
+    refreshUsageFor(earliest.provider);
+  }, delay);
+  resetRefreshTimer.unref?.();
+}
+
+function usageSliceFor(provider) {
+  if (provider === 'codex') return state.usage;
+  if (provider === 'claude') return state.claudeUsage;
+  return state[`${provider}Usage`] || null;
+}
+
+function refreshUsageFor(provider) {
+  if (provider === 'codex') return refreshUsage();
+  if (provider === 'claude') return refreshClaudeUsage();
+  if (EXTRA_PROVIDER_IDS.includes(provider)) return refreshExtraUsage(provider);
+  return Promise.resolve(null);
+}
+
+function logUsageEvent(message) {
+  if (!process.env.CMM_DEBUG_EVENTS) return;
+  console.log(`[cmm] ${new Date().toISOString()} ${message}`);
 }
 
 function createTray() {
@@ -739,10 +884,24 @@ async function loadSettings() {
     const raw = await fs.readFile(SETTINGS_PATH, 'utf8');
     const parsed = JSON.parse(raw);
     settings = normalizeSettings(parsed);
+    // 旧版本写出的设置文件是 644，启动时顺手收紧。
+    fs.chmod(SETTINGS_PATH, 0o600).catch(() => {});
   } catch {
     settings = normalizeSettings(defaultSettings);
   }
   syncStateWithSettings();
+}
+
+function alertThresholdList() {
+  return String(settings.alertThresholds || defaultSettings.alertThresholds)
+    .split(',')
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value >= 0 && value < 100)
+    .sort((a, b) => b - a);
+}
+
+function applyAppearance() {
+  nativeTheme.themeSource = settings.appearance || 'light';
 }
 
 async function saveSettings(nextSettings) {
@@ -750,10 +909,15 @@ async function saveSettings(nextSettings) {
   settings = normalizeSettings({ ...settings, ...nextSettings });
   syncStateWithSettings();
   await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
-  await fs.writeFile(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  // 设置里有手机访问密钥和第三方 API Key，只给当前用户读写。
+  await fs.writeFile(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await fs.chmod(SETTINGS_PATH, 0o600).catch(() => {});
+  if (previous.appearance !== settings.appearance) applyAppearance();
   if (previous.openAtLogin !== settings.openAtLogin) applySystemSettings();
   if (previous.hotkeyEnabled !== settings.hotkeyEnabled) applyPanelHotkey();
-  if (previous.mobileEnabled !== settings.mobileEnabled) await syncMobileServer();
+  if (previous.mobileEnabled !== settings.mobileEnabled || previous.mobileListenScope !== settings.mobileListenScope) {
+    await syncMobileServer({ restart: previous.mobileListenScope !== settings.mobileListenScope });
+  }
   if (previous.mobileAccessToken !== settings.mobileAccessToken) mobileServer?.disconnectClients();
   const cloudSyncChanged = previous.cloudSyncEnabled !== settings.cloudSyncEnabled
     || previous.cloudSyncServerUrl !== settings.cloudSyncServerUrl
@@ -804,12 +968,23 @@ function normalizeSettings(value) {
     notificationsEnabled: value?.notificationsEnabled === undefined
       ? defaultSettings.notificationsEnabled
       : Boolean(value.notificationsEnabled),
+    alertThresholds: ALERT_THRESHOLD_PRESETS.includes(String(value?.alertThresholds))
+      ? String(value.alertThresholds)
+      : defaultSettings.alertThresholds,
+    paceAlertsEnabled: value?.paceAlertsEnabled === undefined
+      ? defaultSettings.paceAlertsEnabled
+      : Boolean(value.paceAlertsEnabled),
+    webhookUrl: normalizeWebhookUrl(value?.webhookUrl),
+    appearance: APPEARANCES.includes(value?.appearance) ? value.appearance : defaultSettings.appearance,
     hotkeyEnabled: value?.hotkeyEnabled === undefined
       ? defaultSettings.hotkeyEnabled
       : Boolean(value.hotkeyEnabled),
     mobileEnabled: value?.mobileEnabled === undefined
       ? defaultSettings.mobileEnabled
       : Boolean(value.mobileEnabled),
+    mobileListenScope: MOBILE_LISTEN_SCOPES.includes(value?.mobileListenScope)
+      ? value.mobileListenScope
+      : defaultSettings.mobileListenScope,
     mobileAccessToken: /^[A-Za-z0-9_-]{24,128}$/.test(String(value?.mobileAccessToken || ''))
       ? String(value.mobileAccessToken)
       : defaultSettings.mobileAccessToken,
@@ -832,6 +1007,7 @@ function clearProviderState(provider) {
     state.claudeUsage = idleSlice();
     state.claudeRadar = idleSlice();
     state.claudeActivity = idleSlice();
+    state.claudeStatus = idleSlice();
     return;
   }
   if (EXTRA_PROVIDER_IDS.includes(provider)) state[`${provider}Usage`] = idleSlice();
@@ -853,7 +1029,7 @@ function getSettingsSnapshot() {
   const lanAccessUrl = lanBaseUrl
     ? createMobileAccessUrl(lanBaseUrl)
     : null;
-  const remoteAccessUrl = mobileRuntime.remoteBaseUrl
+  const remoteAccessUrl = mobileRuntime.remoteBaseUrl && settings.mobileListenScope !== 'local'
     ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
     : null;
   return {
@@ -889,12 +1065,13 @@ function createMobileAccessUrl(baseUrl) {
 
 function getMobileLanBaseUrl() {
   if (!mobileRuntime.running || !mobileRuntime.port) return null;
+  if ((settings.mobileListenScope || 'lan') !== 'lan') return null;
   const address = findPreferredLanAddress(os.networkInterfaces());
   return address ? `http://${address}:${mobileRuntime.port}` : null;
 }
 
 function getPreferredMobileAccessUrl() {
-  const remoteUrl = mobileRuntime.remoteBaseUrl
+  const remoteUrl = mobileRuntime.remoteBaseUrl && settings.mobileListenScope !== 'local'
     ? createMobileAccessUrl(mobileRuntime.remoteBaseUrl)
     : null;
   const lanBaseUrl = getMobileLanBaseUrl();
@@ -902,7 +1079,23 @@ function getPreferredMobileAccessUrl() {
   return remoteUrl || lanUrl || createMobileAccessUrl(mobileRuntime.localBaseUrl);
 }
 
-async function syncMobileServer() {
+// 访问范围：lan = 监听所有网卡；tailscale = 只听回环地址（Tailscale Serve 就是转发到回环地址）；
+// local = 只听回环地址，并拒绝经代理转来的请求。改范围要换监听地址，所以重建服务。
+let mobileServerScope = null;
+
+function mobileListenOptions(scope) {
+  if (scope === 'local') return { host: MOBILE_LOOPBACK_HOST, rejectProxied: true };
+  if (scope === 'tailscale') return { host: MOBILE_LOOPBACK_HOST, rejectProxied: false };
+  return { host: MOBILE_HOST, rejectProxied: false };
+}
+
+async function syncMobileServer({ restart = false } = {}) {
+  const scope = settings.mobileListenScope || 'lan';
+  if (mobileServer && (restart || mobileServerScope !== scope)) {
+    await mobileServer.stop();
+    mobileServer = null;
+    mobileServerScope = null;
+  }
   if (!settings.mobileEnabled) {
     if (mobileServer) await mobileServer.stop();
     mobileRuntime = {
@@ -922,9 +1115,10 @@ async function syncMobileServer() {
       getAccessToken: () => settings.mobileAccessToken,
       getState: () => state,
       onRefresh: refreshAllForRemote,
-      host: MOBILE_HOST,
+      ...mobileListenOptions(scope),
       port: MOBILE_PORT
     });
+    mobileServerScope = scope;
   }
 
   try {
@@ -1099,6 +1293,8 @@ function disableCloudSyncRuntime() {
   if (cloudSyncPushTimer) clearTimeout(cloudSyncPushTimer);
   cloudSyncPushTimer = null;
   cloudSyncPushPending = false;
+  lastCloudSyncSignature = null;
+  lastCloudSyncUploadAt = 0;
   cloudSyncRuntime = {
     ...cloudSyncRuntime,
     status: 'disabled',
@@ -1189,6 +1385,16 @@ async function uploadCloudSyncSnapshot({ force = false } = {}) {
     cloudSyncPushPending = true;
     return cloudSyncInFlight;
   }
+  const payload = createMobilePayload(state);
+  const signature = mobilePayloadSignature(payload);
+  if (
+    !force
+    && signature === lastCloudSyncSignature
+    && cloudSyncRuntime.status === 'ready'
+    && Date.now() - lastCloudSyncUploadAt < CLOUD_SYNC_HEARTBEAT_MS - 5_000
+  ) {
+    return null;
+  }
   cloudSyncInFlight = (async () => {
     cloudSyncRuntime = {
       ...cloudSyncRuntime,
@@ -1200,10 +1406,10 @@ async function uploadCloudSyncSnapshot({ force = false } = {}) {
     try {
       const serverUrl = normalizeCloudSyncServerUrl(settings.cloudSyncServerUrl);
       const credentials = await getCloudSyncCredentials();
-      const payload = createMobilePayload(state);
       payload.sync = {
         source: 'mac',
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
+        heartbeatMs: CLOUD_SYNC_HEARTBEAT_MS
       };
       const envelope = await encryptCloudSyncPayload(payload, credentials, payload.sync.generatedAt);
       const { authToken } = await deriveCloudSyncMaterial(credentials);
@@ -1224,6 +1430,8 @@ async function uploadCloudSyncSnapshot({ force = false } = {}) {
         }
         throw new Error(code);
       }
+      lastCloudSyncSignature = signature;
+      lastCloudSyncUploadAt = Date.now();
       cloudSyncRuntime = {
         status: 'ready',
         lastSyncedAt: envelope.updatedAt,
@@ -1424,6 +1632,7 @@ function refreshUsage() {
       syncActivityWindows('codex');
       updateTrayTitle();
       recordUsageSample('codex');
+      scheduleResetRefresh();
     }
   });
 }
@@ -1861,6 +2070,7 @@ function refreshClaudeUsage() {
       updateTrayTitle();
       recordUsageSample('claude');
       syncClaudeReconnectWatch();
+      scheduleResetRefresh();
     }
   });
 }
@@ -2165,8 +2375,9 @@ async function readClaudeActivity() {
 function buildLocalActivity(entries, source, usage) {
   const cutoffTs = activityWindowStartTs();
   const dayMap = new Map();
-  for (const entry of entries) {
-    if (entry.ts < cutoffTs) continue;
+  const windowEntries = entries.filter((entry) => entry.ts >= cutoffTs);
+  const projectOf = createProjectResolver(windowEntries.map((entry) => entry.cwd));
+  for (const entry of windowEntries) {
     const day = formatLocalIsoDate(new Date(entry.ts));
     let bucket = dayMap.get(day);
     if (!bucket) {
@@ -2177,23 +2388,48 @@ function buildLocalActivity(entries, source, usage) {
         ioTokens: 0,
         inputTokens: 0,
         cachedInputTokens: 0,
+        costUsd: 0,
+        unpricedTokens: 0,
+        unpricedModels: new Set(),
         sessions: new Set(),
-        models: new Map()
+        models: new Map(),
+        projects: new Map()
       };
       dayMap.set(day, bucket);
     }
+    const cost = entryCostUsd(entry);
     bucket.weighted += entry.weighted;
     bucket.tokens += entry.tokens;
     bucket.ioTokens += entry.ioTokens;
     bucket.inputTokens += Number(entry.inputTokens) || 0;
     bucket.cachedInputTokens += Number(entry.cachedInputTokens) || 0;
+    if (cost === null) {
+      bucket.unpricedTokens += entry.tokens;
+      bucket.unpricedModels.add(entry.model || '?');
+    } else {
+      bucket.costUsd += cost;
+    }
     if (entry.sessionId) bucket.sessions.add(entry.sessionId);
     if (entry.model) {
-      const model = bucket.models.get(entry.model) || { weighted: 0, tokens: 0 };
+      const model = bucket.models.get(entry.model) || { weighted: 0, tokens: 0, costUsd: 0, priced: cost !== null };
       model.weighted += entry.weighted;
       model.tokens += entry.tokens;
+      if (cost !== null) model.costUsd += cost;
       bucket.models.set(entry.model, model);
     }
+    const project = projectOf(entry.cwd);
+    const projectTotals = bucket.projects.get(project.key) || {
+      name: project.name,
+      tokens: 0,
+      ioTokens: 0,
+      costUsd: 0,
+      sessions: new Set()
+    };
+    projectTotals.tokens += entry.tokens;
+    projectTotals.ioTokens += entry.ioTokens;
+    if (cost !== null) projectTotals.costUsd += cost;
+    if (entry.sessionId) projectTotals.sessions.add(entry.sessionId);
+    bucket.projects.set(project.key, projectTotals);
   }
 
   const days = [...dayMap.values()]
@@ -2206,19 +2442,86 @@ function buildLocalActivity(entries, source, usage) {
       ioTokens: bucket.ioTokens,
       inputTokens: bucket.inputTokens,
       cachedInputTokens: bucket.cachedInputTokens,
-      costUsd: bucketCostUsd(bucket, source),
+      costUsd: roundCents(bucket.costUsd),
+      // 没有官方价的型号不计入费用，单独列出 token 数，界面标「未定价」。
+      unpricedTokens: bucket.unpricedTokens,
+      unpricedModels: [...bucket.unpricedModels],
       threads: bucket.sessions.size,
       models: [...bucket.models.entries()]
         .sort((a, b) => b[1].weighted - a[1].weighted)
-        .map(([model, totals]) => ({ model, value: totals.tokens }))
+        .map(([model, totals]) => ({
+          model,
+          value: totals.tokens,
+          costUsd: totals.priced ? roundCents(totals.costUsd) : null
+        })),
+      projects: summarizeProjects(bucket.projects)
     }));
 
   return {
     source,
     units: 'tokens',
     windowDays: ACTIVITY_WINDOW_DAYS,
+    pricingAsOf: PRICING_AS_OF,
     windows: buildActivityWindows(entries, usage),
     days
+  };
+}
+
+function roundCents(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+// 每天最多列 5 个项目，其余并成「其他」。只给目录名，不给完整路径（手机端和云同步也会带上）。
+const PROJECTS_PER_DAY = 5;
+
+function summarizeProjects(projects) {
+  const list = [...projects.values()].sort((a, b) => b.tokens - a.tokens);
+  const head = list.slice(0, PROJECTS_PER_DAY);
+  const rest = list.slice(PROJECTS_PER_DAY);
+  const rows = head.map((item) => ({
+    name: item.name,
+    tokens: item.tokens,
+    ioTokens: item.ioTokens,
+    costUsd: roundCents(item.costUsd),
+    sessions: item.sessions.size
+  }));
+  if (rest.length) {
+    rows.push({
+      name: null,
+      other: rest.length,
+      tokens: rest.reduce((sum, item) => sum + item.tokens, 0),
+      ioTokens: rest.reduce((sum, item) => sum + item.ioTokens, 0),
+      costUsd: roundCents(rest.reduce((sum, item) => sum + item.costUsd, 0)),
+      sessions: rest.reduce((sum, item) => sum + item.sessions.size, 0)
+    });
+  }
+  return rows;
+}
+
+// 把会话的工作目录归到项目：子目录并入同一批记录里出现过的上级目录
+// （…/JerreaderUnified/iosApp → JerreaderUnified），但主目录和 Documents / Desktop 这类容器目录不当项目。
+function createProjectResolver(cwds) {
+  const home = os.homedir();
+  const containers = new Set([home, ...['Documents', 'Desktop', 'Downloads', 'Developer', 'Projects', 'code']
+    .map((name) => path.join(home, name)), '/']);
+  const known = [...new Set(cwds.filter((cwd) => typeof cwd === 'string' && cwd))]
+    .map((cwd) => cwd.replace(/\/+$/, '') || '/')
+    .sort((a, b) => a.length - b.length);
+  const cache = new Map();
+  return (cwd) => {
+    const raw = typeof cwd === 'string' && cwd ? cwd.replace(/\/+$/, '') || '/' : '';
+    if (cache.has(raw)) return cache.get(raw);
+    let result;
+    if (!raw) {
+      result = { key: '', name: null };
+    } else {
+      const root = known.find((candidate) => !containers.has(candidate)
+        && candidate !== raw
+        && raw.startsWith(`${candidate}/`)) || raw;
+      result = { key: root, name: root === home ? '~' : path.basename(root) || root };
+    }
+    cache.set(raw, result);
+    return result;
   };
 }
 
@@ -2232,42 +2535,6 @@ function syncActivityWindows(provider) {
     ...activity.data,
     windows: buildActivityWindows(entries, usage)
   };
-}
-
-// 加权值以"输入 token 等价量"计，乘以该模型每百万输入 token 的牌价即得美元成本。
-const MODEL_INPUT_PRICES_USD_PER_MTOK = [
-  [/^claude-(fable|mythos)-5/i, 10],
-  [/^claude-opus/i, 5],
-  [/^claude-sonnet/i, 3],
-  [/^claude-haiku/i, 1],
-  [/^gpt-5\.6-sol/i, 5],
-  [/^gpt-5\.6-terra/i, 2.5],
-  [/^gpt-5\.6-luna/i, 1],
-  [/^gpt-5\.5/i, 5],
-  [/^gpt-5\.4-mini/i, 0.25],
-  [/^gpt-5\.4/i, 1.25],
-  [/^gpt-/i, 2.5],
-  [/^claude-/i, 5]
-];
-
-function modelInputPriceUsd(model, source) {
-  const name = String(model || '');
-  for (const [pattern, price] of MODEL_INPUT_PRICES_USD_PER_MTOK) {
-    if (pattern.test(name)) return price;
-  }
-  return source === 'codex_local' ? 2.5 : 5;
-}
-
-function bucketCostUsd(bucket, source) {
-  let cost = 0;
-  let attributed = 0;
-  for (const [model, totals] of bucket.models.entries()) {
-    cost += (totals.weighted / 1e6) * modelInputPriceUsd(model, source);
-    attributed += totals.weighted;
-  }
-  const residual = bucket.weighted - attributed;
-  if (residual > 0) cost += (residual / 1e6) * modelInputPriceUsd(null, source);
-  return Math.round(cost * 100) / 100;
 }
 
 function formatLocalIsoDate(date) {
@@ -2294,6 +2561,40 @@ function refreshClaudeRadar() {
       throw error;
     }
   }, { formatError: (error) => requestErrorMessage(error, 'Claude Radar') });
+}
+
+// 官方状态页：只取相关组件；从正常变成部分/严重故障时提醒一次。
+function refreshServiceStatus(provider) {
+  const page = STATUS_PAGES[provider];
+  if (!page) return Promise.resolve(null);
+  return refreshStateSlice(`status-${provider}`, `${provider}Status`, async () => {
+    const summary = normalizeStatusSummary(await fetchJson(page.url, { requestTimeoutMs: 10_000 }), provider);
+    if (!summary) throw new Error(tr('errStatusInvalid'));
+    return summary;
+  }, {
+    formatError: (error) => requestErrorMessage(error, provider === 'claude' ? 'Claude Status' : 'OpenAI Status'),
+    onSettled: () => checkServiceStatusAlert(provider)
+  });
+}
+
+function refreshServiceStatuses() {
+  const jobs = [refreshServiceStatus('codex')];
+  if (isProviderEnabled('claude', settings.providerSettings)) jobs.push(refreshServiceStatus('claude'));
+  return Promise.all(jobs);
+}
+
+function checkServiceStatusAlert(provider) {
+  const summary = state[`${provider}Status`]?.data;
+  if (!summary || state[`${provider}Status`].status !== 'ok') return;
+  const previous = alertState.status?.[provider] || 'none';
+  alertState.status = { ...(alertState.status || {}), [provider]: summary.level };
+  queueAlertStateSave();
+  const serious = ['major', 'critical'].includes(summary.level);
+  if (!serious || ['major', 'critical'].includes(previous) || !alertsActive()) return;
+  const name = provider === 'claude' ? 'Claude' : 'Codex';
+  const affected = summary.components.filter((item) => item.level !== 'none').map((item) => item.name);
+  const detail = summary.incidents[0]?.name || affected.join(' / ') || summary.pageDescription;
+  notify(tr('notifyStatusTitle', { name }), tr('notifyStatusBody', { detail }));
 }
 
 function normalizeClaudeRadar(raw) {
@@ -2440,10 +2741,10 @@ function claudeIqStatus(score) {
 
 const usageHistory = Object.fromEntries(PROVIDER_IDS.map((id) => [id, []]));
 let usageHistorySaveTimer = null;
-const alertState = Object.fromEntries(PROVIDER_IDS.map((id) => [id, {
-  five: { lastThreshold: null, nearCap: false },
-  week: { lastThreshold: null, nearCap: false }
-}]));
+let usageHistoryCompactedAt = 0;
+// 提醒状态落盘：重启后不会对同一个窗口重复提醒。provider → 窗口键 → 记录。
+let alertState = { windows: {}, credentials: {}, status: {} };
+let alertStateSaveTimer = null;
 
 async function loadUsageHistory() {
   try {
@@ -2451,13 +2752,16 @@ async function loadUsageHistory() {
     const cutoff = Date.now() - USAGE_HISTORY_RETENTION_MS;
     for (const provider of PROVIDER_IDS) {
       if (Array.isArray(raw?.[provider])) {
-        usageHistory[provider] = raw[provider].filter((s) => Number(s?.t) > cutoff);
+        usageHistory[provider] = raw[provider]
+          .filter((s) => Number(s?.t) > cutoff)
+          .sort((a, b) => a.t - b.t);
       }
-      refreshUsageHistoryView(provider);
     }
+    compactUsageHistory();
   } catch {
     // 首次运行没有历史文件，正常。
   }
+  for (const provider of PROVIDER_IDS) refreshUsageHistoryView(provider);
 }
 
 function queueUsageHistorySave() {
@@ -2468,77 +2772,280 @@ function queueUsageHistorySave() {
   }, 30_000);
 }
 
+// 超过 24 小时的样本压成 15 分钟一个（保留重置前的峰值），这样能留 30 天而文件不膨胀。
+function compactUsageHistory(now = Date.now()) {
+  usageHistoryCompactedAt = now;
+  const boundary = now - USAGE_HISTORY_RAW_MS;
+  for (const provider of PROVIDER_IDS) {
+    const list = usageHistory[provider];
+    const splitAt = list.findIndex((sample) => sample.t >= boundary);
+    const older = splitAt === -1 ? list : list.slice(0, splitAt);
+    if (older.length < 2) continue;
+    const recent = splitAt === -1 ? [] : list.slice(splitAt);
+    usageHistory[provider] = [...pace.compactSamples(older, USAGE_HISTORY_COMPACT_BUCKET_MS, ['five', 'week']), ...recent];
+  }
+}
+
+function extraSampleValues(usage) {
+  const used = {};
+  const resets = {};
+  for (const extra of Array.isArray(usage?.extraWindows) ? usage.extraWindows : []) {
+    if (!extra?.name || extra.inactive || !Number.isFinite(extra.usedPercent)) continue;
+    used[extra.name] = extra.usedPercent;
+    if (extra.resetAt) resets[extra.name] = extra.resetAt;
+  }
+  return Object.keys(used).length ? { ex: used, exr: resets } : {};
+}
+
 function recordUsageSample(provider) {
   const slice = provider === 'codex' ? state.usage : state[`${provider}Usage`];
+  checkCredentialAlerts(provider, slice);
   if (slice.status !== 'ok' || !slice.data) return;
   const usage = slice.data;
+  const now = Date.now();
   const sample = {
-    t: Date.now(),
+    t: now,
     five: Number.isFinite(usage.primaryWindow?.usedPercent) ? usage.primaryWindow.usedPercent : null,
     week: Number.isFinite(usage.secondaryWindow?.usedPercent) ? usage.secondaryWindow.usedPercent : null,
     fiveReset: usage.primaryWindow?.resetAt || null,
-    weekReset: usage.secondaryWindow?.resetAt || null
+    weekReset: usage.secondaryWindow?.resetAt || null,
+    ...extraSampleValues(usage)
   };
   const list = usageHistory[provider];
-  const previous = list[list.length - 1] || null;
   list.push(sample);
-  const cutoff = Date.now() - USAGE_HISTORY_RETENTION_MS;
+  const cutoff = now - USAGE_HISTORY_RETENTION_MS;
   while (list.length && list[0].t < cutoff) list.shift();
+  if (now - usageHistoryCompactedAt > 3600_000) compactUsageHistory(now);
   refreshUsageHistoryView(provider);
-  checkUsageAlerts(provider, sample, previous);
+  checkUsageAlerts(provider, usage);
   queueUsageHistorySave();
 }
 
+function historyPoint(sample) {
+  const point = { t: sample.t, five: sample.five, week: sample.week };
+  if (sample.ex) point.ex = sample.ex;
+  return point;
+}
+
 function refreshUsageHistoryView(provider) {
-  const cutoff = Date.now() - USAGE_HISTORY_VIEW_MS;
-  const recent = usageHistory[provider].filter((s) => s.t >= cutoff);
+  const now = Date.now();
+  const cutoff = now - USAGE_HISTORY_VIEW_MS;
+  const all = usageHistory[provider] || [];
+  const recent = all.filter((s) => s.t >= cutoff);
   // IPC 只发近 24 小时并抽稀到 ≤200 个点，别把整份历史塞给渲染层。
   const step = Math.max(1, Math.ceil(recent.length / USAGE_HISTORY_VIEW_POINTS));
   const view = recent.filter((_, index) => index % step === 0 || index === recent.length - 1);
-  state.usageHistory[provider] = view.map((s) => ({ t: s.t, five: s.five, week: s.week }));
+  state.usageHistory[provider] = view.map(historyPoint);
+  // 7 天视图：按小时压缩（重置前峰值保留），约 170–200 个点。
+  const weekCutoff = now - USAGE_HISTORY_WEEK_VIEW_MS;
+  const weekSamples = all.filter((s) => s.t >= weekCutoff);
+  state.usageHistoryWeek[provider] = pace.compactSamples(weekSamples, 3600_000, ['five', 'week']).map(historyPoint);
 }
 
-function checkUsageAlerts(provider, sample, previous) {
-  if (!settings.notificationsEnabled || !Notification.isSupported()) return;
-  const name = PROVIDER_BY_ID[provider]?.label || provider;
-  checkWindowAlert(provider, name, 'five', tr('windowName5h'), sample.five, previous?.five);
-  checkWindowAlert(provider, name, 'week', tr('windowNameWeek'), sample.week, previous?.week);
-}
-
-function checkWindowAlert(provider, name, windowKey, windowLabel, used, previousUsed) {
-  if (!Number.isFinite(used)) return;
-  const tracker = alertState[provider][windowKey];
-
-  // 用量大幅回落 → 窗口已重置。
-  if (Number.isFinite(previousUsed) && previousUsed - used >= 30) {
-    if (tracker.nearCap) {
-      notify(tr('notifyResetTitle', { name }), tr('notifyResetBody', { name, window: windowLabel }));
-    }
-    tracker.lastThreshold = null;
-    tracker.nearCap = false;
-  }
-
-  if (used >= 85) tracker.nearCap = true;
-
-  const remaining = 100 - used;
-  const threshold = remaining <= 5 ? 5 : remaining <= 20 ? 20 : null;
-  if (threshold && tracker.lastThreshold !== threshold && (tracker.lastThreshold === null || threshold < tracker.lastThreshold)) {
-    tracker.lastThreshold = threshold;
-    notify(
-      tr('notifyLowTitle', { name, window: windowLabel }),
-      tr('notifyLowBody', { name, window: windowLabel, remaining })
-    );
-  }
-  if (!threshold && tracker.lastThreshold !== null && remaining > 25) {
-    tracker.lastThreshold = null;
-  }
-}
-
-function notify(title, body) {
+async function loadAlertState() {
   try {
-    new Notification({ title, body, silent: false }).show();
+    const raw = JSON.parse(await fs.readFile(ALERT_STATE_PATH, 'utf8'));
+    alertState = {
+      windows: raw?.windows && typeof raw.windows === 'object' ? raw.windows : {},
+      credentials: raw?.credentials && typeof raw.credentials === 'object' ? raw.credentials : {},
+      status: raw?.status && typeof raw.status === 'object' ? raw.status : {}
+    };
+  } catch {
+    alertState = { windows: {}, credentials: {}, status: {} };
+  }
+}
+
+function queueAlertStateSave() {
+  if (alertStateSaveTimer) return;
+  alertStateSaveTimer = setTimeout(() => {
+    alertStateSaveTimer = null;
+    fs.writeFile(ALERT_STATE_PATH, JSON.stringify(alertState), 'utf8').catch(() => {});
+  }, 2_000);
+}
+
+function alertTracker(provider, key) {
+  const byProvider = alertState.windows[provider] || (alertState.windows[provider] = {});
+  return byProvider[key] || (byProvider[key] = { resetAt: null, lastUsed: null, fired: [], paceFor: null, nearCap: false });
+}
+
+function alertWindowLabel(entry) {
+  if (entry.key === 'five') return tr('windowName5h');
+  if (entry.key === 'week') return tr('windowNameWeek');
+  return tr('windowNameScoped', { name: entry.name || '' });
+}
+
+function alertsActive() {
+  return settings.notificationsEnabled && (Notification.isSupported() || Boolean(settings.webhookUrl));
+}
+
+function checkUsageAlerts(provider, usage) {
+  const now = Date.now();
+  const name = PROVIDER_BY_ID[provider]?.label || provider;
+  const thresholds = alertThresholdList();
+  const active = alertsActive();
+  for (const entry of pace.listWindows(usage, { provider, now })) {
+    const tracker = alertTracker(provider, entry.key);
+    const used = Number(entry.window.usedPercent);
+    if (!Number.isFinite(used)) continue;
+    const resetAt = Number(entry.window.resetAt) || null;
+    const label = alertWindowLabel(entry);
+
+    // 新窗口：resetAt 明显往后挪了，或用量大幅回落。
+    const movedOn = tracker.resetAt && resetAt && resetAt - tracker.resetAt > 10 * 60_000;
+    const dropped = Number.isFinite(tracker.lastUsed) && tracker.lastUsed - used >= 30;
+    if (movedOn || dropped) {
+      if (tracker.nearCap && active) {
+        notify(tr('notifyResetTitle', { name }), tr('notifyResetBody', { name, window: label }));
+      }
+      tracker.fired = [];
+      tracker.paceFor = null;
+      tracker.nearCap = false;
+    }
+    if (resetAt) tracker.resetAt = resetAt;
+    tracker.lastUsed = used;
+    if (used >= 85) tracker.nearCap = true;
+
+    const remaining = Math.max(0, 100 - used);
+    const crossed = thresholds.filter((threshold) => remaining <= threshold);
+    if (crossed.length) {
+      const lowest = crossed[crossed.length - 1];
+      if (!tracker.fired.includes(lowest)) {
+        if (active) {
+          const resetText = resetAt ? formatAlertTime(resetAt) : '--';
+          if (remaining <= 0) {
+            notify(
+              tr('notifyExhaustedTitle', { name, window: label }),
+              tr('notifyExhaustedBody', { window: label, time: resetText })
+            );
+          } else {
+            notify(
+              tr('notifyLowTitle', { name, window: label }),
+              tr('notifyLowBody', { name, window: label, remaining })
+            );
+          }
+        }
+        tracker.fired = crossed;
+      }
+    } else if (tracker.fired.length && remaining > (thresholds[0] ?? 0) + 5) {
+      tracker.fired = [];
+    }
+
+    // 预测型：按窗口内平均速度会在重置前用尽，而且提前量不小（≥ 窗口的 10%）。每个窗口只提醒一次。
+    const p = entry.pace;
+    if (
+      settings.paceAlertsEnabled
+      && p?.ready
+      && p.tier === 'serious'
+      && p.lastsUntilReset === false
+      && p.elapsedPercent >= 15
+      && used >= 25
+      && remaining > (thresholds[0] ?? 0)
+      && p.earlyByMs >= (entry.durationMs || 0) * 0.1
+      && tracker.paceFor !== resetAt
+    ) {
+      tracker.paceFor = resetAt;
+      if (active) {
+        notify(
+          tr('notifyPaceTitle', { name, window: label }),
+          tr('notifyPaceBody', {
+            window: label,
+            used: Math.round(used),
+            elapsed: Math.round(p.elapsedPercent),
+            time: formatAlertTime(p.runOutAt),
+            early: formatAlertDuration(p.earlyByMs)
+          })
+        );
+      }
+    }
+  }
+  queueAlertStateSave();
+}
+
+// 凭据失效（Claude CLI 登录过期 / Codex 401）只提醒一次，恢复后清掉标记。
+function checkCredentialAlerts(provider, slice) {
+  if (provider !== 'codex' && provider !== 'claude') return;
+  const expired = provider === 'claude'
+    ? slice.status === 'error' && CLAUDE_RECONNECT_CODES.has(slice.errorCode)
+    : slice.status === 'error' && slice.errorCode === 'http-401';
+  if (slice.status === 'ok') {
+    if (alertState.credentials[provider]) {
+      alertState.credentials[provider] = false;
+      queueAlertStateSave();
+    }
+    return;
+  }
+  if (!expired || alertState.credentials[provider]) return;
+  alertState.credentials[provider] = true;
+  queueAlertStateSave();
+  if (!alertsActive()) return;
+  const name = PROVIDER_BY_ID[provider]?.label || provider;
+  notify(
+    tr('notifyCredentialTitle', { name }),
+    provider === 'claude' ? tr('notifyCredentialBodyClaude', { command: CLAUDE_LOGIN_COMMAND }) : tr('notifyCredentialBodyCodex')
+  );
+}
+
+function formatAlertTime(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return '--';
+  const sameDay = new Date().toDateString() === date.toDateString();
+  return new Intl.DateTimeFormat(settings.language, sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+function formatAlertDuration(ms) {
+  const minutes = Math.max(1, Math.round(Number(ms) / 60_000));
+  if (minutes < 60) return tr('durationMinutes', { n: minutes });
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return tr('durationHours', { n: hours });
+  return tr('durationDays', { n: Math.round(hours / 24) });
+}
+
+function notify(title, body, { webhook = true } = {}) {
+  try {
+    if (Notification.isSupported()) new Notification({ title, body, silent: false }).show();
   } catch {
     // 通知失败不影响主流程。
+  }
+  if (webhook && settings.webhookUrl) {
+    sendWebhook(settings.webhookUrl, title, body).catch(() => {});
+  }
+}
+
+async function sendWebhook(rawUrl, title, body) {
+  const request = buildWebhookRequest(rawUrl, title, body);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+  try {
+    const response = await net.fetch(request.url, {
+      method: 'POST',
+      credentials: 'omit',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'User-Agent': `CodexMenuMeter/${app.getVersion()}`
+      },
+      body: request.body
+    });
+    if (!response.ok) {
+      const error = new Error(`HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return { ok: true, kind: request.kind };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function testWebhook(rawUrl) {
+  const url = normalizeWebhookUrl(rawUrl ?? settings.webhookUrl);
+  if (!url) throw new Error(tr('webhookInvalid'));
+  try {
+    return await sendWebhook(url, tr('webhookTestTitle'), tr('webhookTestBody'));
+  } catch (error) {
+    throw new Error(requestErrorMessage(error, 'Webhook'));
   }
 }
 
@@ -2579,6 +3086,7 @@ function refreshExtraUsage(id) {
     onSettled: () => {
       updateTrayTitle();
       recordUsageSample(id);
+      scheduleResetRefresh();
     }
   });
 }
@@ -2900,6 +3408,12 @@ function handleTouchBarHelperOutput(chunk) {
   for (const line of lines) {
     const message = line.trim();
     if (message === 'pointer-down') handleGlobalPointerDown();
+    // 点 Touch Bar 上的额度块：打开面板（已经开着就不动）并刷新当前平台，和面板里的刷新按钮走同一条路。
+    if (message === 'touchbar-open-panel') {
+      touchBarLog(message);
+      showPanelFromTouchBar();
+      refreshProvider(state.provider).catch((error) => touchBarLog(`refresh failed: ${error.message}`));
+    }
     if (message.startsWith('touchbar-provider:')) {
       touchBarLog(message);
       selectProvider(message.slice('touchbar-provider:'.length), { source: 'manual' }).catch((error) => {
@@ -2913,6 +3427,11 @@ function handleTouchBarHelperOutput(chunk) {
       handleForegroundApplication({ bundleId, name, bundlePath, pid });
     }
   }
+}
+
+function showPanelFromTouchBar() {
+  if (!panel) createPanel();
+  if (panelClosing || !panel.isVisible()) showPanelAnimated();
 }
 
 function handleForegroundApplication(identity) {
@@ -3034,8 +3553,13 @@ function createTouchBarProviderPayload(label, usage, iqItems, provider) {
     usage: {
       five: usage?.fiveHourUnlimited
         ? { label: '5h', remainingPercent: null, resetAt: null, unlimited: true }
-        : touchBarQuota('5h', usage?.primaryWindow),
-      week: touchBarQuota('7d', usage?.secondaryWindow)
+        : touchBarQuota('5h', usage?.primaryWindow, { key: 'five', provider }),
+      week: touchBarQuota('7d', usage?.secondaryWindow, { key: 'week', provider }),
+      // 带名称的附加限额（Claude 的 Fable 周限额、GLM 的 MCP 等）。没有 IQ 数据时 Touch Bar 给它们各画一块。
+      extra: (usage?.extraWindows || [])
+        .filter((item) => String(item?.name || '').trim())
+        .slice(0, 2)
+        .map((item) => touchBarQuota(String(item.name).trim().slice(0, 10), item, { key: `extra:${String(item.name).trim()}`, provider }))
     },
     iq: displayItems.map((item) => ({
       label: item.label,
@@ -3046,13 +3570,26 @@ function createTouchBarProviderPayload(label, usage, iqItems, provider) {
   };
 }
 
-function touchBarQuota(label, windowValue) {
+// tier / status 来自 usage-pace.js，Touch Bar 按 tier 上色；匀速刻度的位置随时间走，
+// 由 helper 用 resetAt 和 windowMs 每半分钟自己算（状态文件只在数据变化时才重写）。
+// 节奏只给 GPT / Claude：附加平台的窗口长度不固定。
+function touchBarQuota(label, windowValue, { key = null, provider = '' } = {}) {
   const remaining = Number(windowValue?.remainingPercent);
-  return {
+  const quota = {
     label,
     remainingPercent: Number.isFinite(remaining) ? clamp(Math.round(remaining), 0, 100) : null,
     resetAt: Number.isFinite(Number(windowValue?.resetAt)) ? Number(windowValue.resetAt) : null
   };
+  if (key && windowValue && !windowValue.inactive && (provider === 'codex' || provider === 'claude')) {
+    const windowMs = pace.windowDurationMs(key, provider);
+    const info = pace.computePace(windowValue, { durationMs: windowMs });
+    if (info) {
+      quota.tier = info.tier;
+      quota.status = info.status;
+      if (windowMs) quota.windowMs = windowMs;
+    }
+  }
+  return quota;
 }
 
 function compactTouchLabel(modelLabel, reasoningEffort, provider = 'codex') {
@@ -3157,7 +3694,7 @@ function refreshActivities() {
 }
 
 function refreshAll() {
-  const jobs = [refreshUsage(), refreshRadar(), refreshEnabledExtras()];
+  const jobs = [refreshUsage(), refreshRadar(), refreshEnabledExtras(), refreshServiceStatuses()];
   if (isProviderEnabled('claude', settings.providerSettings)) {
     jobs.push(refreshClaudeUsage(), refreshClaudeRadar());
   }
@@ -3167,6 +3704,7 @@ function refreshAll() {
 
 function refreshAllForRemote() {
   const jobs = [
+    refreshServiceStatuses(),
     refreshUsage(),
     refreshRadar(),
     refreshTokenActivity(),
@@ -3182,6 +3720,8 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = 'light';
   await session.defaultSession.setProxy({ mode: 'system' });
   await loadSettings();
+  applyAppearance();
+  await loadAlertState();
   await loadUsageHistory();
   await refreshModelCatalog();
   await loadRadarCache();
@@ -3224,12 +3764,17 @@ app.whenReady().then(async () => {
     refreshRadar();
     if (isProviderEnabled('claude', settings.providerSettings)) refreshClaudeRadar();
   }, RADAR_REFRESH_MS);
+  serviceStatusTimer = setInterval(() => {
+    refreshServiceStatuses().catch(() => {});
+  }, SERVICE_STATUS_REFRESH_MS);
   tokenActivityTimer = setInterval(() => {
     Promise.all(refreshActivities()).catch(() => {});
   }, TOKEN_ACTIVITY_REFRESH_MS);
   extraUsageTimer = setInterval(() => {
     refreshEnabledExtras().catch(() => {});
   }, EXTRA_USAGE_REFRESH_MS);
+  powerMonitor.on('resume', () => scheduleWakeRefresh('resume'));
+  powerMonitor.on('unlock-screen', () => scheduleWakeRefresh('unlock'));
 });
 
 app.on('before-quit', () => {
@@ -3242,14 +3787,27 @@ app.on('before-quit', () => {
   if (claudeUsageTimer) clearInterval(claudeUsageTimer);
   if (claudeReconnectTimer) clearInterval(claudeReconnectTimer);
   if (radarTimer) clearInterval(radarTimer);
+  if (serviceStatusTimer) clearInterval(serviceStatusTimer);
   if (tokenActivityTimer) clearInterval(tokenActivityTimer);
   if (extraUsageTimer) clearInterval(extraUsageTimer);
+  if (wakeRefreshTimer) clearTimeout(wakeRefreshTimer);
+  if (wakeRetryTimer) clearTimeout(wakeRetryTimer);
+  if (resetRefreshTimer) clearTimeout(resetRefreshTimer);
   if (cloudSyncPushTimer) clearTimeout(cloudSyncPushTimer);
   if (cloudSyncRetryTimer) clearInterval(cloudSyncRetryTimer);
   stopPanelFollowMonitor();
   stopPanelAnimation();
   clearPanelBlurTimer();
   if (touchBarStateTimer) clearTimeout(touchBarStateTimer);
+  if (alertStateSaveTimer) {
+    clearTimeout(alertStateSaveTimer);
+    alertStateSaveTimer = null;
+    try {
+      require('fs').writeFileSync(ALERT_STATE_PATH, JSON.stringify(alertState), 'utf8');
+    } catch {
+      // 退出时保存失败可以接受。
+    }
+  }
   if (usageHistorySaveTimer) {
     clearTimeout(usageHistorySaveTimer);
     usageHistorySaveTimer = null;
@@ -3313,6 +3871,13 @@ ipcMain.handle('provider:set', (_event, provider) => selectProvider(provider, { 
 ipcMain.handle('settings:get', () => getSettingsSnapshot());
 ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('settings:update', (_event, nextSettings) => saveSettings(nextSettings));
+ipcMain.handle('alerts:test-webhook', async (_event, url) => {
+  try {
+    return await testWebhook(url);
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) };
+  }
+});
 ipcMain.handle('mobile:open', () => {
   const url = getPreferredMobileAccessUrl();
   if (url) shell.openExternal(url);

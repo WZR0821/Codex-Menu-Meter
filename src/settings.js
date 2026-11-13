@@ -7,6 +7,13 @@ const els = {
   autoHideWithMenuBar: document.getElementById('autoHideWithMenuBar'),
   autoSwitchProvider: document.getElementById('autoSwitchProvider'),
   notificationsEnabled: document.getElementById('notificationsEnabled'),
+  alertThresholds: document.getElementById('alertThresholds'),
+  paceAlertsEnabled: document.getElementById('paceAlertsEnabled'),
+  webhookUrl: document.getElementById('webhookUrl'),
+  webhookHint: document.getElementById('webhookHint'),
+  testWebhook: document.getElementById('testWebhook'),
+  appearance: document.getElementById('appearance'),
+  mobileListenScope: document.getElementById('mobileListenScope'),
   hotkeyEnabled: document.getElementById('hotkeyEnabled'),
   mobileEnabled: document.getElementById('mobileEnabled'),
   mobileDetails: document.getElementById('mobileDetails'),
@@ -66,6 +73,12 @@ els.openAtLogin.addEventListener('change', () => updateSetting({ openAtLogin: el
 els.autoHideWithMenuBar.addEventListener('change', () => updateSetting({ autoHideWithMenuBar: els.autoHideWithMenuBar.checked }));
 els.autoSwitchProvider.addEventListener('change', () => updateSetting({ autoSwitchProvider: els.autoSwitchProvider.checked }));
 els.notificationsEnabled.addEventListener('change', () => updateSetting({ notificationsEnabled: els.notificationsEnabled.checked }));
+els.alertThresholds.addEventListener('change', () => updateSetting({ alertThresholds: els.alertThresholds.value }));
+els.paceAlertsEnabled.addEventListener('change', () => updateSetting({ paceAlertsEnabled: els.paceAlertsEnabled.checked }));
+els.webhookUrl.addEventListener('change', () => updateSetting({ webhookUrl: els.webhookUrl.value.trim() }));
+els.testWebhook.addEventListener('click', testWebhook);
+els.appearance.addEventListener('change', () => updateSetting({ appearance: els.appearance.value }));
+els.mobileListenScope.addEventListener('change', () => updateSetting({ mobileListenScope: els.mobileListenScope.value }));
 els.hotkeyEnabled.addEventListener('change', () => updateSetting({ hotkeyEnabled: els.hotkeyEnabled.checked }));
 els.mobileEnabled.addEventListener('change', () => updateSetting({ mobileEnabled: els.mobileEnabled.checked }));
 els.cloudSyncEnabled.addEventListener('change', handleCloudSyncToggle);
@@ -117,6 +130,11 @@ function render(settings) {
   els.autoHideWithMenuBar.checked = Boolean(settings.autoHideWithMenuBar);
   els.autoSwitchProvider.checked = Boolean(settings.autoSwitchProvider);
   els.notificationsEnabled.checked = Boolean(settings.notificationsEnabled);
+  els.alertThresholds.value = settings.alertThresholds || '20,5';
+  els.paceAlertsEnabled.checked = settings.paceAlertsEnabled !== false;
+  if (document.activeElement !== els.webhookUrl) els.webhookUrl.value = settings.webhookUrl || '';
+  els.appearance.value = settings.appearance || 'light';
+  els.mobileListenScope.value = settings.mobileListenScope || 'lan';
   els.hotkeyEnabled.checked = Boolean(settings.hotkeyEnabled);
   els.mobileEnabled.checked = Boolean(settings.mobileEnabled);
   els.cloudSyncEnabled.checked = Boolean(settings.cloudSyncEnabled);
@@ -199,6 +217,28 @@ async function updateSetting(patch) {
   currentSettings = await window.codexMeter.updateSettings({ ...currentSettings, ...patch });
   render(currentSettings);
   els.saveState.textContent = T('synced');
+}
+
+async function testWebhook() {
+  const url = els.webhookUrl.value.trim();
+  if (!url) {
+    els.saveState.textContent = T('webhookInvalid');
+    return;
+  }
+  els.testWebhook.disabled = true;
+  els.saveState.textContent = T('refreshing');
+  try {
+    if (url !== (currentSettings?.webhookUrl || '')) await updateSetting({ webhookUrl: url });
+    const result = await window.codexMeter.testWebhook(url);
+    els.saveState.textContent = result?.ok ? T('webhookSent') : (result?.error || T('webhookFailed'));
+  } catch (error) {
+    els.saveState.textContent = error?.message || T('webhookFailed');
+  } finally {
+    els.testWebhook.disabled = false;
+    window.setTimeout(() => {
+      els.saveState.textContent = T('synced');
+    }, 2400);
+  }
 }
 
 async function refreshData() {
