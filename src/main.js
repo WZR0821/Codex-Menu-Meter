@@ -99,6 +99,9 @@ const USAGE_HISTORY_VIEW_POINTS = 200;
 const PANEL_HOTKEY = 'Alt+Command+U';
 // 剩余百分比阈值的预设（降序）；'0' 表示只在用尽时提醒。
 const ALERT_THRESHOLD_PRESETS = ['20,5', '30,10', '50,20,5', '0'];
+// 同一个额度窗口的 resetAt 每次拉取都会小幅抖动（Claude 接口每次的毫秒数不同，GPT 周窗常差 1 秒），
+// 判断「是不是同一个窗口」时在这个范围内都算同一个。
+const ALERT_SAME_WINDOW_MS = 10 * 60_000;
 // standard：5h + 最紧的周限额；full：全部窗口；compact：只有数字；tightest：只显示最紧的一个；icon：只显示图标。
 const APPEARANCES = ['light', 'system', 'dark'];
 // lan：局域网 + Tailscale（0.0.0.0）；tailscale：只听 Tailscale 地址和本机；local：只听本机。
@@ -581,9 +584,11 @@ function showPanelAnimated() {
   panelShownAt = Date.now();
   cursorOutsideSince = 0;
   panelOpenedFromTopEdge = isCursorInTopMenuArea();
+  // type: 'panel' 的窗口 show()/focus() 时自己成为键盘窗口，不激活本应用（Electron 43 起如此），
+  // 当前全屏空间里照样能浮在最上层。不要再调用 app.focus()：强制激活会让 macOS 从别的应用的
+  // 全屏空间切回本应用所在的桌面空间，表现为「一点开面板就回主屏幕」（0.11.1 修复）。
   panel.show();
   presentPanelShadow();
-  if (process.platform === 'darwin') app.focus({ steal: true });
   panel.focus();
   requestTouchBarPresentation();
   panel.webContents.send('panel:motion', 'opening');
@@ -1382,6 +1387,11 @@ function cloudSyncSnapshotUrl(serverUrl, accountId) {
 async function uploadCloudSyncSnapshot({ force = false } = {}) {
   if (!settings.cloudSyncEnabled) return null;
   if (cloudSyncInFlight) {
+    if (force) {
+      // 改地址、重置配对要按新的地址和密钥重传；在途那次可能还是旧账号、旧地址，不能拿它充数。
+      await cloudSyncInFlight.catch(() => null);
+      return uploadCloudSyncSnapshot({ force: true });
+    }
     cloudSyncPushPending = true;
     return cloudSyncInFlight;
   }
@@ -1538,6 +1548,8 @@ async function resetCloudSyncPairing() {
   } catch {
     // A missing old key is one of the reasons to reset.
   }
+  // 先等在途的上传结束：它若晚于 DELETE 到达，会把旧快照写回旧账号，已撤销的手机还能读到。
+  await cloudSyncInFlight?.catch(() => null);
   await deleteCloudSnapshot(previousCredentials, settings.cloudSyncServerUrl);
   await deleteCloudSyncSecret(settings.cloudSyncAccountId);
   const credentials = await createAndStoreCloudSyncCredentials();
@@ -2863,6 +2875,10 @@ function queueAlertStateSave() {
   }, 2_000);
 }
 
+function isSameAlertWindow(a, b) {
+  return Boolean(a && b && Math.abs(a - b) <= ALERT_SAME_WINDOW_MS);
+}
+
 function alertTracker(provider, key) {
   const byProvider = alertState.windows[provider] || (alertState.windows[provider] = {});
   return byProvider[key] || (byProvider[key] = { resetAt: null, lastUsed: null, fired: [], paceFor: null, nearCap: false });
@@ -2891,7 +2907,7 @@ function checkUsageAlerts(provider, usage) {
     const label = alertWindowLabel(entry);
 
     // 新窗口：resetAt 明显往后挪了，或用量大幅回落。
-    const movedOn = tracker.resetAt && resetAt && resetAt - tracker.resetAt > 10 * 60_000;
+    const movedOn = tracker.resetAt && resetAt && resetAt - tracker.resetAt > ALERT_SAME_WINDOW_MS;
     const dropped = Number.isFinite(tracker.lastUsed) && tracker.lastUsed - used >= 30;
     if (movedOn || dropped) {
       if (tracker.nearCap && active) {
@@ -2941,7 +2957,9 @@ function checkUsageAlerts(provider, usage) {
       && used >= 25
       && remaining > (thresholds[0] ?? 0)
       && p.earlyByMs >= (entry.durationMs || 0) * 0.1
-      && tracker.paceFor !== resetAt
+      // 不能用 !== 比较：resetAt 每次拉取都有抖动，全等判断会让条件持续满足时每次拉取都再提醒一次。
+      && resetAt
+      && !isSameAlertWindow(tracker.paceFor, resetAt)
     ) {
       tracker.paceFor = resetAt;
       if (active) {
@@ -3584,7 +3602,9 @@ function touchBarQuota(label, windowValue, { key = null, provider = '' } = {}) {
     const windowMs = pace.windowDurationMs(key, provider);
     const info = pace.computePace(windowValue, { durationMs: windowMs });
     if (info) {
-      quota.tier = info.tier;
+      // 刚开窗时节奏还算不出来（tier 只是占位的 good），重置 / 未知状态也没有节奏：这些情况不给 tier，
+      // Touch Bar 就按剩余百分比的老规则上色，免得新一周头几个小时用掉一大半还显示绿色。
+      if (info.ready || info.tier === 'critical') quota.tier = info.tier;
       quota.status = info.status;
       if (windowMs) quota.windowMs = windowMs;
     }
