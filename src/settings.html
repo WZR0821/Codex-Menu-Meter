@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>设置</title>
+    <link rel="stylesheet" href="./settings.css" />
+    <link rel="stylesheet" href="./mobile/light.css" />
+    <link rel="stylesheet" href="./apple.css" />
+    <link rel="stylesheet" href="./settings-apple.css" />
+  </head>
+  <body class="settings-surface light-theme apple-theme">
+    <main class="settings-panel">
+      <div class="settings-scroll">
+        <header class="settings-head">
+          <div>
+            <h1 data-i18n="title">设置</h1>
+            <p id="appMeta">AI Usage Signal Bar</p>
+          </div>
+          <span id="saveState" class="save-state">已同步</span>
+        </header>
+
+        <section class="settings-section">
+          <label class="setting-row" for="language">
+            <span>
+              <strong data-i18n="language">语言</strong>
+              <small data-i18n="languageHint">界面显示语言</small>
+            </span>
+            <select id="language">
+              <option value="zh-CN">中文</option>
+              <option value="en-US">English</option>
+              <option value="ja-JP">日本語</option>
+            </select>
+          </label>
+
+          <label class="setting-row" for="appearance">
+            <span>
+              <strong data-i18n="appearance">外观</strong>
+              <small data-i18n="appearanceHint">面板和设置窗口的明暗</small>
+            </span>
+            <select id="appearance">
+              <option value="light" data-i18n="appearanceLight">浅色</option>
+              <option value="system" data-i18n="appearanceSystem">跟随系统</option>
+              <option value="dark" data-i18n="appearanceDark">深色</option>
+            </select>
+          </label>
+
+          <label class="setting-row switch-row" for="openAtLogin">
+            <span>
+              <strong data-i18n="openAtLogin">开机自启动</strong>
+              <small data-i18n="openAtLoginHint">登录后自动启动菜单栏工具</small>
+            </span>
+            <input id="openAtLogin" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row switch-row" for="autoHideWithMenuBar">
+            <span>
+              <strong data-i18n="autoHide">跟随菜单栏收起</strong>
+              <small data-i18n="autoHideHint">菜单栏隐藏时自动收起面板</small>
+            </span>
+            <input id="autoHideWithMenuBar" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row switch-row" for="autoSwitchProvider">
+            <span>
+              <strong data-i18n="autoSwitchProvider">跟随前台应用</strong>
+              <small data-i18n="autoSwitchProviderHint">打开 Codex / Claude Code 时自动切换，仍可手动选择</small>
+            </span>
+            <input id="autoSwitchProvider" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row switch-row" for="hotkeyEnabled">
+            <span>
+              <strong data-i18n="hotkey">全局快捷键 ⌥⌘U</strong>
+              <small data-i18n="hotkeyHint">在任何应用中按 ⌥⌘U 呼出/收起面板</small>
+            </span>
+            <input id="hotkeyEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+        </section>
+
+        <section class="settings-section alerts-section">
+          <p class="section-label" data-i18n="alertsSection">提醒</p>
+
+          <label class="setting-row switch-row" for="notificationsEnabled">
+            <span>
+              <strong data-i18n="notifications">额度提醒通知</strong>
+              <small data-i18n="notificationsHint">低于阈值时提醒，用尽后在恢复时再通知</small>
+            </span>
+            <input id="notificationsEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row" for="alertThresholds">
+            <span>
+              <strong data-i18n="alertThresholds">提醒阈值</strong>
+              <small data-i18n="alertThresholdsHint">按剩余百分比，含 Fable 等按模型的周限额</small>
+            </span>
+            <select id="alertThresholds">
+              <option value="20,5" data-i18n="alertThresholds205">剩余 20% / 5%</option>
+              <option value="30,10" data-i18n="alertThresholds3010">剩余 30% / 10%</option>
+              <option value="50,20,5" data-i18n="alertThresholds50205">剩余 50% / 20% / 5%</option>
+              <option value="0" data-i18n="alertThresholds0">仅用尽时</option>
+            </select>
+          </label>
+
+          <label class="setting-row switch-row" for="paceAlertsEnabled">
+            <span>
+              <strong data-i18n="paceAlerts">节奏预警</strong>
+              <small data-i18n="paceAlertsHint">按目前速度会在重置前用尽时提前提醒一次</small>
+            </span>
+            <input id="paceAlertsEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <div class="webhook-setup">
+            <label class="mobile-link-row" for="webhookUrl">
+              <span data-i18n="webhookUrl">推送到手机</span>
+              <input id="webhookUrl" type="url" placeholder="https://api.day.app/… · https://ntfy.sh/…" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="webhook-foot">
+              <small id="webhookHint" data-i18n="webhookHint">填写 Bark 或 ntfy 地址后，提醒会同时推送到手机；留空则不推送</small>
+              <button id="testWebhook" type="button" data-i18n="webhookTest">发送测试</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section">
+          <p class="section-label" data-i18n="providerSection">模型显示</p>
+
+          <label class="setting-row switch-row" for="claudeEnabled">
+            <span>
+              <strong>Claude</strong>
+              <small data-i18n="claudeHint">在面板、菜单栏和 Touch Bar 中显示 Claude</small>
+            </span>
+            <input id="claudeEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row switch-row" for="kimiEnabled">
+            <span>
+              <strong>Kimi Code</strong>
+              <small data-i18n="kimiHint">显示 Kimi Coding Plan 额度（api.kimi.com）</small>
+            </span>
+            <input id="kimiEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+          <label class="setting-row key-row" for="kimiKey" id="kimiKeyRow" hidden>
+            <span>
+              <strong data-i18n="apiKey">API Key</strong>
+              <small data-i18n="apiKeyHint">仅保存在本机设置文件中</small>
+            </span>
+            <input id="kimiKey" class="key-input" type="password" placeholder="sk-kimi-…" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <label class="setting-row switch-row" for="glmEnabled">
+            <span>
+              <strong>GLM Coding Plan</strong>
+              <small data-i18n="glmHint">显示智谱 GLM Coding Plan 额度（bigmodel.cn / z.ai）</small>
+            </span>
+            <input id="glmEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+          <label class="setting-row key-row" for="glmKey" id="glmKeyRow" hidden>
+            <span>
+              <strong data-i18n="apiKey">API Key</strong>
+              <small data-i18n="apiKeyHint">仅保存在本机设置文件中</small>
+            </span>
+            <input id="glmKey" class="key-input" type="password" placeholder="API Key" autocomplete="off" spellcheck="false" />
+          </label>
+
+          <label class="setting-row switch-row" for="qwenEnabled">
+            <span>
+              <strong>Qwen Coding Plan</strong>
+              <small data-i18n="qwenHint">官方暂无额度查询接口，开启后仅显示说明</small>
+            </span>
+            <input id="qwenEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+        </section>
+
+        <section class="settings-section mobile-section">
+          <p class="section-label" data-i18n="mobileSection">手机联动</p>
+
+          <label class="setting-row switch-row" for="mobileEnabled">
+            <span>
+              <strong data-i18n="mobileEnabled">启用手机面板</strong>
+              <small data-i18n="mobileEnabledHint">在本机启动只读、安全的移动端页面</small>
+            </span>
+            <input id="mobileEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row" for="mobileListenScope" id="mobileListenScopeRow">
+            <span>
+              <strong data-i18n="mobileListenScope">访问范围</strong>
+              <small data-i18n="mobileListenScopeHint">局域网内是明文 HTTP，公共网络建议只开 Tailscale</small>
+            </span>
+            <select id="mobileListenScope">
+              <option value="lan" data-i18n="mobileScopeLan">局域网 + Tailscale</option>
+              <option value="tailscale" data-i18n="mobileScopeTailscale">仅 Tailscale</option>
+              <option value="local" data-i18n="mobileScopeLocal">仅本机</option>
+            </select>
+          </label>
+
+          <div class="mobile-details" id="mobileDetails" hidden>
+            <div class="mobile-pairing">
+              <div class="mobile-qr-wrap">
+                <img id="mobileQr" alt="手机联动二维码" />
+                <span id="mobileQrPlaceholder">LOCAL</span>
+              </div>
+              <div class="mobile-copy">
+                <strong id="mobileStatus">正在启动</strong>
+                <small id="mobileStatusHint">仅限本机预览</small>
+                <span class="mobile-security" data-i18n="mobileSecurity">只传输脱敏后的只读数据</span>
+              </div>
+            </div>
+
+            <label class="mobile-link-row" for="mobileLink">
+              <span data-i18n="mobileAddress">访问地址</span>
+              <input id="mobileLink" type="text" readonly />
+            </label>
+
+            <div class="mobile-actions">
+              <button id="openMobile" type="button" data-i18n="mobilePreview">预览</button>
+              <button id="copyMobileLink" type="button" data-i18n="mobileCopy">复制链接</button>
+              <button id="rotateMobileToken" type="button" data-i18n="mobileRotate">更换密钥</button>
+            </div>
+
+            <button class="tailscale-row" id="tailscaleAction" type="button">
+              <span>
+                <strong id="tailscaleTitle">安装 Tailscale</strong>
+                <small id="tailscaleHint">安装后可在外网安全访问</small>
+              </span>
+              <span class="tailscale-state" id="tailscaleState">未安装</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="settings-section cloud-sync-section">
+          <p class="section-label" data-i18n="cloudSyncSection">加密云同步</p>
+
+          <label class="setting-row switch-row" for="cloudSyncEnabled">
+            <span>
+              <strong data-i18n="cloudSyncEnabled">启用网页云同步</strong>
+              <small data-i18n="cloudSyncEnabledHint">Mac 本地加密，云端只保存密文</small>
+            </span>
+            <input id="cloudSyncEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <div class="cloud-sync-setup">
+            <label class="mobile-link-row" for="cloudSyncServerUrl">
+              <span data-i18n="cloudSyncServer">同步服务地址</span>
+              <input id="cloudSyncServerUrl" type="url" placeholder="https://your-worker.workers.dev" />
+            </label>
+          </div>
+
+          <div class="mobile-details cloud-sync-details" id="cloudSyncDetails" hidden>
+            <div class="mobile-pairing">
+              <div class="mobile-qr-wrap cloud-sync-qr">
+                <img id="cloudSyncQr" alt="加密云同步二维码" />
+                <span id="cloudSyncQrPlaceholder">E2EE</span>
+              </div>
+              <div class="mobile-copy">
+                <strong id="cloudSyncStatus">等待首次同步</strong>
+                <small id="cloudSyncStatusHint">--</small>
+                <span class="mobile-security" data-i18n="cloudSyncSecurity">解密密钥不会上传到服务器</span>
+              </div>
+            </div>
+
+            <div class="mobile-actions">
+              <button id="openCloudSync" type="button" data-i18n="cloudSyncPreview">打开网页</button>
+              <button id="copyCloudSyncLink" type="button" data-i18n="cloudSyncCopy">复制配对链接</button>
+              <button id="copyCloudSyncRecovery" type="button" data-i18n="cloudSyncRecovery">复制恢复码</button>
+            </div>
+            <div class="mobile-actions cloud-secondary-actions">
+              <button id="pushCloudSync" type="button" data-i18n="cloudSyncNow">立即同步</button>
+              <button id="resetCloudSync" type="button" data-i18n="cloudSyncReset">重置配对</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section action-section">
+          <button class="action-row" id="refreshData" type="button">
+            <span>
+              <strong data-i18n="refreshData">刷新数据</strong>
+              <small data-i18n="refreshDataHint">立即更新用量和雷达</small>
+            </span>
+          </button>
+
+          <button class="action-row" id="openRadar" type="button">
+            <span>
+              <strong data-i18n="openRadar">打开当前雷达</strong>
+              <small data-i18n="openRadarHint">在浏览器查看当前数据源页面</small>
+            </span>
+          </button>
+
+          <button class="action-row" id="showApp" type="button">
+            <span>
+              <strong data-i18n="showApp">显示应用位置</strong>
+              <small data-i18n="showAppHint">在访达中定位这个 App</small>
+            </span>
+          </button>
+
+          <button class="action-row danger" id="quitApp" type="button">
+            <span>
+              <strong data-i18n="quitApp">退出程序</strong>
+              <small data-i18n="quitAppHint">关闭菜单栏工具</small>
+            </span>
+          </button>
+        </section>
+      </div>
+    </main>
+
+    <script src="./i18n.js"></script>
+    <script src="./provider-config.js"></script>
+    <script src="./theme.js"></script>
+    <script src="./settings.js"></script>
+  </body>
+</html>

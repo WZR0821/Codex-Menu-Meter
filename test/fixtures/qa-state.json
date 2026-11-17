@@ -1,0 +1,172 @@
+{
+  "provider": "codex",
+  "language": "zh-CN",
+  "enabledProviders": ["codex", "claude", "kimi", "glm", "qwen"],
+  "usageHistory": {
+    "codex": [
+      { "t": 1784401200000, "five": 12, "week": 31 },
+      { "t": 1784404800000, "five": 18, "week": 33 },
+      { "t": 1784408400000, "five": 24, "week": 35 },
+      { "t": 1784412000000, "five": 29, "week": 37 }
+    ],
+    "claude": [
+      { "t": 1784401200000, "five": 20, "week": 42 },
+      { "t": 1784404800000, "five": 25, "week": 44 },
+      { "t": 1784408400000, "five": 31, "week": 46 },
+      { "t": 1784412000000, "five": 36, "week": 48 }
+    ],
+    "kimi": [
+      { "t": 1784401200000, "five": 14, "week": 33 },
+      { "t": 1784404800000, "five": 17, "week": 35 },
+      { "t": 1784408400000, "five": 20, "week": 38 },
+      { "t": 1784412000000, "five": 22, "week": 41 }
+    ],
+    "glm": [
+      { "t": 1784401200000, "five": 8, "week": 25 },
+      { "t": 1784404800000, "five": 10, "week": 28 },
+      { "t": 1784408400000, "five": 12, "week": 31 },
+      { "t": 1784412000000, "five": 15, "week": 34 }
+    ],
+    "qwen": [
+    ]
+  },
+  "usage": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "planType": "plus",
+      "limitReached": false,
+      "primaryWindow": null,
+      "secondaryWindow": { "usedPercent": 37, "remainingPercent": 63, "resetAt": 1893974400000 },
+      "fiveHourUnlimited": true,
+      "resetCredits": { "availableCount": 2, "credits": [], "error": null }
+    }
+  },
+  "radar": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "monitoredAt": "2026-07-19T10:00:00Z",
+      "sourceUrl": "https://codexradar.com/",
+      "modelIq": {
+        "latestDate": "2026-07-19",
+        "updatedAt": "2026-07-19T10:00:00Z",
+        "items": [
+          { "label": "GPT-5.4 xhigh", "modelLabel": "GPT-5.4", "reasoningEffort": "xhigh", "score": 142.8, "status": "green", "passed": 39, "tasks": 40, "costUsd": 38.6, "wallTimeHuman": "52分钟" },
+          { "label": "GPT-5.3 Codex high", "modelLabel": "GPT-5.3 Codex", "reasoningEffort": "high", "score": 137.4, "status": "yellow", "passed": 37, "tasks": 40, "costUsd": 31.2, "wallTimeHuman": "47分钟" },
+          { "label": "GPT-5.2 medium", "modelLabel": "GPT-5.2", "reasoningEffort": "medium", "score": 129.1, "status": "red", "passed": 35, "tasks": 40, "costUsd": 24.9, "wallTimeHuman": "41分钟" }
+        ]
+      },
+      "quotaRadar": {
+        "updatedAt": "2026-07-19T09:40:00Z",
+        "rows": [
+          { "tier": "Plus", "five_h": 5, "seven_d": 40 },
+          { "tier": "Pro", "five_h": 25, "seven_d": 200 }
+        ]
+      }
+    }
+  },
+  "tokenActivity": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "source": "codex_local",
+      "units": "tokens",
+      "windowDays": 30,
+      "windows": {
+        "fiveHour": { "startAt": 1784394000000, "endAt": 1784412000000, "basis": "cycle", "tokens": 760000, "ioTokens": 54400, "inputTokens": 735000, "cachedInputTokens": 705600, "threads": 4 },
+        "week": { "startAt": 1783807200000, "endAt": 1784412000000, "basis": "cycle", "tokens": 10630000, "ioTokens": 426275, "inputTokens": 10255000, "cachedInputTokens": 10203725, "threads": 37 }
+      },
+      "days": [
+        { "day": "2026-07-14", "tokens": 1450000, "ioTokens": 160000, "inputTokens": 1390000, "cachedInputTokens": 1290000, "threads": 8, "costUsd": 4.4, "models": [{ "model": "gpt-5.3-codex", "weighted": 1450000 }] },
+        { "day": "2026-07-15", "tokens": 2380000, "ioTokens": 240000, "inputTokens": 2300000, "cachedInputTokens": 2140000, "threads": 11, "costUsd": 7.1, "models": [{ "model": "gpt-5.3-codex", "weighted": 2380000 }] },
+        { "day": "2026-07-16", "tokens": 980000, "ioTokens": 90000, "inputTokens": 940000, "cachedInputTokens": 890000, "threads": 5, "costUsd": 3.2, "models": [{ "model": "gpt-5.2", "weighted": 980000 }] },
+        { "day": "2026-07-17", "tokens": 3210000, "ioTokens": 310000, "inputTokens": 3100000, "cachedInputTokens": 2900000, "threads": 14, "costUsd": 9.6, "models": [{ "model": "gpt-5.4", "weighted": 3210000 }] },
+        { "day": "2026-07-18", "tokens": 1850000, "ioTokens": 180000, "inputTokens": 1790000, "cachedInputTokens": 1670000, "threads": 9, "costUsd": 5.7, "models": [{ "model": "gpt-5.4", "weighted": 1850000 }] },
+        { "day": "2026-07-19", "tokens": 760000, "ioTokens": 72000, "inputTokens": 735000, "cachedInputTokens": 688000, "threads": 4, "costUsd": 2.3, "models": [{ "model": "gpt-5.4", "weighted": 760000 }] }
+      ]
+    }
+  },
+  "claudeUsage": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "planType": "max",
+      "limitReached": false,
+      "primaryWindow": { "usedPercent": 36, "remainingPercent": 64, "resetAt": 1893456000000 },
+      "secondaryWindow": { "usedPercent": 48, "remainingPercent": 52, "resetAt": 1893974400000 }
+    }
+  },
+  "claudeRadar": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "updatedAt": "2026-07-19T10:00:00Z",
+      "iqUpdatedAt": "2026-07-19T09:50:00Z",
+      "sourceUrl": "https://claudecoderadar.com/",
+      "items": [
+        { "label": "Opus 4.2 high", "modelLabel": "Opus 4.2", "reasoningEffort": "high", "score": 140.2, "status": "green", "passed": 39, "tasks": 40, "invalid": 0, "costUsd": 42.5, "wallHours": 0.9 },
+        { "label": "Sonnet 4.5 medium", "modelLabel": "Sonnet 4.5", "reasoningEffort": "medium", "score": 133.7, "status": "yellow", "passed": 37, "tasks": 40, "invalid": 0, "costUsd": 28.8, "wallHours": 0.7 },
+        { "label": "Haiku 4.1", "modelLabel": "Haiku 4.1", "reasoningEffort": "", "score": 119.4, "status": "red", "passed": 33, "tasks": 40, "invalid": 0, "costUsd": 9.2, "wallHours": 0.4 }
+      ],
+      "quota": {
+        "updatedAt": "2026-07-19T09:40:00Z",
+        "baseH5": 25,
+        "baseD7": 200,
+        "usage": [
+          { "key": "h5", "usedPercent": 36, "resetText": "3小时后重置" },
+          { "key": "d7", "usedPercent": 48, "resetText": "4天后重置" }
+        ],
+        "chartLabel": "Max 计划共享额度校准"
+      }
+    }
+  },
+  "claudeActivity": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "source": "claude_local",
+      "units": "tokens",
+      "windowDays": 30,
+      "windows": {
+        "fiveHour": { "startAt": 1784394000000, "endAt": 1784412000000, "basis": "cycle", "tokens": 430000, "ioTokens": 65000, "inputTokens": 400000, "cachedInputTokens": 382000, "threads": 3 },
+        "week": { "startAt": 1783807200000, "endAt": 1784412000000, "basis": "cycle", "tokens": 2260000, "ioTokens": 255000, "inputTokens": 2130000, "cachedInputTokens": 2076750, "threads": 12 }
+      },
+      "days": [
+        { "day": "2026-07-18", "tokens": 920000, "ioTokens": 110000, "inputTokens": 870000, "cachedInputTokens": 760000, "threads": 5, "costUsd": 3.8 },
+        { "day": "2026-07-19", "tokens": 1340000, "ioTokens": 145000, "inputTokens": 1260000, "cachedInputTokens": 1115000, "threads": 7, "costUsd": 5.4 }
+      ]
+    }
+  },
+  "kimiUsage": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "primaryWindow": { "usedPercent": 22, "remainingPercent": 78, "resetAt": 1893456000000 },
+      "secondaryWindow": { "usedPercent": 41, "remainingPercent": 59, "resetAt": 1893974400000 }
+    }
+  },
+  "glmUsage": {
+    "status": "ok",
+    "fetchedAt": 1784412000000,
+    "error": null,
+    "data": {
+      "primaryWindow": { "usedPercent": 15, "remainingPercent": 85, "resetAt": 1893456000000 },
+      "secondaryWindow": { "usedPercent": 34, "remainingPercent": 66, "resetAt": 1893974400000 },
+      "extraWindows": [{ "name": "MCP", "usedPercent": 44, "remainingPercent": 56, "resetAt": 1893974400000 }]
+    }
+  },
+  "qwenUsage": {
+    "status": "error",
+    "fetchedAt": null,
+    "error": "Qwen 官方暂未提供额度查询接口，请在百炼控制台查看用量。",
+    "data": null
+  }
+}

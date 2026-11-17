@@ -1,0 +1,32 @@
+.DS_Store
+.wrangler/
+node_modules/
+dist/
+backups/
+
+*.log
+*.tmp
+*.swp
+
+# Build products (rebuilt by npm run build:native / build:mac / build:*-dmg)
+native/touchbar-helper
+*.app
+*.dmg
+*.zip
+
+# Local secrets for wrangler dev / deploy
+.env
+.env.*
+.dev.vars
+cloud/.dev.vars
+
+# Local Electron/debug state
+.cmm-dev-data/
+debug-state.json
+settings.json
+usage-history.json
+touchbar-state.json
+
+# Local-only notes: per-session handoff log and per-machine release checksums
+NEW_SESSION_HANDOFF.md
+RELEASE_CHECKSUMS.txt

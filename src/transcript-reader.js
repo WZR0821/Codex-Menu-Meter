@@ -1,0 +1,82 @@
+const fs = require('fs/promises');
+
+const DEFAULT_CHUNK_SIZE = 1024 * 1024;
+
+function retainRecentEntries(entries, retainFromTs) {
+  if (!Number.isFinite(retainFromTs)) return entries;
+  // 长会话文件会一路追加，缓存里只留统计窗口内的条目，避免旧条目长期占内存。
+  return entries.filter((entry) => Number(entry?.ts) >= retainFromTs);
+}
+
+async function readTranscriptFile(file, cache, parseLines, {
+  chunkSize = DEFAULT_CHUNK_SIZE,
+  retainFromTs = null
+} = {}) {
+  let stat;
+  try {
+    stat = await fs.stat(file);
+  } catch {
+    return [];
+  }
+
+  const cached = cache.get(file);
+  const sameFile = cached && cached.dev === stat.dev && cached.ino === stat.ino;
+  if (sameFile && cached.mtimeMs === stat.mtimeMs && cached.fileSize === stat.size) {
+    cached.entries = retainRecentEntries(cached.entries, retainFromTs);
+    return cached.entries;
+  }
+
+  const canAppend = sameFile
+    && stat.size > cached.fileSize
+    && stat.mtimeMs >= cached.mtimeMs
+    && cached.offset <= cached.fileSize;
+  const start = canAppend ? cached.offset : 0;
+  // Parse transactionally: a failed read must not advance the cached parser state.
+  const parseState = canAppend ? structuredClone(cached.parseState || {}) : {};
+  const entries = canAppend ? cached.entries.slice() : [];
+
+  let offset = start;
+  let pending = Buffer.alloc(0);
+  let handle;
+  try {
+    handle = await fs.open(file, 'r');
+    let position = start;
+    while (position < stat.size) {
+      const requested = Math.min(chunkSize, stat.size - position);
+      const chunk = Buffer.allocUnsafe(requested);
+      const { bytesRead } = await handle.read(chunk, 0, requested, position);
+      if (bytesRead <= 0) break;
+
+      position += bytesRead;
+      const bytes = bytesRead === requested ? chunk : chunk.subarray(0, bytesRead);
+      const combined = pending.length ? Buffer.concat([pending, bytes]) : bytes;
+      const lastNewline = combined.lastIndexOf(0x0a);
+      if (lastNewline < 0) {
+        pending = Buffer.from(combined);
+        continue;
+      }
+
+      entries.push(...parseLines(combined.subarray(0, lastNewline + 1).toString('utf8'), parseState));
+      pending = Buffer.from(combined.subarray(lastNewline + 1));
+      offset = position - pending.length;
+    }
+  } catch {
+    return canAppend ? cached.entries : [];
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+
+  const retained = retainRecentEntries(entries, retainFromTs);
+  cache.set(file, {
+    dev: stat.dev,
+    ino: stat.ino,
+    mtimeMs: stat.mtimeMs,
+    fileSize: stat.size,
+    offset,
+    entries: retained,
+    parseState
+  });
+  return retained;
+}
+
+module.exports = { readTranscriptFile };

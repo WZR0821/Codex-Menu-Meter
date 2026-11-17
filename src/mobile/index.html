@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>AI 用量</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body class="mobile-surface">
+    <section class="pairing-gate" id="pairingGate" hidden>
+      <div class="pairing-panel">
+        <p class="pairing-kicker" id="pairingKicker">端到端加密</p>
+        <h1 id="pairingTitle">连接用量面板</h1>
+        <p class="pairing-copy" id="pairingCopy">扫描电脑设置中的二维码，或输入恢复码。</p>
+        <label class="pairing-input-wrap" for="pairingInput">
+          <span id="pairingInputLabel">恢复码</span>
+          <input id="pairingInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </label>
+        <button class="pairing-submit" id="pairingSubmit" type="button">连接</button>
+        <small class="pairing-note" id="pairingNote">密钥只保存在这个浏览器中</small>
+      </div>
+    </section>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="header-copy">
+          <h1>AI 用量</h1>
+          <p class="eyebrow"><span class="live-dot"></span><span id="connectionLabel">正在连接 Mac</span></p>
+        </div>
+        <div class="header-actions">
+          <button class="icon-button" id="syncDeviceButton" type="button" aria-label="同步设备" title="同步设备" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="10" rx="2" />
+              <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+            </svg>
+          </button>
+          <button class="icon-button" id="refreshButton" type="button" aria-label="刷新" title="刷新">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="control-deck">
+        <nav class="provider-switch" id="providerSwitch" aria-label="模型平台"></nav>
+        <nav class="view-switch" aria-label="视图">
+          <button class="view-button active" type="button" data-view="usage">用量</button>
+          <button class="view-button" type="button" data-view="radar">雷达</button>
+          <span class="view-thumb" aria-hidden="true"></span>
+        </nav>
+      </div>
+
+      <section class="view active" id="usageView">
+        <div class="section-head">
+          <h2 id="usageHeading">Codex 额度</h2>
+          <span id="usageUpdated">--</span>
+        </div>
+        <a class="service-banner" id="serviceBanner" target="_blank" rel="noopener noreferrer" hidden></a>
+        <div class="quota-grid" id="quotaGrid"></div>
+
+        <div class="section-head token-heading" id="tokenHeading">
+          <h2>Token 活动</h2>
+          <span id="tokenUpdated">--</span>
+        </div>
+        <section class="token-card" id="tokenCard"></section>
+        <section class="pace-card" id="paceCard" hidden></section>
+      </section>
+
+      <section class="view" id="radarView">
+        <nav class="radar-subtabs" id="radarSubtabs" role="tablist" aria-label="雷达内容">
+          <button class="radar-subtab active" type="button" role="tab" aria-selected="true" data-radar-view="intelligence">智力</button>
+          <button class="radar-subtab" type="button" role="tab" aria-selected="false" data-radar-view="quota">额度</button>
+          <button class="radar-subtab" type="button" role="tab" aria-selected="false" data-radar-view="reset">重置</button>
+        </nav>
+
+        <section class="radar-subview active" data-radar-view="intelligence">
+          <div class="radar-intelligence-summary">
+            <div class="radar-recommendation">
+              <span class="radar-kicker" id="recommendedTitle">推荐模型</span>
+              <strong id="recommendedModel">--</strong>
+              <span class="radar-summary-meta" id="recommendedMeta"></span>
+            </div>
+            <div class="radar-degradation" id="iqDegradeAlert" role="status">
+              <span class="radar-kicker" id="iqDegradeTitle">降智预警</span>
+              <strong id="iqDegradeValue">监测中</strong>
+            </div>
+          </div>
+
+          <div class="radar-brief-status" id="radarBriefStatus" role="status" hidden></div>
+          <div class="radar-intelligence-toolbar">
+            <div class="section-head">
+              <h2 id="iqTitle">模型 IQ</h2>
+              <span id="iqUpdated">--</span>
+            </div>
+            <div class="radar-sort-controls" id="iqSortControls" role="group" aria-label="模型排序">
+              <button class="radar-sort-button active" type="button" data-iq-sort="iq">IQ</button>
+              <button class="radar-sort-button" type="button" data-iq-sort="value">性价比</button>
+              <button class="radar-sort-button" type="button" data-iq-sort="speed">速度</button>
+            </div>
+          </div>
+          <div class="iq-list" id="iqList"></div>
+          <button class="model-expand" id="expandModels" type="button" hidden></button>
+          <details class="inline-details source-details" data-detail="radar-source">
+            <summary><span data-ui-copy="sourceDetails">筛选与数据说明</span></summary>
+            <div class="disclosure-content">
+              <div class="model-catalog-notice" id="modelCatalogNotice" hidden>
+                <span id="modelCatalogNames"></span>
+                <button type="button" class="catalog-filter" id="latestModelsFilter" aria-pressed="false"></button>
+              </div>
+              <div class="radar-data-notice" id="radarDataNotice" hidden></div>
+            </div>
+          </details>
+        </section>
+
+        <section class="radar-subview" data-radar-view="quota">
+          <section class="radar-section">
+            <div class="section-head">
+              <h2 id="modelUsageTitle">模型消耗</h2>
+              <span id="modelUsagePeriod">最近采样日</span>
+            </div>
+            <div id="modelUsageSummary" class="model-usage-summary"></div>
+            <div id="modelUsageRows" class="model-usage-list"></div>
+          </section>
+          <details class="radar-section inline-details" data-detail="quota-reference">
+            <summary>
+              <h2 id="quotaRadarTitle">额度雷达</h2>
+            </summary>
+            <div class="disclosure-content">
+              <span id="radarSource">--</span>
+              <section class="radar-card" id="radarCard"></section>
+            </div>
+          </details>
+        </section>
+
+        <section class="radar-subview" data-radar-view="reset">
+          <section class="radar-section">
+            <div class="section-head">
+              <h2 id="resetTitle">重置</h2>
+              <span id="resetSource">--</span>
+            </div>
+            <div class="reset-list" id="resetCards"></div>
+          </section>
+        </section>
+      </section>
+
+      <footer>
+        <span id="footerStatus">只读连接</span>
+        <span>Codex Menu Meter</span>
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="./runtime-config.js"></script>
+    <script src="./cloud-sync-crypto.js"></script>
+    <script src="./usage-pace.js"></script>
+    <script src="./mobile.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1018 @@
+/* Apple 风格外观层（桌面面板）。
+   只在 body.apple-theme 下生效，最后加载，覆盖 styles.css / minimal.css / light.css
+   的配色、字体、圆角与控件形态；不改布局结构和渲染逻辑。
+   手机端与云同步页面不加载本文件，外观保持原样。 */
+
+body.apple-theme {
+  /* 系统语义色（浅色外观） */
+  --a-label: #1d1d1f;
+  --a-label-2: rgba(60, 60, 67, 0.68);
+  --a-label-3: rgba(60, 60, 67, 0.44);
+  --a-separator: rgba(60, 60, 67, 0.13);
+  --a-fill: rgba(118, 118, 128, 0.12);
+  --a-fill-2: rgba(118, 118, 128, 0.07);
+  --a-canvas: #f2f2f5;
+  --a-card: #ffffff;
+  --a-card-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --a-thumb-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.04), 0 3px 8px rgba(0, 0, 0, 0.1), 0 1px 1px rgba(0, 0, 0, 0.06);
+  --a-blue: #007aff;
+  --a-blue-text: #0068d9;
+  --a-green: #34c759;
+  --a-green-text: #1e8a3c;
+  --a-orange: #ff9500;
+  --a-orange-text: #b35a00;
+  --a-red: #ff3b30;
+  --a-red-text: #d6261c;
+  --a-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans", sans-serif;
+  --a-rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  --a-icon-reset: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 11.5a8 8 0 1 1-2.6-5.4'/%3E%3Cpath d='M20.5 3.5v5h-5'/%3E%3C/svg%3E");
+
+  /* 当前平台强调色：进度条用 --accent，文字用对比度更高的 --accent-text */
+  --accent: var(--a-green);
+  --accent-text: var(--a-green-text);
+  --accent-rgb: 52, 199, 89;
+
+  /* 旧样式层使用的变量，一并切到系统色 */
+  --ink: var(--a-label);
+  --text: var(--a-label);
+  --muted: var(--a-label-2);
+  --dim: var(--a-label-3);
+  --line: var(--a-separator);
+  --line-strong: rgba(60, 60, 67, 0.22);
+  --blue: var(--a-blue-text);
+  --green: var(--a-green-text);
+  --amber: var(--a-orange-text);
+  --red: var(--a-red-text);
+  --danger: var(--a-red-text);
+  --warning: var(--a-orange-text);
+  --detail-ink: var(--a-label);
+  --detail-muted: var(--a-label-2);
+  --detail-line: var(--a-separator);
+  --detail-blue: var(--a-blue-text);
+  --tech-surface: var(--a-fill);
+  --tech-selected: var(--a-card);
+  --tech-mono: var(--a-rounded);
+
+  font-family: var(--a-font);
+  letter-spacing: -0.003em;
+  color: var(--a-label);
+}
+
+body.apple-theme .panel[data-provider="claude"] { --accent: #d97757; --accent-text: #b5512c; --accent-rgb: 217, 119, 87; }
+body.apple-theme .panel[data-provider="kimi"] { --accent: #007aff; --accent-text: #0068d9; --accent-rgb: 0, 122, 255; }
+body.apple-theme .panel[data-provider="glm"] { --accent: #30b0c7; --accent-text: #0c7d93; --accent-rgb: 48, 176, 199; }
+body.apple-theme .panel[data-provider="qwen"] { --accent: #5856d6; --accent-text: #4a48c4; --accent-rgb: 88, 86, 214; }
+
+/* ---- 面板底板 ---- */
+body.apple-theme.light-theme .panel {
+  background: var(--a-canvas);
+  outline: 0.5px solid rgba(0, 0, 0, 0.14);
+  outline-offset: -0.5px;
+  border-radius: 12px;
+}
+/* 旧版的扫光、光晕属于装饰性动效，苹果风格下不再出现 */
+body.apple-theme :is(.panel-aurora, .motion-layer) { display: none !important; }
+body.apple-theme ::selection { background: rgba(0, 122, 255, 0.22); color: inherit; }
+body.apple-theme ::-webkit-scrollbar { width: 7px; }
+body.apple-theme ::-webkit-scrollbar-thumb { background: rgba(60, 60, 67, 0.26); border-radius: 4px; border: 2px solid transparent; background-clip: padding-box; }
+body.apple-theme.light-theme :is(button, summary, [tabindex="0"], input, select):focus-visible {
+  outline: 3px solid rgba(0, 122, 255, 0.45);
+  outline-offset: 1px;
+}
+
+/* ---- 工具栏与分段控件 ---- */
+body.apple-theme.light-theme .toolbar {
+  padding: 10px 14px 4px;
+  background: transparent;
+  border-bottom: 0;
+  display: grid;
+  gap: 8px;
+}
+body.apple-theme .provider-row { gap: 8px; margin: 0; }
+body.apple-theme.light-theme :is(.provider-switch, .tabs, .radar-subtabs, .radar-sort-controls) {
+  background: var(--a-fill);
+  border: 0;
+  border-radius: 9px;
+  box-shadow: none;
+  padding: 2px;
+}
+body.apple-theme .provider-switch { height: 28px; min-height: 28px; }
+body.apple-theme .tabs { height: 26px; min-height: 26px; margin: 0; gap: 0; }
+/* 页签行：左边是窄的分段控件，右边是同步状态摘要；状态明细展开后排在这一行下面 */
+body.apple-theme .tabs-row { position: relative; min-width: 0; }
+body.apple-theme .tabs-row > .tabs { width: 156px; }
+body.apple-theme .tab-button > span { display: none; }
+body.apple-theme .radar-subtabs { height: 28px; min-height: 28px; gap: 0; }
+body.apple-theme.light-theme .panel[data-provider] .provider-switch .provider-thumb {
+  top: 2px;
+  bottom: 2px;
+  height: auto;
+  background: var(--a-card);
+  border: 0;
+  border-radius: 7px;
+  box-shadow: var(--a-thumb-shadow);
+}
+body.apple-theme.light-theme .provider-option {
+  height: 24px;
+  min-height: 24px;
+  border-radius: 7px;
+  color: var(--a-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+body.apple-theme.light-theme .provider-option:hover { background: transparent; color: var(--a-label); }
+body.apple-theme.light-theme .provider-option.active[data-provider] { color: var(--accent-text); font-weight: 600; }
+
+body.apple-theme.light-theme :is(.tab-button, .radar-subtab, .radar-sort-button) {
+  height: auto;
+  min-height: 0;
+  align-self: stretch;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--a-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: none;
+}
+body.apple-theme.light-theme :is(.tab-button, .radar-subtab) strong { font-size: 12.5px; font-weight: 500; color: inherit; }
+body.apple-theme.light-theme :is(.tab-button:hover, .radar-subtab:hover, .radar-sort-button:hover) { color: var(--a-label); }
+body.apple-theme.light-theme .panel[data-provider][data-active-tab] .tab-button.active,
+body.apple-theme.light-theme .panel[data-provider] :is(.radar-subtab.active, .radar-sort-button.active) {
+  background: var(--a-card);
+  color: var(--a-label);
+  border: 0;
+  box-shadow: var(--a-thumb-shadow);
+}
+body.apple-theme.light-theme .panel[data-provider][data-active-tab] .tab-button.active strong,
+body.apple-theme.light-theme .radar-subtab.active strong { font-weight: 600; color: var(--a-label); }
+body.apple-theme.light-theme .radar-sort-controls { height: 26px; border-radius: 8px; }
+body.apple-theme.light-theme .radar-sort-button { padding: 0 10px; font-size: 11.5px; border-radius: 6px; }
+body.apple-theme.light-theme .radar-sort-button.active { font-weight: 600; }
+
+/* 刷新：圆形图标按钮 */
+body.apple-theme.light-theme .icon-button,
+body.apple-theme.light-theme .panel[data-provider][data-active-tab] .icon-button {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--a-fill);
+  color: var(--a-label-2);
+  box-shadow: none;
+  display: grid;
+  place-items: center;
+  transition: background 120ms ease, transform 120ms ease;
+}
+body.apple-theme.light-theme .icon-button:hover,
+body.apple-theme.light-theme .panel[data-provider][data-active-tab] .icon-button:hover { background: rgba(118, 118, 128, 0.2); color: var(--a-label); box-shadow: none; }
+body.apple-theme.light-theme .icon-button:active { transform: scale(0.94); }
+body.apple-theme .icon-button > span {
+  width: 15px;
+  height: 15px;
+  font-size: 0;
+  line-height: 0;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 11.5a8 8 0 1 1-2.6-5.4'/%3E%3Cpath d='M20.5 3.5v5h-5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 11.5a8 8 0 1 1-2.6-5.4'/%3E%3Cpath d='M20.5 3.5v5h-5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* ---- 状态行 ---- */
+body.apple-theme.light-theme .status-line { position: static; min-height: 0; margin: 0; color: var(--a-label-2); }
+body.apple-theme .sync-details > summary {
+  position: absolute;
+  top: 0;
+  right: 0;
+  max-width: calc(100% - 168px);
+  height: 26px;
+  min-height: 0;
+  padding: 0 2px 0 8px;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  border-radius: 7px;
+}
+body.apple-theme .sync-details > summary .status-item { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+body.apple-theme .sync-details > summary .status-item i { flex: 0 0 auto; }
+body.apple-theme.light-theme .status-item { color: var(--a-label-2); font-size: 11px; gap: 6px; }
+body.apple-theme.light-theme .status-item i { width: 6px; height: 6px; background: var(--a-label-3); box-shadow: none; }
+body.apple-theme.light-theme .status-item.good i { background: var(--a-green); }
+body.apple-theme.light-theme .status-item.info i { background: var(--a-blue); }
+body.apple-theme.light-theme .status-item.loading i { background: var(--a-orange); }
+body.apple-theme.light-theme .status-item.danger { color: var(--a-red-text); }
+body.apple-theme.light-theme .status-item.danger i { background: var(--a-red); }
+body.apple-theme .sync-details > .disclosure-content { gap: 5px; padding: 8px 4px 4px; }
+
+/* ---- 分区与标题 ---- */
+body.apple-theme .tab-panel { padding: 0 14px 12px; }
+body.apple-theme .section { margin-top: 12px; }
+body.apple-theme .tab-panel > .section:first-child { margin-top: 6px; }
+body.apple-theme .section-head { margin-bottom: 6px; padding: 0 2px; align-items: baseline; }
+body.apple-theme.light-theme h2 { font-size: 13px; font-weight: 600; letter-spacing: -0.008em; color: var(--a-label); }
+body.apple-theme.light-theme .section-head .subtle,
+body.apple-theme.light-theme .section-head > span { font-size: 11px; color: var(--a-label-3); font-variant-numeric: tabular-nums; }
+
+/* 展开行：系统列表里的披露行 */
+body.apple-theme.light-theme .inline-details { color: var(--a-label-2); }
+body.apple-theme .inline-details > summary { font-size: 12px; font-weight: 400; }
+body.apple-theme .inline-details > summary::after { width: 6px; height: 6px; border-width: 1.6px; opacity: 0.45; }
+body.apple-theme.light-theme .inline-details > summary:hover,
+body.apple-theme.light-theme .inline-details[open] > summary { color: var(--a-label); }
+body.apple-theme .detail-metrics { font-size: 12px; gap: 10px 16px; }
+body.apple-theme .detail-metrics dt { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme .detail-metrics dd { color: var(--a-label); }
+body.apple-theme .detail-note { font-size: 11px; color: var(--a-label-2); }
+
+/* ---- 额度卡 ---- */
+body.apple-theme .quota-cards { gap: 8px; }
+body.apple-theme.light-theme .panel[data-provider] .quota-card {
+  --quota-accent: var(--accent);
+  --quota-ink: var(--accent-text);
+  position: relative;
+  padding: 11px 13px 15px;
+  background: var(--a-card);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme.light-theme .panel[data-provider] .quota-card-week { --quota-accent: var(--a-blue); --quota-ink: var(--a-blue-text); background: var(--a-card); }
+body.apple-theme.light-theme .panel[data-provider] .quota-card-extra { --quota-accent: var(--accent); --quota-ink: var(--accent-text); }
+body.apple-theme.light-theme .panel[data-provider] .quota-card.critical { --quota-accent: var(--a-red); --quota-ink: var(--a-red-text); background: var(--a-card); }
+body.apple-theme.light-theme .quota-card-top .quota-window-title { font-size: 12px; font-weight: 500; color: var(--a-label-2); }
+body.apple-theme.light-theme .quota-card > .quota-remaining-value {
+  margin: 3px 0 0;
+  font-family: var(--a-rounded);
+  font-size: 31px;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--quota-ink);
+  text-shadow: none;
+}
+body.apple-theme.light-theme .quota-card-unlimited > .quota-remaining-value { font-size: 24px; line-height: 1.447; font-weight: 600; letter-spacing: 0; }
+body.apple-theme.light-theme .quota-progress { height: 5px; margin-top: 6px; background: var(--a-fill); border-radius: 999px; box-shadow: none; }
+body.apple-theme.light-theme .panel[data-provider] .quota-progress i { background: var(--quota-accent); border-radius: 999px; box-shadow: none; }
+body.apple-theme .quota-flare { display: none; }
+body.apple-theme.light-theme .quota-card > small { margin-top: 6px; font-size: 11px; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
+/* 使用明细：不再单占一行。卡片右上角一个小箭头，点开后明细接在卡片底部。 */
+body.apple-theme.light-theme .quota-activity { margin-top: 0; border-top: 0; }
+body.apple-theme .quota-activity > summary {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 120ms ease;
+}
+body.apple-theme .quota-activity > summary > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+body.apple-theme .quota-activity > summary::after { margin: 0 2px 0 0; transform: rotate(135deg); }
+body.apple-theme .quota-activity[open] > summary::after { margin: 3px 0 0; transform: rotate(-45deg); }
+body.apple-theme.light-theme .quota-activity > summary:hover,
+body.apple-theme.light-theme .quota-activity[open] > summary { background: var(--a-fill); }
+body.apple-theme.light-theme .quota-activity[open] { margin-top: 9px; border-top: 0.5px solid var(--a-separator); }
+body.apple-theme.light-theme .quota-activity-head span { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme .quota-activity-head b { font-size: 12px; font-weight: 600; color: var(--a-label); }
+body.apple-theme.light-theme .quota-activity small { font-size: 11px; color: var(--a-label-2); }
+
+/* 缓存命中率：系统色胶囊 */
+body.apple-theme.light-theme .cache-hit-rate { padding: 1px 6px; border: 0; border-radius: 999px; font-style: normal; font-weight: 500; }
+body.apple-theme.light-theme .cache-hit-rate.cache-hit-good { color: var(--a-green-text) !important; background: rgba(52, 199, 89, 0.14); }
+body.apple-theme.light-theme .cache-hit-rate.cache-hit-warning { color: var(--a-orange-text) !important; background: rgba(255, 149, 0, 0.15); }
+body.apple-theme.light-theme .cache-hit-rate.cache-hit-critical { color: var(--a-red-text) !important; background: rgba(255, 59, 48, 0.12); }
+body.apple-theme.light-theme .cache-hit-rate.cache-hit-neutral { color: var(--a-label-2) !important; background: var(--a-fill); }
+
+/* ---- 空状态与 Claude 断连卡 ---- */
+body.apple-theme.light-theme .empty {
+  padding: 18px 16px;
+  background: var(--a-card);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+  color: var(--a-label-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+body.apple-theme .quota-cards:has(> .connect-card) { display: block; }
+.connect-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 20px 20px 18px;
+  text-align: center;
+  background: var(--a-card, #ffffff);
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow, none);
+}
+.connect-glyph {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  color: var(--accent-text, #b5512c);
+  background: rgba(var(--accent-rgb, 217, 119, 87), 0.14);
+}
+.connect-copy strong { display: block; font-size: 14px; font-weight: 600; color: var(--a-label, #1d1d1f); }
+.connect-copy p { margin: 4px 0 0; max-width: 290px; font-size: 12px; line-height: 1.5; color: var(--a-label-2, #6b6b70); }
+.connect-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 112px;
+  height: 30px;
+  margin-top: 10px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--a-blue, #007aff);
+  color: #ffffff;
+  font: 600 13px/1 var(--a-font, -apple-system, sans-serif);
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+body.apple-theme.light-theme .connect-action { color: #ffffff; }
+.connect-action:hover { filter: brightness(1.06); }
+.connect-action:active { transform: scale(0.97); filter: brightness(0.94); }
+.connect-action:disabled { background: var(--a-fill, #e9e9ec); cursor: default; filter: none; transform: none; }
+body.apple-theme.light-theme .connect-action:disabled { color: var(--a-label-2); }
+.connect-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: connect-spin 0.8s linear infinite;
+}
+@keyframes connect-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .connect-spinner { animation: none; } }
+
+/* ---- Token 活动 ---- */
+body.apple-theme.light-theme .panel[data-provider] .token-card {
+  padding: 11px 13px 4px;
+  background: var(--a-card);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme.light-theme :is(.token-stats span, .token-summary span) { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme :is(.token-stats strong, .token-summary strong) {
+  font-family: var(--a-rounded);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--a-label);
+}
+body.apple-theme .token-stats { padding-bottom: 8px; }
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell {
+  --heat-bg: var(--a-fill-2);
+  background: var(--heat-bg);
+  color: var(--a-label-2);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell[data-level="1"] { --heat-bg: rgba(var(--accent-rgb), 0.16); color: var(--a-label); }
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell[data-level="2"] { --heat-bg: rgba(var(--accent-rgb), 0.3); color: var(--a-label); }
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell[data-level="3"] { --heat-bg: rgba(var(--accent-rgb), 0.48); color: var(--a-label); }
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell[data-level="4"] { --heat-bg: rgba(var(--accent-rgb), 0.72); color: #ffffff; }
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell[data-level="5"] { --heat-bg: rgb(var(--accent-rgb)); color: #ffffff; }
+body.apple-theme.light-theme .panel[data-provider] .token-heatmap.compact .token-heatmap-cell:is(:hover, .selected) {
+  border: 0;
+  box-shadow: 0 0 0 1.5px var(--a-card), 0 0 0 3px var(--accent);
+}
+/* 日期格里已经有日号，所选日期又写在下面一行，月份标尺不再重复占一行 */
+body.apple-theme .token-months { display: none; }
+/* 所选日期的用量就是「统计详情」那一行的标题 */
+body.apple-theme.light-theme .panel[data-provider] .token-detail { display: block; min-width: 0; margin: 0; padding: 0; }
+body.apple-theme.light-theme .token-detail strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 400; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
+body.apple-theme .token-card > .inline-details { margin-top: 9px; border-top: 0.5px solid var(--a-separator); }
+body.apple-theme .token-card > .inline-details > summary { min-height: 32px; padding: 0; }
+body.apple-theme .token-card > .inline-details > .disclosure-content { padding: 2px 0 9px; }
+
+/* ---- 额度曲线 ---- */
+body.apple-theme.light-theme .trend-section {
+  margin-top: 8px;
+  padding: 0 13px;
+  background: var(--a-card);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme .trend-section > summary { min-height: 36px; padding: 0; }
+body.apple-theme.light-theme .trend-section > summary h2 { font-size: 13px; font-weight: 500; color: var(--a-label); }
+body.apple-theme .trend-section > .disclosure-content { padding: 0 0 12px; }
+body.apple-theme.light-theme .trend-card { padding-left: 0; padding-right: 0; background: transparent; border: 0; box-shadow: none; }
+body.apple-theme.light-theme .trend-legend { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme .trend-five,
+body.apple-theme.light-theme .panel[data-provider="claude"] .trend-five { stroke: var(--accent); }
+body.apple-theme.light-theme .trend-week { stroke: var(--a-blue); }
+body.apple-theme.light-theme .trend-dot-five,
+body.apple-theme.light-theme .panel[data-provider="claude"] .trend-dot-five { background: var(--accent); box-shadow: none; }
+body.apple-theme.light-theme .trend-dot-week { background: var(--a-blue); box-shadow: none; }
+body.apple-theme.light-theme .trend-grid { stroke: rgba(60, 60, 67, 0.1); }
+body.apple-theme.light-theme :is(.trend-axis, .trend-axis-tick) { stroke: rgba(60, 60, 67, 0.22); }
+body.apple-theme.light-theme :is(.trend-axis-label, .trend-axis-title, .trend-empty-label) { fill: rgba(60, 60, 67, 0.6); color: var(--a-label-2); }
+body.apple-theme.light-theme .trend-line { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme .trend-empty-copy strong { font-size: 12px; font-weight: 500; color: var(--a-label); }
+body.apple-theme.light-theme .trend-empty-copy span { font-size: 11px; color: var(--a-label-2); }
+
+/* ---- 浮层提示 ---- */
+body.apple-theme.light-theme .panel[data-provider] .chart-tooltip {
+  background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 8px 24px rgba(0, 0, 0, 0.16);
+  color: var(--a-label);
+}
+
+/* ---- 雷达 ---- */
+body.apple-theme.light-theme .radar-intelligence-summary {
+  padding: 14px;
+  background: var(--a-card);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme .radar-view > .section:first-child,
+body.apple-theme .radar-intelligence-section { margin-top: 12px; }
+body.apple-theme.light-theme .radar-kicker { font-size: 11px; font-weight: 500; color: var(--a-label-2); }
+body.apple-theme.light-theme .radar-recommendation > strong { font-family: var(--a-rounded); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; color: var(--a-label); }
+body.apple-theme.light-theme :is(.radar-recommendation > .subtle, .radar-summary-meta) { font-size: 12px; color: var(--a-blue-text); }
+body.apple-theme.light-theme .radar-degradation { padding-top: 10px; border-top: 0.5px solid var(--a-separator); }
+body.apple-theme.light-theme .radar-degradation > strong { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme .radar-degradation.watch > strong { color: var(--a-orange-text); }
+body.apple-theme.light-theme .radar-degradation.warning > strong { color: var(--a-red-text); }
+body.apple-theme.light-theme .radar-brief-status { margin-top: 10px; padding: 0 2px; font-size: 11.5px; color: var(--a-orange-text); }
+body.apple-theme .radar-intelligence-toolbar { margin-top: 16px; }
+
+/* 模型列表：一组圆角内嵌列表 */
+body.apple-theme.light-theme :is(.model-group-head) { padding: 10px 4px 6px; color: var(--a-label-2); }
+body.apple-theme.light-theme .model-group-head strong { font-size: 12px; font-weight: 500; color: var(--a-label-2); }
+body.apple-theme.light-theme .model-group-head > span { font-size: 11px; color: var(--a-label-3); }
+body.apple-theme .model-group-dot { width: 7px; height: 7px; }
+body.apple-theme.light-theme .iq-compare-table {
+  overflow: hidden;
+  background: var(--a-card);
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme.light-theme .model-detail { border-top: 0.5px solid var(--a-separator); border-radius: 0; background: transparent; }
+body.apple-theme.light-theme .iq-compare-table > .model-detail:first-child { border-top: 0; }
+body.apple-theme.light-theme .model-detail[open] { background: var(--a-fill-2); border-radius: 0; }
+body.apple-theme .model-detail > .model-summary { min-height: 44px; padding: 8px 12px 8px 14px; }
+body.apple-theme.light-theme .model-detail > summary:hover { background: var(--a-fill-2); border-radius: 0; }
+body.apple-theme.light-theme .model-identity > strong { font-size: 13px; font-weight: 500; color: var(--a-label); }
+body.apple-theme.light-theme .model-identity > small { font-size: 10.5px; color: var(--a-label-3); letter-spacing: 0.02em; }
+body.apple-theme.light-theme .model-score > small { font-size: 10.5px; color: var(--a-label-3); }
+body.apple-theme.light-theme .model-score > strong {
+  font-family: var(--a-rounded);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--a-label);
+}
+body.apple-theme .model-detail > .disclosure-content { padding: 2px 14px 14px; }
+body.apple-theme.light-theme :is(.link-button, .catalog-filter, .model-expand) {
+  color: var(--a-blue-text);
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+body.apple-theme.light-theme :is(.link-button, .catalog-filter, .model-expand):hover,
+body.apple-theme.light-theme .catalog-filter[aria-pressed="true"] { background: rgba(0, 122, 255, 0.1); border-radius: 7px; }
+body.apple-theme.light-theme .source-details { margin-top: 12px; border-top: 0.5px solid var(--a-separator); }
+body.apple-theme.light-theme .source-details .radar-data-notice { font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme .radar-data-notice:not(.info) { color: var(--a-orange-text); }
+
+/* 次级表格、重置时间线 */
+body.apple-theme.light-theme :is(.model-usage-table, .model-usage-list, .quota-table, .radar-card, .reset-timeline) {
+  background: var(--a-card);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+  overflow: hidden;
+}
+body.apple-theme.light-theme :is(.model-usage-row, .quota-row, .radar-row, .reset-item) { border-color: var(--a-separator); color: var(--a-label-2); }
+body.apple-theme.light-theme :is(.model-usage-head, .quota-head, .radar-head),
+body.apple-theme.light-theme .panel[data-provider="claude"] .quota-head { background: var(--a-fill-2); color: var(--a-label-2); font-weight: 500; }
+body.apple-theme.light-theme .model-usage-summary strong { color: var(--a-label); font-family: var(--a-rounded); }
+body.apple-theme.light-theme .model-usage-share { background: var(--a-fill); }
+body.apple-theme.light-theme .model-usage-share i { background: var(--accent); }
+
+/* 热力图：铺满卡片宽度的日历网格 */
+body.apple-theme .token-heatmap.compact {
+  grid-template-columns: repeat(var(--token-cols, 10), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--token-rows, 3), 20px);
+  gap: 4px;
+  justify-content: stretch;
+  align-items: stretch;
+}
+body.apple-theme .token-heatmap.compact .token-heatmap-cell { width: auto; height: auto; font-size: 11px; }
+body.apple-theme.light-theme .quota-card > small { font-weight: 400; }
+
+/* ---- 专项周限额只有一项时：并进「一周」卡底部右侧，不占高度 ---- */
+body.apple-theme.light-theme .quota-card > small.quota-foot-split {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+body.apple-theme .quota-foot-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.apple-theme .quota-scoped-chip {
+  flex: none;
+  white-space: nowrap;
+  color: var(--a-label-2);
+}
+body.apple-theme .quota-scoped-chip b {
+  font-family: var(--a-rounded);
+  font-weight: 700;
+  color: var(--a-blue-text);
+}
+body.apple-theme .quota-scoped-chip.critical b { color: var(--a-red-text); }
+/* 专项限额的细进度条：相对底部文字行定位，落在卡片下内边距里，卡片高度不变 */
+body.apple-theme.light-theme .quota-card > small.quota-foot-split { position: relative; }
+body.apple-theme .quota-scoped-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  height: 3px;
+  overflow: hidden;
+  background: var(--a-fill);
+  border-radius: 999px;
+}
+body.apple-theme .quota-scoped-bar i {
+  display: block;
+  width: var(--scoped-percent, 0%);
+  height: 100%;
+  background: var(--a-blue);
+  border-radius: 999px;
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+body.apple-theme .quota-scoped-bar.critical i { background: var(--a-red); }
+/* 展开「使用明细」时，分隔线要离专项限额的细条远一点；两张卡一起加，分隔线才对得齐。 */
+body.apple-theme.light-theme .quota-cards:has(.quota-scoped-bar) .quota-activity[open] { margin-top: 14px; }
+
+/* ---- 专项周限额（例如 Fable）：额度卡下方的单行 ---- */
+body.apple-theme .quota-slim-rows {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  background: var(--a-card);
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme .quota-slim-row {
+  --quota-accent: var(--a-blue);
+  --quota-ink: var(--a-blue-text);
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(40px, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 12px;
+  color: var(--a-label-2);
+}
+body.apple-theme .quota-slim-row + .quota-slim-row { border-top: 0.5px solid var(--a-separator); }
+body.apple-theme .quota-slim-row.critical { --quota-accent: var(--a-red); --quota-ink: var(--a-red-text); }
+body.apple-theme .quota-slim-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+body.apple-theme .quota-slim-bar { height: 5px; overflow: hidden; background: var(--a-fill); border-radius: 999px; }
+body.apple-theme .quota-slim-bar i { display: block; width: var(--quota-percent, 0%); height: 100%; background: var(--quota-accent); border-radius: 999px; }
+body.apple-theme .quota-slim-row > strong { font-family: var(--a-rounded); font-size: 14px; font-weight: 700; color: var(--quota-ink); font-variant-numeric: tabular-nums; }
+body.apple-theme .quota-slim-row > small { font-size: 11px; color: var(--a-label-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---- 重置页：各额度窗口的重置时间 ---- */
+body.apple-theme .reset-list { display: grid; gap: 8px; }
+body.apple-theme.light-theme .reset-timeline { padding: 0; }
+body.apple-theme.light-theme .reset-timeline-summary {
+  min-height: 34px;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--a-label-2);
+}
+body.apple-theme.light-theme .reset-timeline-summary strong { font-size: 12px; font-weight: 600; color: var(--a-label); font-variant-numeric: tabular-nums; }
+body.apple-theme.light-theme .reset-timeline-list { margin: 0; padding: 0; border-top: 0.5px solid var(--a-separator); }
+body.apple-theme .reset-timeline-list::before { display: none; }
+body.apple-theme.light-theme .reset-timeline-note { margin: 0; padding: 0 13px 11px; font-size: 12px; line-height: 1.5; color: var(--a-label-2); }
+/* 重置卡条目：左边一个按状态着色的圆形图标，标题和状态一行，次数与到期日在第二行 */
+body.apple-theme.light-theme .reset-item {
+  --tone: var(--a-label-2);
+  --tone-rgb: 118, 118, 128;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  min-height: 50px;
+  padding: 0 13px;
+  border-top: 0.5px solid var(--a-separator);
+}
+body.apple-theme.light-theme .reset-item:first-child { border-top: 0; }
+body.apple-theme.light-theme .reset-item.available { --tone: var(--a-green-text); --tone-rgb: 52, 199, 89; }
+body.apple-theme.light-theme .reset-item.info { --tone: var(--a-blue-text); --tone-rgb: 0, 122, 255; }
+body.apple-theme.light-theme .reset-item.watch { --tone: var(--a-orange-text); --tone-rgb: 255, 149, 0; }
+body.apple-theme.light-theme .reset-item.warning { --tone: var(--a-red-text); --tone-rgb: 255, 59, 48; }
+body.apple-theme.light-theme .panel[data-provider] .reset-item .reset-marker {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(var(--tone-rgb), 0.14);
+  box-shadow: none;
+  color: var(--tone);
+}
+body.apple-theme .reset-item .reset-marker::before {
+  width: 14px;
+  height: 14px;
+  content: "";
+  background: currentColor;
+  -webkit-mask: var(--a-icon-reset) center / contain no-repeat;
+  mask: var(--a-icon-reset) center / contain no-repeat;
+}
+body.apple-theme .reset-item-body { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: 2px; min-width: 0; }
+body.apple-theme .reset-item-head { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 8px; }
+body.apple-theme.light-theme .reset-item-head > strong { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--a-label); }
+body.apple-theme.light-theme .reset-item .reset-status {
+  flex: 0 0 auto;
+  max-width: 62%;
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(var(--tone-rgb), 0.14);
+  color: var(--tone);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+}
+body.apple-theme.light-theme .reset-item p { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.4; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
+body.apple-theme .reset-row:first-child { border-top: 0; }
+body.apple-theme .reset-row {
+  --ring: var(--accent);
+  --ring-ink: var(--accent-text);
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 50px;
+  padding: 0 13px;
+  border-top: 0.5px solid var(--a-separator);
+}
+body.apple-theme .reset-row.week { --ring: var(--a-blue); --ring-ink: var(--a-blue-text); }
+body.apple-theme .reset-row.critical { --ring: var(--a-red); --ring-ink: var(--a-red-text); }
+body.apple-theme .reset-row.unlimited { --ring: var(--a-green); --ring-ink: var(--a-green-text); }
+/* 小圆环：填充部分是剩余额度 */
+body.apple-theme .reset-ring {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring) calc(var(--reset-percent, 0) * 1%), var(--a-fill) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4.5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4.5px), #000 calc(100% - 4px));
+}
+body.apple-theme :is(.reset-row-main, .reset-row-side) { display: grid; gap: 2px; min-width: 0; }
+body.apple-theme .reset-row-side { justify-items: end; text-align: right; }
+body.apple-theme .reset-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 500; color: var(--a-label); font-variant-numeric: tabular-nums; }
+body.apple-theme .reset-row-side strong { font-weight: 600; }
+body.apple-theme .reset-row.unlimited .reset-row-side strong { color: var(--ring-ink); }
+body.apple-theme .reset-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
+body.apple-theme .reset-footnote { margin: 0; padding: 0 4px; font-size: 11px; color: var(--a-label-3); font-variant-numeric: tabular-nums; }
+
+/* ---- 雷达数据源下线时的智力页：只留一句说明 ---- */
+body.apple-theme .radar-no-data :is(.radar-intelligence-summary, .radar-sort-controls, .source-details, .radar-brief-status) { display: none; }
+body.apple-theme .radar-no-data .radar-intelligence-toolbar { margin-top: 0; }
+body.apple-theme.light-theme .empty.radar-paused { text-align: center; }
+body.apple-theme.light-theme .empty.radar-paused strong { display: block; font-size: 13px; font-weight: 600; color: var(--a-label); }
+body.apple-theme.light-theme .empty.radar-paused p { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: var(--a-label-2); }
+
+/* ---- 单日详情：按项目拆分 ---- */
+body.apple-theme .project-breakdown { margin-top: 10px; }
+body.apple-theme .project-title {
+  margin: 0 0 5px;
+  color: var(--a-label-2);
+  font-size: 11px;
+}
+body.apple-theme .project-breakdown ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+body.apple-theme .project-breakdown li {
+  display: grid;
+  grid-template-columns: minmax(0, 96px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 16px;
+  font-size: 11px;
+}
+body.apple-theme .project-name {
+  overflow: hidden;
+  color: var(--a-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.apple-theme .project-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--a-fill);
+}
+body.apple-theme .project-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+body.apple-theme .project-value {
+  color: var(--a-label-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- 0.11：额度曲线（24 小时 / 7 天、匀速参考线、专项周限额序列、十字线提示） ----
+   序列配色（浅色）：5 小时 = 平台主色，周额度 = 蓝，专项周限额（Fable 等）= 洋红。
+   已用 dataviz 校验脚本检查：三色两两在色盲模拟下 ΔE ≥ 15，正常视觉 ≥ 17。 */
+body.apple-theme {
+  --a-series-scoped: #c13f8f;
+  --a-series-scoped-text: #a52f74;
+  --a-status-warning: #c98a00;
+  --a-status-serious: #e8590c;
+}
+body.apple-theme.light-theme .trend-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+  margin-bottom: 2px;
+}
+body.apple-theme .trend-legend-items {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+body.apple-theme.light-theme .trend-dot-scoped { background: var(--a-series-scoped); box-shadow: none; }
+body.apple-theme .trend-legend-pace { color: var(--a-label-2); }
+body.apple-theme .trend-dash {
+  display: inline-block;
+  width: 12px;
+  height: 0;
+  border-top: 1.5px dashed var(--a-label-3);
+}
+body.apple-theme .trend-range {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--a-fill);
+}
+body.apple-theme .trend-range-button {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0 8px;
+  background: transparent;
+  border-radius: 5px;
+  color: var(--a-label-2);
+  font: inherit;
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+body.apple-theme .trend-range-button.active {
+  background: var(--a-card);
+  color: var(--a-label);
+  font-weight: 500;
+  box-shadow: var(--a-thumb-shadow);
+}
+body.apple-theme .trend-range-button:focus-visible { outline: 2px solid var(--a-blue); outline-offset: 1px; }
+/* 线条一律实线 2px；虚线只留给匀速参考线。网格改成实线细线。 */
+body.apple-theme.light-theme .trend-series {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  stroke-dasharray: none;
+}
+body.apple-theme.light-theme .trend-scoped { stroke: var(--a-series-scoped); }
+body.apple-theme.light-theme .trend-grid { stroke-dasharray: none; }
+body.apple-theme .trend-pace {
+  fill: none;
+  stroke-width: 1.25;
+  stroke-dasharray: 3 3;
+  stroke-linecap: butt;
+  opacity: 0.75;
+}
+body.apple-theme .trend-pace-five { stroke: var(--accent); }
+body.apple-theme .trend-pace-week { stroke: var(--a-blue); }
+body.apple-theme .trend-pace-scoped { stroke: var(--a-series-scoped); }
+body.apple-theme .trend-crosshair { stroke: var(--a-label-3); stroke-width: 1; }
+body.apple-theme .trend-hover-dot { stroke: var(--a-card); stroke-width: 2; }
+body.apple-theme .trend-hover-five { fill: var(--accent); }
+body.apple-theme .trend-hover-week { fill: var(--a-blue); }
+body.apple-theme .trend-hover-scoped { fill: var(--a-series-scoped); }
+body.apple-theme .trend-hit { fill: transparent; pointer-events: all; }
+body.apple-theme.light-theme .trend-lines { flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+body.apple-theme.light-theme .trend-line { overflow: hidden; text-overflow: ellipsis; }
+
+body.apple-theme.light-theme .panel[data-provider] .chart-tooltip.trend-tooltip { width: auto; min-width: 150px; max-width: 240px; gap: 3px; }
+body.apple-theme.light-theme .chart-tooltip.trend-tooltip strong { color: var(--a-label); font-weight: 600; }
+body.apple-theme.light-theme .chart-tooltip .trend-tip-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  color: var(--a-label-2);
+}
+body.apple-theme .trend-tip-row em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.apple-theme.light-theme .trend-tip-row b { color: var(--a-label); font-weight: 600; font-variant-numeric: tabular-nums; }
+body.apple-theme.light-theme .trend-tip-row small { color: var(--a-label-3); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+
+/* ---- 节奏：状态图标（颜色只在图标上，文字照常） ---- */
+body.apple-theme .pace-icon {
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1;
+  vertical-align: 1px;
+}
+body.apple-theme .pace-icon.tier-warning { color: var(--a-status-warning); }
+body.apple-theme .pace-icon.tier-serious { color: var(--a-status-serious); }
+body.apple-theme .pace-icon.tier-critical { color: var(--a-red); }
+
+/* 进度条上的匀速刻度：落在「此刻按匀速应剩」的位置；两侧 1px 卡片色描边把它和填充分开。 */
+body.apple-theme .quota-pace-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--pace-left, 0%);
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--a-label-2);
+  box-shadow: 0 0 0 1px var(--a-card);
+  pointer-events: none;
+}
+body.apple-theme .quota-slim-bar { position: relative; }
+/* 节奏明显偏快：填充改成橙色，大数字不变（数字是剩余，颜色只提示节奏）。 */
+body.apple-theme.light-theme .panel[data-provider] .quota-card.pace-serious { --quota-accent: var(--a-status-serious); }
+body.apple-theme .quota-slim-row.pace-serious { --quota-accent: var(--a-status-serious); }
+body.apple-theme .quota-scoped-bar.pace-serious i { background: var(--a-status-serious); }
+body.apple-theme.light-theme .quota-card > small.quota-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+body.apple-theme .quota-foot > .quota-foot-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.apple-theme .pace-badge { flex: none; font-style: normal; white-space: nowrap; color: var(--a-label-2); }
+/* 专项周限额（Fable 等）跟曲线里同色，同一个限额在面板各处是同一种颜色。 */
+body.apple-theme .quota-scoped-chip b { color: var(--a-series-scoped-text); }
+body.apple-theme .quota-scoped-bar i { background: var(--a-series-scoped); }
+
+/* ---- 数据过期 / 官方状态 ---- */
+body.apple-theme.light-theme .section-head .subtle.stale { color: var(--a-orange-text); }
+body.apple-theme.light-theme .status-item.warning { color: var(--a-orange-text); }
+body.apple-theme.light-theme .status-item.warning i { background: var(--a-orange); }
+body.apple-theme .status-item.status-link {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+body.apple-theme .status-item.status-link:hover { text-decoration: underline; }
+body.apple-theme .service-status-card {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--a-fill-2);
+  text-align: left;
+}
+body.apple-theme .service-status-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--a-label-2); }
+body.apple-theme .service-status-head small { color: var(--a-label-3); font-size: 11px; }
+body.apple-theme .service-status-card ul { display: grid; gap: 5px; margin: 7px 0 0; padding: 0; list-style: none; }
+body.apple-theme .service-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+body.apple-theme.light-theme .service-row .status-item { color: var(--a-label); font-size: 12px; }
+body.apple-theme .service-row b { font-weight: 500; color: var(--a-label-2); }
+body.apple-theme .service-incident { font-size: 11px; line-height: 1.4; color: var(--a-label-2); }
+body.apple-theme .service-status-card .text-button {
+  appearance: none;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--a-blue-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+body.apple-theme.light-theme :is(.trend-line, .trend-legend-item) { font-weight: 400; }
+
+/* ---- 0.11：深色外观 ----
+   theme.js 把系统 / 设置里的外观写到 <html data-appearance>。这里重设 --a-* 变量，
+   再覆盖上面写死了浅色的几处。曲线序列用 dataviz 校验过的深色配色（在 #2c2c2e 上）：
+   Claude #d9734f、周额度 #0a84ff、专项 #c84bd0、GPT #24a948；文字色另取更亮的一档，对比度 ≥ 4.9。 */
+html[data-appearance="dark"] body.apple-theme {
+  color-scheme: dark;
+  --a-label: #f5f5f7;
+  --a-label-2: rgba(235, 235, 245, 0.64);
+  --a-label-3: rgba(235, 235, 245, 0.38);
+  --a-separator: rgba(235, 235, 245, 0.12);
+  --a-fill: rgba(118, 118, 128, 0.28);
+  --a-fill-2: rgba(118, 118, 128, 0.16);
+  --a-canvas: #1c1c1e;
+  --a-card: #2c2c2e;
+  --a-card-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.07);
+  --a-thumb-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 3px 8px rgba(0, 0, 0, 0.36);
+  --a-blue: #0a84ff;
+  --a-blue-text: #409cff;
+  --a-green: #24a948;
+  --a-green-text: #32d74b;
+  --a-orange: #ff9f0a;
+  --a-orange-text: #ffb340;
+  --a-red: #ff453a;
+  --a-red-text: #ff6961;
+  --a-series-scoped: #c84bd0;
+  --a-series-scoped-text: #e07ae6;
+  --a-status-warning: #e0a500;
+  --a-status-serious: #ff7a2e;
+  --accent: var(--a-green);
+  --accent-text: var(--a-green-text);
+  --accent-rgb: 36, 169, 72;
+  --line-strong: rgba(235, 235, 245, 0.2);
+}
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="codex"] { --accent: #24a948; --accent-text: #32d74b; --accent-rgb: 36, 169, 72; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="claude"] { --accent: #d9734f; --accent-text: #f08c66; --accent-rgb: 217, 115, 79; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="kimi"] { --accent: #0a84ff; --accent-text: #409cff; --accent-rgb: 10, 132, 255; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="glm"] { --accent: #40c8e0; --accent-text: #5ad4ea; --accent-rgb: 64, 200, 224; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="qwen"] { --accent: #5e5ce6; --accent-text: #9b99ff; --accent-rgb: 94, 92, 230; }
+
+html[data-appearance="dark"] body.apple-theme.light-theme .panel { outline-color: rgba(255, 255, 255, 0.14); }
+html[data-appearance="dark"] body.apple-theme ::selection { background: rgba(10, 132, 255, 0.4); }
+html[data-appearance="dark"] body.apple-theme ::-webkit-scrollbar-thumb { background: rgba(235, 235, 245, 0.28); background-clip: padding-box; }
+html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider][data-active-tab] .icon-button:hover { background: rgba(118, 118, 128, 0.36); }
+html[data-appearance="dark"] body.apple-theme.light-theme .trend-grid { stroke: rgba(235, 235, 245, 0.1); }
+html[data-appearance="dark"] body.apple-theme.light-theme :is(.trend-axis, .trend-axis-tick) { stroke: rgba(235, 235, 245, 0.22); }
+html[data-appearance="dark"] body.apple-theme.light-theme :is(.trend-axis-label, .trend-axis-title, .trend-empty-label) { fill: rgba(235, 235, 245, 0.6); }
+html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider] .chart-tooltip {
+  background: rgba(44, 44, 46, 0.96);
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+html[data-appearance="dark"] body.apple-theme.light-theme .catalog-filter[aria-pressed="true"] { background: rgba(10, 132, 255, 0.22); }
+
+/* 分段控件：深色下选中块要比底槽亮（系统做法），不能沿用卡片色（比底槽还暗）。
+   选中的平台名换成更亮的一档主色，在 #545458 上对比度约 4.4–4.7。 */
+html[data-appearance="dark"] body.apple-theme { --a-thumb: #545458; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="codex"] { --accent-thumb-text: #66e381; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="claude"] { --accent-thumb-text: #ffb9a0; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="kimi"] { --accent-thumb-text: #a6d0ff; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="glm"] { --accent-thumb-text: #70dcef; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="qwen"] { --accent-thumb-text: #c8c7ff; }
+html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider] .provider-switch .provider-thumb,
+html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider][data-active-tab] .tab-button.active,
+html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider] :is(.radar-subtab.active, .radar-sort-button.active),
+html[data-appearance="dark"] body.apple-theme .trend-range-button.active { background: var(--a-thumb); }
+html[data-appearance="dark"] body.apple-theme.light-theme .provider-option.active[data-provider] { color: var(--accent-thumb-text, var(--a-label)); }
