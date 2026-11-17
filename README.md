@@ -6,10 +6,10 @@
 
 <img src="assets/icon-source.png" width="128" alt="融合 Codex 终端与 Claude 星芒的新图标">
 
-macOS 菜单栏小工具：在菜单栏、弹出面板和 Touch Bar 上显示 GPT（Codex）、Claude Code 以及 Kimi / GLM / Qwen Coding Plan 的用量额度、本地 Token 活动和对应雷达站的模型 IQ。
+macOS 菜单栏小工具：查看 GPT（Codex）与 Claude Code 的剩余额度、重置时间、本地 Token 活动和模型雷达，支持 Touch Bar、手机查看和加密云同步。还可按需启用 Kimi / GLM Coding Plan 额度查询；Qwen 在当前版本中仅提供说明入口。
 
 - 菜单栏实时显示当前平台的 5 小时 / 周剩余额度；切到 Claude 时标题带 `CC` 前缀。
-- 点开面板：额度卡（含同周期 Token 总量、读写量、缓存命中率）、近 24 小时额度曲线与触顶预估、30 天 Token 活动热力图与折算 API 成本、雷达页的模型 IQ。
+- 点开面板：额度卡（含同周期 Token 总量、读写量、缓存命中率）、近 24 小时 / 7 天额度曲线与触顶预估、30 天 Token 活动热力图与折算 API 成本、雷达页的模型 IQ。
 - 别的应用全屏时也能浮在最上层打开，不会把屏幕切回桌面。
 - 全局快捷键 ⌥⌘U 呼出 / 收起面板（设置中可关）；点击面板外部自动收起。
 - 额度提醒：剩余到阈值（默认 20% / 5%）、按当前速度会在重置前用尽、窗口重置时发系统通知；点通知直接打开面板。可同时推送到 Bark 或 ntfy。
