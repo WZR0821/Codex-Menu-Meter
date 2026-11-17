@@ -25,6 +25,10 @@ macOS 菜单栏小工具：查看 GPT（Codex）与 Claude Code 的剩余额度�
 
 以上截图使用合成测试数据。
 
+## 开发历史
+
+已根据确认的本机快照补录 **2026 年 7 月 20 日至 11 月 17 日**的开发历史，共 **26 条提交、22 个版本**。日期采用日本时间，每条提交注明历史补录来源。详见 [开发时间线](docs/DEVELOPMENT-HISTORY.md) 与 [历史提交](https://github.com/WZR0821/Codex-Menu-Meter/commits/codex/reconstructed-history/)。
+
 ## 运行环境
 
 - macOS（Intel 与 Apple Silicon 均可）
