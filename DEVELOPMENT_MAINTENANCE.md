@@ -2,7 +2,7 @@
 
 ## 1. 文档信息
 
-- 当前基线版本：`0.10.6`
+- 当前基线版本：`1.0.1`
 - 应用名称：Codex Menu Meter
 - Bundle ID：`local.codex-menu-meter`
 - 技术栈：Electron 43、Node.js、原生 Swift Touch Bar helper
@@ -207,6 +207,20 @@ foreground-app:<bundleId>\t<name>\t<bundlePath>\t<pid>
 修改此逻辑时必须保持 `test/foreground-provider.test.js` 中的覆盖测试通过。
 
 ## 8. 菜单栏与面板
+
+1.0.1 的窗口呈现由 `src/panel-window.js` 管理，`native/panel-window.mm` 使用公开 AppKit
+API 设置瞬态窗口及跨应用全屏空间属性。macOS 13+ 明确加入 `CanJoinAllApplications`；
+`setAlwaysOnTop` 和 `visibleOnFullScreen` 不能替代这个空间归属设置。应在显示、聚焦和
+设置窗口层级之后再应用原生属性，避免 Chromium 重置窗口行为。不要用修改 Objective-C
+继承关系或私有 WindowServer API 的方式代替。
+
+窗口关闭、销毁和重新显示时必须取消旧的置顶恢复任务；恢复时不能要求窗口已经可见，
+否则恰好被遮挡的窗口会跳过恢复。当前 Space 归属由原生窗口查询，不能仅通过显示器 ID 判断。
+
+`npm run build:native` 会构建 Touch Bar helper 和双架构 `panel-window.node`。后者使用
+Node-API 8，不依赖 Electron 的 V8 ABI；安装包通过 `extraResources` 带入该模块。
+`npm run qa:panel` 在真正的 Electron/AppKit 窗口上验证原生属性与开关行为。发布前另外在
+独立应用的全屏 Space 中检查菜单栏点击、快捷键、收起后重开和快速连续开关。
 
 菜单栏标题由 `updateTrayTitle()` 生成，示例：
 

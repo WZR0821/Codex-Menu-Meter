@@ -2,7 +2,7 @@
 
 > **本 APP 主要由 Claude Fable5.2 和 GPT6-Astra 生成。**
 
-开发者：**Jerry Wong**。当前发布版本：**1.0.0**。
+开发者：**Jerry Wong**。当前发布版本：**1.0.1**。
 
 <img src="assets/icon-source.png" width="128" alt="融合 Codex 终端与 Claude 星芒的新图标">
 
@@ -19,7 +19,7 @@ macOS 菜单栏小工具：查看 GPT（Codex）与 Claude Code 的剩余额度�
 
 右键菜单栏图标打开设置。
 
-从 [GitHub Releases](https://github.com/WZR0821/Codex-Menu-Meter/releases/tag/v1.0.0) 下载与你的 Mac 芯片对应的 DMG，打开后将应用拖入 Applications。已有用户覆盖安装会保留本机设置。发布说明与验证范围见 [1.0.0 发布记录](docs/RELEASE-1.0.0.md)。
+从 [GitHub Releases](https://github.com/WZR0821/Codex-Menu-Meter/releases/latest) 下载与你的 Mac 芯片对应的 DMG，打开后将应用拖入 Applications。已有用户覆盖安装会保留本机设置。1.0.1 修复全屏应用遮挡用量面板的问题，详见 [1.0.1 发布记录](docs/RELEASE-1.0.1.md)；完整功能介绍见 [首发说明](docs/RELEASE-1.0.0.md)。
 
 <img src="docs/screenshots/codex-usage.png" width="320" alt="GPT 用量面板"><img src="docs/screenshots/claude-usage.png" width="320" alt="Claude 用量面板">
 
@@ -35,7 +35,7 @@ macOS 菜单栏小工具：查看 GPT（Codex）与 Claude Code 的剩余额度�
 
 ```bash
 npm ci
-npm run build:native   # 编译 Touch Bar 助手（native/touchbar-helper）
+npm run build:native   # 编译 Touch Bar 助手和双架构 AppKit 悬浮窗模块
 npm start
 ```
 
@@ -54,6 +54,7 @@ npm run lint
 npm test
 npm run qa:render     # 面板视觉 QA 截图
 npm run qa:settings   # 设置窗口视觉 QA
+npm run qa:panel      # 真正的 Electron / AppKit 窗口属性、重复开关与取消恢复检查
 ```
 
 ## 数据来源
@@ -96,7 +97,7 @@ npm run qa:cloud
 ```text
 src/            Electron 主进程、面板、设置页
 src/mobile/     手机端页面（本地服务与云同步共用）
-native/         Touch Bar 助手（Swift）
+native/         Touch Bar 助手（Swift）与悬浮窗模块（Objective-C++ / Node-API）
 cloud/          云同步 Worker 与 Durable Object
 scripts/        打包与视觉 QA 脚本
 test/           单元测试

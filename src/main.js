@@ -19,6 +19,7 @@ const { PRICING_AS_OF, entryCostUsd } = require('./model-pricing');
 const { STATUS_PAGES, normalizeStatusSummary } = require('./service-status');
 const { ForegroundProviderTracker } = require('./foreground-provider');
 const { readTranscriptFile } = require('./transcript-reader');
+const { loadPanelBridge, createPanelPresenter } = require('./panel-window');
 const {
   createAccessToken,
   createMobilePayload,
@@ -237,6 +238,7 @@ app.on('second-instance', () => {
 
 let tray = null;
 let panel = null;
+let panelPresenter = null;
 let settingsWindow = null;
 let settings = { ...defaultSettings };
 let usageTimer = null;
@@ -475,10 +477,13 @@ function createPanel() {
     }
   });
 
+  panelPresenter = createPanelPresenter(panel, { bridge: loadPanelBridge() });
   preparePanelForFullScreen();
   panel.loadFile(path.join(__dirname, 'index.html'));
   panel.on('blur', handlePanelBlur);
   panel.on('closed', () => {
+    panelPresenter?.cancel();
+    panelPresenter = null;
     stopPanelBoundsAnimation();
     clearPanelShadowTimers();
     panel = null;
@@ -489,15 +494,7 @@ function createPanel() {
 }
 
 function preparePanelForFullScreen({ presenting = false } = {}) {
-  if (!panel || panel.isDestroyed()) return;
-  panel.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true,
-    skipTransformProcessType: true
-  });
-  // 全屏应用上方需要 screen-saver 层级才稳定；只在面板显示期间使用，隐藏后立即降回
-  // pop-up-menu，避免隐藏窗口长期处于高层级而影响系统自动息屏。
-  const level = process.platform === 'darwin' && presenting ? 'screen-saver' : 'pop-up-menu';
-  panel.setAlwaysOnTop(true, level, 1);
+  panelPresenter?.prepare(presenting);
 }
 
 function handleTrayActivation(event, { pointerDown = false } = {}) {
@@ -516,7 +513,7 @@ function togglePanel() {
     showPanelAnimated();
     return;
   }
-  if (panel.isVisible()) {
+  if (panel.isVisible() && panelPresenter.isOnActiveSpace()) {
     // 面板可能“看似可见”但遗留在别的显示器/全屏空间上——
     // 这时点击托盘应该把它拉到当前托盘处重新显示，而不是关掉（表现为“点了没反应”）。
     const trayBounds = tray?.getBounds();
@@ -586,36 +583,24 @@ function showPanelAnimated() {
   panelShownAt = Date.now();
   cursorOutsideSince = 0;
   panelOpenedFromTopEdge = isCursorInTopMenuArea();
-  // 不要调用 app.focus()：强制激活会让 macOS 从别的应用的全屏空间切回本应用所在的桌面空间，
-  // 表现为「一点开面板就回主屏幕」（0.11.1 修复）。
-  // 但不激活本应用时，show() 走的是 makeKeyAndOrderFront，macOS 不保证把非活跃应用的窗口
-  // 排到最前——别的应用全屏时面板会落在后面看不见（1.0.0 修复）。所以先用 showInactive()
-  // （orderFrontRegardless：不管本应用是否活跃都排到本层级最前），再 focus() 让面板成为
-  // 键盘窗口；type: 'panel' 的 focus() 不激活应用，不会切换空间。
-  panel.showInactive();
+  // 不强制激活应用；通过公开 AppKit collectionBehavior 加入其他应用的全屏空间，
+  // 并在 show/focus 后重申瞬态悬浮窗属性，防止被当成普通桌面窗口。
+  panelPresenter.show();
   presentPanelShadow();
-  panel.focus();
   requestTouchBarPresentation();
   panel.webContents.send('panel:motion', 'opening');
   startPanelFollowMonitor();
-  panel.moveTop();
-  // 全屏空间下 show 后窗口层级偶尔晚一拍生效，保留一次轻量兜底即可。
-  setTimeout(() => {
-    if (!panel || panel.isDestroyed() || !panel.isVisible() || panelClosing) return;
-    preparePanelForFullScreen({ presenting: true });
-    panel.showInactive();
-    panel.moveTop();
-  }, 120);
   // Let the renderer own the visual transition. Native opacity is only used to
   // avoid a fully rendered frame before the opening IPC reaches the page.
   panelAnimationTimer = setTimeout(() => {
     panelAnimationTimer = null;
-    if (panel && !panel.isDestroyed() && panel.isVisible()) panel.setOpacity(1);
+    if (panel && !panel.isDestroyed() && panelPresenter?.isRequested()) panel.setOpacity(1);
   }, 16);
 }
 
 function hidePanelAnimated() {
-  if (!panel || !panel.isVisible() || panelClosing) return;
+  if (!panel || (!panel.isVisible() && !panelPresenter?.isRequested()) || panelClosing) return;
+  panelPresenter?.cancel();
   clearPanelBlurTimer();
   clearPanelHeightShrinkTimer();
   stopPanelBoundsAnimation();
@@ -3849,6 +3834,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  panelPresenter?.cancel();
   if (modelCatalogTimer) clearInterval(modelCatalogTimer);
   if (sendStateTimer) clearTimeout(sendStateTimer);
   sendStateTimer = null;

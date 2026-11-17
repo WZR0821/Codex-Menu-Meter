@@ -30,15 +30,12 @@ test('opening the panel never force-activates the app', () => {
   assert.doesNotMatch(code, /\bapp\.focus\s*\(/, 'src/main.js must not call app.focus()');
 });
 
-test('opening the panel orders it front even while another app is full screen', () => {
-  // 不激活本应用时 show()（makeKeyAndOrderFront）不保证排到最前，别的应用全屏时面板会
-  // 落在后面（0.11.1 的回归）；必须先 showInactive()（orderFrontRegardless）再 focus()。
+test('opening and closing use the cancellable full-screen presenter', () => {
   const show = functionBody('showPanelAnimated');
   assert.doesNotMatch(show, /panel\.show\(\)/, 'use panel.showInactive() instead of panel.show()');
-  const inactive = show.indexOf('panel.showInactive()');
-  assert.notEqual(inactive, -1);
-  assert.ok(show.indexOf('panel.focus()') > inactive, 'focus() must follow showInactive()');
-  assert.ok(show.indexOf('panel.showInactive()', inactive + 1) > inactive, 'the delayed fallback re-orders the panel front');
+  assert.match(show, /panelPresenter\.show\(\)/);
+  assert.match(functionBody('hidePanelAnimated'), /panelPresenter\?\.cancel\(\)/);
+  assert.match(functionBody('togglePanel'), /panelPresenter\.isOnActiveSpace\(\)/);
 });
 
 test('a blur right after opening does not close the panel', () => {
@@ -95,10 +92,8 @@ test('closing the panel or the settings window hands the keyboard back to the ap
   assert.match(handBack, /app\.hide\(\)/);
 });
 
-test('the panel stays a non-activating panel window above full-screen apps', () => {
+test('the panel uses the native overlay policy for full-screen apps', () => {
   const create = functionBody('createPanel');
   assert.match(create, /type:\s*'panel'/);
-  const prepare = functionBody('preparePanelForFullScreen');
-  assert.match(prepare, /visibleOnFullScreen:\s*true/);
-  assert.match(prepare, /skipTransformProcessType:\s*true/);
+  assert.match(create, /createPanelPresenter\(panel, \{ bridge: loadPanelBridge\(\) \}\)/);
 });

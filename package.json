@@ -1,6 +1,6 @@
 {
   "name": "codex-menu-meter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Jerry Wong",
   "description": "A macOS menu bar meter for GPT, Claude, and coding-model usage.",
   "main": "src/main.js",
@@ -8,7 +8,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "electron .",
-    "build:native": "bash scripts/build-touchbar-helper.sh",
+    "build:native": "bash scripts/build-touchbar-helper.sh && npm run build:panel",
     "build:icons": "bash scripts/build-icons.sh",
     "build:mac": "npm run build:native && electron-builder --mac --dir",
     "build:intel-dmg": "bash scripts/build-dmg.sh x64",
@@ -21,11 +21,15 @@
     "sync:deploy": "wrangler deploy --config cloud/wrangler.jsonc",
     "package:handoff": "bash scripts/create-handoff-zip.sh",
     "test": "node --test test/*.test.js",
-    "lint": "node --check src/main.js && node --check src/activity-windows.js && node --check src/codex-token-activity.js && node --check src/claude-token-activity.js && node --check src/claude-credentials.js && node --check src/claude-usage.js && node --check src/foreground-provider.js && node --check src/transcript-reader.js && node --check src/mobile-server.js && node --check src/mobile/cloud-sync-crypto.js && node --check src/mobile/mobile.js && node --check src/provider-config.js && node --check src/preload.js && node --check src/renderer.js && node --check src/settings.js && node --check cloud/sync-account-core.mjs && node --check cloud/worker.mjs && node --check test/activity-windows.test.js && node --check test/cloud-sync-crypto.test.js && node --check test/sync-account-core.test.js && node --check test/codex-token-activity.test.js && node --check test/claude-token-activity.test.js && node --check test/claude-usage.test.js && node --check test/foreground-provider.test.js && node --check test/transcript-reader.test.js && node --check test/mobile-server.test.js && node --check test/provider-config.test.js && node --check scripts/qa-render.js && node --check scripts/qa-mobile.js && node --check scripts/qa-cloud-sync.js && node --check scripts/qa-settings.js && node --check scripts/after-pack.js && node --check src/mobile/usage-pace.js && node --check src/push-webhook.js && node --check src/model-pricing.js && node --check src/service-status.js && node --check src/theme.js && node --check src/i18n.js && node --check test/usage-pace.test.js && node --check scripts/build-mobile-icons.js && node --check test/claude-credentials.test.js && node --check test/model-pricing.test.js && node --check test/push-webhook.test.js && node --check test/service-status.test.js && node --check test/panel-show.test.js"
+    "lint": "node --check src/main.js && node --check src/activity-windows.js && node --check src/codex-token-activity.js && node --check src/claude-token-activity.js && node --check src/claude-credentials.js && node --check src/claude-usage.js && node --check src/foreground-provider.js && node --check src/transcript-reader.js && node --check src/mobile-server.js && node --check src/mobile/cloud-sync-crypto.js && node --check src/mobile/mobile.js && node --check src/provider-config.js && node --check src/preload.js && node --check src/renderer.js && node --check src/settings.js && node --check cloud/sync-account-core.mjs && node --check cloud/worker.mjs && node --check test/activity-windows.test.js && node --check test/cloud-sync-crypto.test.js && node --check test/sync-account-core.test.js && node --check test/codex-token-activity.test.js && node --check test/claude-token-activity.test.js && node --check test/claude-usage.test.js && node --check test/foreground-provider.test.js && node --check test/transcript-reader.test.js && node --check test/mobile-server.test.js && node --check test/provider-config.test.js && node --check scripts/qa-render.js && node --check scripts/qa-mobile.js && node --check scripts/qa-cloud-sync.js && node --check scripts/qa-settings.js && node --check scripts/after-pack.js && node --check src/mobile/usage-pace.js && node --check src/push-webhook.js && node --check src/model-pricing.js && node --check src/service-status.js && node --check src/theme.js && node --check src/i18n.js && node --check test/usage-pace.test.js && node --check scripts/build-mobile-icons.js && node --check test/claude-credentials.test.js && node --check test/model-pricing.test.js && node --check test/push-webhook.test.js && node --check test/service-status.test.js && node --check test/panel-show.test.js && node --check src/panel-window.js && node --check test/panel-window.test.js && node --check scripts/qa-panel-window.js",
+    "build:panel": "bash scripts/build-panel-window.sh",
+    "prestart": "npm run build:panel",
+    "qa:panel": "npm run build:panel && electron scripts/qa-panel-window.js"
   },
   "devDependencies": {
     "electron": "^43.0.0",
     "electron-builder": "^26.15.3",
+    "node-api-headers": "^1.9.0",
     "wrangler": "^4.115.0"
   },
   "build": {
@@ -61,6 +65,10 @@
       {
         "from": "native/touchbar-helper",
         "to": "touchbar-helper"
+      },
+      {
+        "from": "native/panel-window.node",
+        "to": "panel-window.node"
       }
     ]
   },

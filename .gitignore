@@ -10,6 +10,7 @@ backups/
 
 # Build products (rebuilt by npm run build:native / build:mac / build:*-dmg)
 native/touchbar-helper
+native/panel-window.node
 *.app
 *.dmg
 *.zip
