@@ -631,7 +631,24 @@ function hidePanelAnimated() {
     panel.setOpacity(1);
     preparePanelForFullScreen();
     panelClosing = false;
+    handFrontmostBack();
   }, PANEL_CLOSE_MS);
+}
+
+// 面板收起、设置窗口关闭后，把前台交还给原来的应用（1.0.0，2026-11-17）。
+// type: 'panel' 在 Electron 43 里并不是真正的不激活面板（启动日志：NSWindow does not support
+// nonactivating panel styleMask），在面板里点一下，系统就把本应用切到前台；打开设置窗口也会激活本应用。
+// 之后本应用没有可见窗口却还占着前台，键盘输入落空，全屏应用要再点一下才能打字——收起面板、
+// 关掉设置窗口时系统都不会自动交还。app.hide() 让系统把前台交给下一个应用（全屏时就是那个全屏应用），
+// 不切换空间；本应用不在前台时调用也不改变前台，下次 showInactive() 会自动取消隐藏，同样不激活本应用。
+// 试过 Menu.sendActionToFirstResponder('deactivate')：前台不变，无效。
+function handFrontmostBack() {
+  if (process.platform !== 'darwin') return;
+  // 设置窗口开着或正在打开（openSettingsWindow 会先收起面板）时，本应用本来就该在前台。
+  if (settingsWindow && !settingsWindow.isDestroyed()) return;
+  // 面板开着或正在收起时不交还；正在收起的话，收起结束时会再调用这里。
+  if (panel && !panel.isDestroyed() && (panel.isVisible() || panelClosing)) return;
+  app.hide();
 }
 
 function stopPanelAnimation() {
@@ -864,6 +881,7 @@ function createSettingsWindow() {
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
   settingsWindow.on('closed', () => {
     settingsWindow = null;
+    handFrontmostBack();
   });
 }
 
