@@ -584,10 +584,13 @@ function showPanelAnimated() {
   panelShownAt = Date.now();
   cursorOutsideSince = 0;
   panelOpenedFromTopEdge = isCursorInTopMenuArea();
-  // type: 'panel' 的窗口 show()/focus() 时自己成为键盘窗口，不激活本应用（Electron 43 起如此），
-  // 当前全屏空间里照样能浮在最上层。不要再调用 app.focus()：强制激活会让 macOS 从别的应用的
-  // 全屏空间切回本应用所在的桌面空间，表现为「一点开面板就回主屏幕」（0.11.1 修复）。
-  panel.show();
+  // 不要调用 app.focus()：强制激活会让 macOS 从别的应用的全屏空间切回本应用所在的桌面空间，
+  // 表现为「一点开面板就回主屏幕」（0.11.1 修复）。
+  // 但不激活本应用时，show() 走的是 makeKeyAndOrderFront，macOS 不保证把非活跃应用的窗口
+  // 排到最前——别的应用全屏时面板会落在后面看不见（1.0.0 修复）。所以先用 showInactive()
+  // （orderFrontRegardless：不管本应用是否活跃都排到本层级最前），再 focus() 让面板成为
+  // 键盘窗口；type: 'panel' 的 focus() 不激活应用，不会切换空间。
+  panel.showInactive();
   presentPanelShadow();
   panel.focus();
   requestTouchBarPresentation();
@@ -596,8 +599,9 @@ function showPanelAnimated() {
   panel.moveTop();
   // 全屏空间下 show 后窗口层级偶尔晚一拍生效，保留一次轻量兜底即可。
   setTimeout(() => {
-    if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
+    if (!panel || panel.isDestroyed() || !panel.isVisible() || panelClosing) return;
     preparePanelForFullScreen({ presenting: true });
+    panel.showInactive();
     panel.moveTop();
   }, 120);
   // Let the renderer own the visual transition. Native opacity is only used to
@@ -638,6 +642,10 @@ function stopPanelAnimation() {
 
 function handlePanelBlur() {
   clearPanelBlurTimer();
+  // 刚打开的一小段时间内，前台（尤其是全屏）应用可能把键盘焦点抢回去，面板随即失焦；
+  // 这不是用户点到了别处，不能马上收起——否则表现为「面板闪一下就没了」。
+  // 真正点到别处由全局点击监听（handleGlobalPointerDown）负责。
+  if (Date.now() - panelShownAt < POINTER_OPEN_GRACE_MS) return;
   panelBlurTimer = setTimeout(() => {
     panelBlurTimer = null;
     if (!panel || panel.isDestroyed() || !panel.isVisible()) return;
@@ -847,6 +855,12 @@ function createSettingsWindow() {
     }
   });
 
+  // 普通窗口在别的应用全屏时只能放在桌面空间，show() 激活本应用会把屏幕切回桌面。
+  // 允许它进入全屏空间、并在当前空间打开（打开期间切换空间时会跟着走）。
+  settingsWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true
+  });
   settingsWindow.loadFile(path.join(__dirname, 'settings.html'));
   settingsWindow.on('closed', () => {
     settingsWindow = null;
@@ -3020,9 +3034,25 @@ function formatAlertDuration(ms) {
   return tr('durationDays', { n: Math.round(hours / 24) });
 }
 
+// 通知对象被回收后点击就没反应了，显示期间保留引用。
+const activeNotifications = new Set();
+
 function notify(title, body, { webhook = true } = {}) {
   try {
-    if (Notification.isSupported()) new Notification({ title, body, silent: false }).show();
+    if (Notification.isSupported()) {
+      const notification = new Notification({ title, body, silent: false });
+      const release = () => activeNotifications.delete(notification);
+      activeNotifications.add(notification);
+      notification.on('click', () => {
+        release();
+        revealPanel();
+      });
+      notification.on('close', release);
+      notification.on('failed', release);
+      notification.show();
+      // 通知中心里留存的通知可能很久之后才被点，兜底释放避免一直累积。
+      setTimeout(release, 6 * 60 * 60 * 1000).unref?.();
+    }
   } catch {
     // 通知失败不影响主流程。
   }
@@ -3429,7 +3459,7 @@ function handleTouchBarHelperOutput(chunk) {
     // 点 Touch Bar 上的额度块：打开面板（已经开着就不动）并刷新当前平台，和面板里的刷新按钮走同一条路。
     if (message === 'touchbar-open-panel') {
       touchBarLog(message);
-      showPanelFromTouchBar();
+      revealPanel();
       refreshProvider(state.provider).catch((error) => touchBarLog(`refresh failed: ${error.message}`));
     }
     if (message.startsWith('touchbar-provider:')) {
@@ -3447,8 +3477,9 @@ function handleTouchBarHelperOutput(chunk) {
   }
 }
 
-function showPanelFromTouchBar() {
-  if (!panel) createPanel();
+// Touch Bar、通知点击等「打开面板」入口：已经开着就不动，正在关闭则撤销关闭。
+function revealPanel() {
+  if (!panel || panel.isDestroyed()) createPanel();
   if (panelClosing || !panel.isVisible()) showPanelAnimated();
 }
 
