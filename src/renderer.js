@@ -342,6 +342,13 @@ window.codexMeter.onState(requestRender);
 window.codexMeter.onPanelMotion((motion) => {
   animatePanelMotion(motion);
 });
+// 1.0.0 起面板用 showInactive() 弹出（别的应用全屏时才能排到最前）。实测从第二次打开起，
+// 第一个按钮（GPT）会被当成键盘选中而拿到焦点，于是一直带蓝色焦点框；Mac 上鼠标点按钮不会挪走焦点，
+// 点 Claude 也去不掉。窗口一拿到焦点就清掉这种不是用户自己选的焦点；按 Tab 照样能用键盘选中按钮。
+window.addEventListener('focus', () => {
+  const active = document.activeElement;
+  if (active && active !== document.body && typeof active.blur === 'function') active.blur();
+});
 window.codexMeter.getState().then((state) => {
   requestRender(state);
 });
