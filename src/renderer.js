@@ -340,12 +340,44 @@ els.panel.addEventListener('wheel', handlePanelWheel, { passive: true });
 
 window.codexMeter.onState(requestRender);
 window.codexMeter.onPanelMotion((motion) => {
+  if (motion === 'opening') armStrayFocusGuard();
   animatePanelMotion(motion);
 });
-// 1.0.0 起面板用 showInactive() 弹出（别的应用全屏时才能排到最前）。实测从第二次打开起，
-// 第一个按钮（GPT）会被当成键盘选中而拿到焦点，于是一直带蓝色焦点框；Mac 上鼠标点按钮不会挪走焦点，
-// 点 Claude 也去不掉。窗口一拿到焦点就清掉这种不是用户自己选的焦点；按 Tab 照样能用键盘选中按钮。
+// 1.0.0 起面板用 showInactive() 弹出（别的应用全屏时才能排到最前），面板成为键盘窗口时 macOS 会按
+// Tab 顺序把焦点放到第一个按钮 GPT 上，GPT 就一直带蓝色焦点框（用户 2026-11-17 截图问过）。
+// 这一步和窗口 focus 事件谁先谁后不固定：面板页面正忙时，焦点会在 focus 事件之后才落到 GPT 上
+// （实测在全屏应用上方打开时让页面忙 0.8 秒即可复现），只在 focus 事件里清焦点拦不住。所以分三层：
+// 1. 焦点框只在用户真用键盘操作面板时显示：按键给 body 加 keyboard-focus（样式见 styles.css 末尾），
+//    点鼠标或重新打开面板时去掉；
+// 2. 窗口拿到焦点时清掉已有的焦点；
+// 3. 打开后一秒内，不是按键带来的「键盘式」焦点也清掉，免得按空格误触 GPT。
+const KEYBOARD_FOCUS_CLASS = 'keyboard-focus';
+const STRAY_FOCUS_GUARD_MS = 1000;
+const MODIFIER_KEYS = new Set(['Shift', 'Meta', 'Alt', 'Control', 'CapsLock', 'Fn']);
+let strayFocusGuardUntil = 0;
+
+function armStrayFocusGuard() {
+  document.body.classList.remove(KEYBOARD_FOCUS_CLASS);
+  strayFocusGuardUntil = performance.now() + STRAY_FOCUS_GUARD_MS;
+}
+
+document.addEventListener('keydown', (event) => {
+  // 快捷键（含打开面板的 ⌥⌘U）和单按修饰键不算键盘导航。
+  if (event.metaKey || event.ctrlKey || event.altKey || MODIFIER_KEYS.has(event.key)) return;
+  strayFocusGuardUntil = 0;
+  document.body.classList.add(KEYBOARD_FOCUS_CLASS);
+}, true);
+document.addEventListener('pointerdown', () => {
+  document.body.classList.remove(KEYBOARD_FOCUS_CLASS);
+}, true);
+document.addEventListener('focusin', (event) => {
+  if (document.body.classList.contains(KEYBOARD_FOCUS_CLASS)) return;
+  if (performance.now() > strayFocusGuardUntil) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && target.matches(':focus-visible')) target.blur();
+});
 window.addEventListener('focus', () => {
+  armStrayFocusGuard();
   const active = document.activeElement;
   if (active && active !== document.body && typeof active.blur === 'function') active.blur();
 });
