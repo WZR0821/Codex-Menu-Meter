@@ -66,6 +66,20 @@ function parseCodexRolloutLines(raw, state = {}) {
     const output = nonNegativeFiniteNumber(usage.output_tokens);
     const tokens = input + output;
     if (tokens <= 0) continue;
+    // Quota/status updates can repeat last_token_usage without another model call.
+    // Only deduplicate when cumulative totals establish the same snapshot; equal
+    // request sizes alone are not an identity (two real calls can have equal sizes).
+    const total = record.payload.info.total_token_usage;
+    if (total && Number.isFinite(total.input_tokens) && Number.isFinite(total.output_tokens)) {
+      const snapshot = JSON.stringify([
+        total.input_tokens, total.cached_input_tokens, total.output_tokens,
+        total.reasoning_output_tokens, total.total_tokens
+      ]);
+      if (snapshot === state.lastUsageSnapshot) continue;
+      state.lastUsageSnapshot = snapshot;
+    } else {
+      delete state.lastUsageSnapshot;
+    }
     entries.push({
       ts,
       tokens,

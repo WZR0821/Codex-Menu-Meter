@@ -430,8 +430,7 @@ function createMobileManifest(accessToken = '') {
     theme_color: '#f2f2f7',
     icons: [
       { src: '/mobile/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-      { src: '/mobile/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-      { src: '/mobile/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
+      { src: '/mobile/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
     ]
   };
 }

@@ -30,7 +30,9 @@ function parseClaudeTimestamp(value) {
 function normalizeClaudeWindow(windowValue) {
   if (!windowValue || typeof windowValue !== 'object') return null;
   const used = windowValue.utilization ?? windowValue.percent;
-  const usedPercent = clamp(Math.round(Number(used ?? 0)) || 0, 0, 100);
+  if ((typeof used !== 'number' && typeof used !== 'string')
+    || (typeof used === 'string' && !used.trim()) || !Number.isFinite(Number(used))) return null;
+  const usedPercent = clamp(Math.round(Number(used)), 0, 100);
   const resetAt = parseClaudeTimestamp(windowValue.resets_at);
   return {
     usedPercent,

@@ -5,9 +5,7 @@ const DEFAULT_CHUNK_SIZE = 1024 * 1024;
 function retainRecentEntries(entries, retainFromTs) {
   if (!Number.isFinite(retainFromTs)) return entries;
   // 长会话文件会一路追加，缓存里只留统计窗口内的条目，避免旧条目长期占内存。
-  const firstKept = entries.findIndex((entry) => Number(entry?.ts) >= retainFromTs);
-  if (firstKept <= 0) return firstKept === 0 ? entries : [];
-  return entries.slice(firstKept);
+  return entries.filter((entry) => Number(entry?.ts) >= retainFromTs);
 }
 
 async function readTranscriptFile(file, cache, parseLines, {
@@ -22,16 +20,19 @@ async function readTranscriptFile(file, cache, parseLines, {
   }
 
   const cached = cache.get(file);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.fileSize === stat.size) {
+  const sameFile = cached && cached.dev === stat.dev && cached.ino === stat.ino;
+  if (sameFile && cached.mtimeMs === stat.mtimeMs && cached.fileSize === stat.size) {
+    cached.entries = retainRecentEntries(cached.entries, retainFromTs);
     return cached.entries;
   }
 
-  const canAppend = cached
+  const canAppend = sameFile
     && stat.size > cached.fileSize
     && stat.mtimeMs >= cached.mtimeMs
     && cached.offset <= cached.fileSize;
   const start = canAppend ? cached.offset : 0;
-  const parseState = canAppend ? cached.parseState || {} : {};
+  // Parse transactionally: a failed read must not advance the cached parser state.
+  const parseState = canAppend ? structuredClone(cached.parseState || {}) : {};
   const entries = canAppend ? cached.entries.slice() : [];
 
   let offset = start;
@@ -67,6 +68,8 @@ async function readTranscriptFile(file, cache, parseLines, {
 
   const retained = retainRecentEntries(entries, retainFromTs);
   cache.set(file, {
+    dev: stat.dev,
+    ino: stat.ino,
     mtimeMs: stat.mtimeMs,
     fileSize: stat.size,
     offset,

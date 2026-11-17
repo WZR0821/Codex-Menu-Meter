@@ -115,6 +115,8 @@ const MOBILE_HOST = '0.0.0.0';
 const MOBILE_LOOPBACK_HOST = '127.0.0.1';
 const MOBILE_PORT = 43821;
 const TAILSCALE_DOWNLOAD_URL = 'https://tailscale.com/download/mac';
+// Public builds require an explicitly configured service. Existing saved settings
+// still take precedence, so upgrading does not disconnect paired devices.
 const DEFAULT_CLOUD_SYNC_SERVER_URL = '';
 const CLOUD_SYNC_KEYCHAIN_SERVICE = 'Codex Menu Meter Cloud Sync';
 const CLOUD_SYNC_PUSH_DELAY_MS = 1800;
