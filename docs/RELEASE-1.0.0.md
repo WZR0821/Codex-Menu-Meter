@@ -1,6 +1,7 @@
 # Codex Menu Meter 1.0.0
 
-> **本 APP 由Claude Fable5.2及GPT6 Astra开发完成。**
+> [!IMPORTANT]
+> **本 APP 由 Claude Fable 5.2 及 GPT6 Astra 开发完成。**
 
 开发者：**Jerry Wong** · 首次公开发布：**2026-11-17**
 
@@ -110,4 +111,4 @@ Release 同时提供源码 ZIP 和 `SHA256SUMS.txt`。源码运行、构建与�
 
 ---
 
-本项目为独立第三方工具，与 OpenAI、Anthropic 无隶属关系。仓库目前没有指定开源许可证。
+本项目为独立第三方工具，与 OpenAI、Anthropic 无隶属关系。1.0.0 发布时仓库还没有指定开源许可证，2026-11-18 起以 [MIT 许可证](../LICENSE) 开源。

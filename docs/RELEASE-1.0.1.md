@@ -1,6 +1,7 @@
 # Codex Menu Meter 1.0.1
 
-> **本 APP 由Claude Fable5.2及GPT6 Astra开发完成。**
+> [!IMPORTANT]
+> **本 APP 由 Claude Fable 5.2 及 GPT6 Astra 开发完成。**
 
 开发者：**Jerry Wong** · 发布日期：**2026-11-18**
 

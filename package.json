@@ -3,6 +3,7 @@
   "version": "1.0.1",
   "author": "Jerry Wong",
   "description": "A macOS menu bar meter for GPT, Claude, and coding-model usage.",
+  "license": "MIT",
   "main": "src/main.js",
   "private": true,
   "type": "commonjs",

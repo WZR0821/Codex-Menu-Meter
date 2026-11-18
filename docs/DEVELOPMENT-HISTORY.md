@@ -1,6 +1,6 @@
 # 开发历史时间线
 
-本 APP 由Claude Fable5.2及GPT6 Astra开发完成。
+本 APP 由 Claude Fable 5.2 及 GPT6 Astra 开发完成。
 
 本页于 2026 年 11 月 18 日整理，依据维护者确认的 26 份本机应用快照，补录 22 个版本的历史提交。时间范围为 2026 年 7 月 20 日至 11 月 17 日，以下时间均为日本时间（Asia/Tokyo，UTC+09:00）。
 
@@ -48,4 +48,4 @@
 
 完整的快照名称、原始归档 SHA-256、还原文件 SHA-256、公开前清理记录与标签见 [历史快照清单](historical-snapshots.json)。每份快照的应用文件均已与原始备份核对，并检查作者日期、提交者日期、父提交关系和标签指向。
 
-可直接浏览 [历史分支的提交列表](https://github.com/WZR0821/Codex-Menu-Meter/commits/codex/reconstructed-history/)；当前应用的安装与构建说明见 [项目首页](../README.md)。
+可直接浏览 [历史快照的提交列表](https://github.com/WZR0821/Codex-Menu-Meter/commits/history/v1.0.0-20261117-225656/)；当前应用的安装与构建说明见 [项目首页](../README.md)。

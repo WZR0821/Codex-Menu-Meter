@@ -18,6 +18,7 @@ mkdir -p "$PACKAGE_ROOT" "$OUTPUT_DIR"
 
 FILES=(
   ".gitignore"
+  "LICENSE"
   "README.md"
   "DEVELOPMENT_MAINTENANCE.md"
   "NEW_SESSION_HANDOFF.md"
