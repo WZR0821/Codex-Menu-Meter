@@ -2,7 +2,7 @@
 
 ## 1. 文档信息
 
-- 当前基线版本：`1.0.1`
+- 当前基线版本：`1.1.1`
 - 应用名称：Codex Menu Meter
 - Bundle ID：`local.codex-menu-meter`
 - 技术栈：Electron 43、Node.js、原生 Swift Touch Bar helper
@@ -406,7 +406,7 @@ npm run lint
 npm test
 ```
 
-当前基线为 38 项单元测试。重点覆盖：
+当前基线为 108 项单元测试。重点覆盖：
 
 - Codex token 解析和子代理去重
 - 5 小时/周 Token 周期边界与滚动窗口降级
@@ -416,6 +416,7 @@ npm test
 - 平台配置升级兼容
 - 云同步密钥派生、加解密、错误密钥拒绝与 HTTPS 校验
 - Durable Object 首次绑定、鉴权、旧快照拒绝和删除
+- Token 活动 7 天直方图的分色、分段、柱高和型号写法
 
 依赖审计基线：
 
