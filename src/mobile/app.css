@@ -304,7 +304,8 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
   line-height: 1.667;
   letter-spacing: 0;
 }
-.quota-progress { height: 6px; margin-top: 8px; overflow: hidden; background: var(--fill); border-radius: 999px; }
+/* 1.1.1：和 Claude 一周卡的双道条（6 + 1 + 3）一样粗；上边距相应收 4px，卡片总高不变 */
+.quota-progress { height: 10px; margin-top: 4px; overflow: hidden; background: var(--fill); border-radius: 999px; }
 .quota-progress i,
 .quota-slim-bar i {
   display: block;
@@ -325,31 +326,28 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
   white-space: nowrap;
 }
 
-/* 使用明细：卡片右上角的小箭头，点开后明细接在卡片底部 */
+/* 使用明细：标题行右侧一个箭头，5 小时卡和一周卡的明细一起展开、一起收起（1.1.1，和桌面一致），
+   明细接在各自卡片底部 */
 .inline-details > summary { list-style: none; cursor: pointer; -webkit-user-select: none; user-select: none; }
 .inline-details > summary::-webkit-details-marker { display: none; }
-.quota-activity > summary {
-  position: absolute;
-  top: 8px;
-  right: 8px;
+.quota-activity > summary { display: none; }
+.usage-head > #usageUpdated { flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quota-details-toggle {
+  position: relative;
   display: grid;
+  flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  /* 比标题字高，用负边距让它不撑高标题行 */
+  margin: -6px -4px -6px -4px;
   border-radius: 50%;
   transition: background 120ms ease;
 }
 /* 把可点区域撑到 44pt */
-.quota-activity > summary::before { position: absolute; inset: -8px; content: ""; }
-.quota-activity > summary > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-.quota-activity > summary::after {
+.quota-details-toggle::before { position: absolute; inset: -9px; content: ""; }
+.quota-details-toggle::after {
   width: 7px;
   height: 7px;
   margin-top: -3px;
@@ -359,8 +357,8 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
   transition: transform 200ms ease, margin 200ms ease;
   content: "";
 }
-.quota-activity[open] > summary { background: var(--fill); }
-.quota-activity[open] > summary::after { margin-top: 3px; transform: rotate(-135deg); }
+.quota-details-toggle[aria-expanded="true"] { background: var(--fill); }
+.quota-details-toggle[aria-expanded="true"]::after { margin-top: 3px; transform: rotate(-135deg); }
 .quota-activity[open] { margin-top: 11px; padding-top: 10px; border-top: 0.5px solid var(--separator); }
 .quota-activity > .disclosure-content { display: grid; gap: 7px; }
 /* 半宽卡片里一行放不下“标签 + 大数字”，所以明细一律上下两行，各种屏宽下排法一致 */
@@ -885,7 +883,7 @@ footer span + span::before { margin-right: 6px; content: "·"; }
   .control-deck { gap: 6px; margin-top: 8px; }
   .section-head { margin-bottom: 6px; }
   .section-head h2 { font-size: 14px; }
-  .quota-progress { height: 5px; margin-top: 6px; }
+  .quota-progress { height: 9px; margin-top: 2px; }
   .quota-card > small { margin-top: 6px; }
   .quota-slim-row { padding-top: 8px; padding-bottom: 10px; }
   .token-summary strong { font-size: 19px; }
@@ -1001,7 +999,7 @@ footer span + span::before { margin-right: 6px; content: "·"; }
   background:
     linear-gradient(var(--fill), var(--fill)) top / 100% 6px no-repeat,
     linear-gradient(var(--fill), var(--fill)) bottom / 100% 3px no-repeat;
-  border-radius: 3px;
+  border-radius: 999px;
 }
 .quota-card.has-scoped .quota-progress > i { height: 6px; border-radius: 3px 999px 999px 0; }
 .quota-card.has-scoped .pace-tick { bottom: 4px; }
@@ -1017,18 +1015,19 @@ footer span + span::before { margin-right: 6px; content: "·"; }
 .quota-scoped-lane.critical .quota-scoped-fill { background: var(--red); }
 .quota-scoped-lane.pace-serious .quota-scoped-fill { background: var(--status-serious); }
 @media (max-height: 720px) {
-  .quota-card.has-scoped .quota-progress {
-    height: 9px;
-    margin-top: 2px;
-    background-size: 100% 5px, 100% 3px;
-  }
-  .quota-card.has-scoped .quota-progress > i { height: 5px; }
   /* 大数字随屏高变小，右侧这一块也跟着收，免得把这一行撑高 */
   .quota-scoped-stat { margin-bottom: 2px; }
   .quota-scoped-name { font-size: 11px; line-height: 13px; }
   .quota-scoped-stat b { font-size: 16px; line-height: 18px; }
 }
 @media (max-height: 600px) {
+  /* 普通进度条在这一档变成 9px，双道条跟着变（5 + 1 + 3），两张卡的条仍然平齐 */
+  .quota-card.has-scoped .quota-progress {
+    height: 9px;
+    margin-top: 2px;
+    background-size: 100% 5px, 100% 3px;
+  }
+  .quota-card.has-scoped .quota-progress > i { height: 5px; }
   .quota-scoped-stat { margin-bottom: 1px; }
   .quota-scoped-stat b { font-size: 15px; line-height: 17px; }
 }
@@ -1214,8 +1213,27 @@ body.service-alert[data-view="usage"] footer { display: none; }
   font-weight: 500;
   white-space: nowrap;
 }
-/* 选中与否字重一样，切换时按钮宽度不跳 */
-.token-range-button.active { background: var(--card); box-shadow: var(--thumb-shadow); }
+/* 1.1.1：两个按钮等宽，选中底块是容器上的一块，切换时从一边滑到另一边；选中与否字重一样 */
+.token-range {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+.token-range::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 2);
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: var(--thumb-shadow);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  content: "";
+}
+.token-range[data-range="month"]::before { transform: translateX(100%); }
+.token-range-button { position: relative; z-index: 1; }
 
 /* 两种视图叠在同一格：格子区始终参与排版（7 天时只是藏起来），7 天图撑满这一格，
    所以两种视图一样高，切换时卡片尺寸不动，各档屏高也不用另配柱区高度。 */
@@ -1223,14 +1241,15 @@ body.service-alert[data-view="usage"] footer { display: none; }
 .token-stage > * { grid-area: 1 / 1; min-width: 0; min-height: 0; }
 .token-stage > .heatmap { margin-top: 0; }
 .token-stage.is-week > .heatmap { visibility: hidden; }
-.week-chart { display: flex; flex-direction: column; overflow: hidden; }
+/* 1.1.1：整张图往上提 6px，用掉格子区上方那段空白；区域总大小不变，柱子更高 */
+.week-chart { display: flex; flex-direction: column; margin-top: -6px; overflow: hidden; }
 .week-legend {
   display: flex;
   flex: none;
   align-items: center;
   gap: 12px;
-  height: 15px;
-  margin-bottom: 5px;
+  height: 14px;
+  margin-bottom: 4px;
   overflow: hidden;
   color: var(--label-2);
   font-size: 11px;
@@ -1246,14 +1265,14 @@ body.service-alert[data-view="usage"] footer { display: none; }
   grid-template-columns: repeat(7, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr);
   column-gap: 4px;
-  /* 七根柱子往中间收一点；基线铺满整卡宽，紧贴柱子底部（日期 13px + 间隙 5px 之上） */
+  /* 七根柱子往中间收一点；基线铺满整卡宽，紧贴柱子底部（日期 12px + 间隙 4px 之上） */
   padding: 0 20px;
-  background: linear-gradient(var(--separator), var(--separator)) left 0 bottom 17px / 100% 1px no-repeat;
+  background: linear-gradient(var(--separator), var(--separator)) left 0 bottom 15px / 100% 1px no-repeat;
 }
 .week-col {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
   min-height: 0;
 }
@@ -1266,8 +1285,11 @@ body.service-alert[data-view="usage"] footer { display: none; }
 .week-bar {
   position: absolute;
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  /* 用自动外边距居中（不占 transform），入场动效才能从基线往上缩放 */
+  margin: 0 auto;
+  transform-origin: 50% 100%;
   display: flex;
   flex-direction: column-reverse;
   gap: 2px;
@@ -1276,21 +1298,31 @@ body.service-alert[data-view="usage"] footer { display: none; }
   min-height: 0;
 }
 .week-seg { display: block; flex: 1 1 0; min-height: 2px; background: var(--series-color); }
-/* 只有柱顶那一段圆角，底部贴着基线 */
-.week-seg:last-child { border-radius: 4px 4px 0 0; }
+/* 1.1.1：柱顶不再做圆角，方头柱子和格子区的比例更协调 */
 .week-day {
   display: block;
   flex: none;
   overflow: hidden;
   color: var(--label-3);
   font-size: 10.5px;
-  line-height: 13px;
+  line-height: 12px;
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .week-col.active .week-day { color: var(--label); font-weight: 600; }
+
+/* 1.1.1：切换 7 天 / 30 天时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入。
+   只在点切换的那次渲染带 range-enter，后台刷新不重播；减少动态效果时由文件里的全局规则关掉。 */
+@keyframes week-bar-grow { from { transform: scaleY(0); } }
+@keyframes token-range-fade { from { opacity: 0; } }
+.token-stage.range-enter .week-bar {
+  animation: week-bar-grow 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+.token-stage.range-enter .week-legend { animation: token-range-fade 240ms ease both; }
+.token-stage.range-enter:not(.is-week) > .heatmap { animation: token-range-fade 260ms ease both; }
 
 .week-models { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
 .week-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
@@ -1301,6 +1333,8 @@ body.service-alert[data-view="usage"] footer { display: none; }
 @media (max-height: 600px) {
   /* 和 30 天格子原来在这一档的上边距一样 */
   .token-stage { margin-top: 9px; }
+  /* 这一档上边距本来就小，7 天图只往上提 3px，图例不贴着上面的大数字 */
+  .week-chart { margin-top: -3px; }
 }
 @media (max-width: 350px) {
   /* 320 宽时七列太挤：柱区两侧少收一点、柱间空隙小 1px，日期才放得下「11/15」 */
@@ -1314,5 +1348,5 @@ body.service-alert[data-view="usage"] footer { display: none; }
     --series-3: #199e70;
     --series-other: #636366;
   }
-  .token-range-button.active { background: var(--thumb); }
+  .token-range::before { background: var(--thumb); }
 }

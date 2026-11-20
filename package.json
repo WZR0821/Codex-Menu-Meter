@@ -1,6 +1,6 @@
 {
   "name": "codex-menu-meter",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Jerry Wong",
   "description": "A macOS menu bar meter for GPT, Claude, and coding-model usage.",
   "license": "MIT",

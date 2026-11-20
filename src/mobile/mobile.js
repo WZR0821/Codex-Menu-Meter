@@ -597,6 +597,7 @@ const els = {
   usageHeading: document.getElementById('usageHeading'),
   usageUpdated: document.getElementById('usageUpdated'),
   quotaGrid: document.getElementById('quotaGrid'),
+  quotaDetailsToggle: document.getElementById('quotaDetailsToggle'),
   serviceBanner: document.getElementById('serviceBanner'),
   paceCard: document.getElementById('paceCard'),
   tokenHeading: document.getElementById('tokenHeading'),
@@ -663,6 +664,8 @@ const selectedDayByProvider = {};
 const TOKEN_RANGE_KEY = 'cmm-mobile-token-range';
 const TOKEN_WEEK = window.CMM_TOKEN_WEEK;
 let tokenRange = readTokenRange();
+// 只在用户点切换的那一次渲染里为真：7 天柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
+let tokenRangeEnter = false;
 // 7 天图当前的模型分组，点某一天时用它给详情里的模型上色。
 let currentWeekSeries = null;
 const sectionSignatures = new Map();
@@ -674,12 +677,14 @@ function restoreDisclosures(root = document) {
     detail.dataset.detailOwner = provider;
     detail.open = disclosureState.get(`${provider}:${detail.dataset.detail}`) || false;
   });
+  syncQuotaDetailsToggle();
 }
 
 document.addEventListener('toggle', (event) => {
   const detail = event.target;
   if (detail.matches?.('details[data-detail]')) {
     disclosureState.set(`${detail.dataset.detailOwner}:${detail.dataset.detail}`, detail.open);
+    if (detail.classList.contains('quota-activity')) syncQuotaDetailsToggle();
   }
 }, true);
 
@@ -1537,12 +1542,38 @@ function quotaActivityTemplate(detailKey, activityWindow, windowValue = null, sc
   }
   if (!detailKey || !rows.length) return '';
   return `
-    <details class="quota-activity inline-details" data-detail="quota-${escapeHtml(detailKey)}">
+    <details class="quota-activity inline-details" data-detail="quota-activity">
       <summary aria-label="${escapeHtml(T('quotaDetails'))}"><span>${escapeHtml(T('quotaDetails'))}</span></summary>
       <div class="disclosure-content">${rows.join('')}</div>
     </details>
   `;
 }
+
+// 5 小时卡和一周卡的明细共用标题行右侧这一个按钮（1.1.1，和桌面一致）：一起展开、一起收起，
+// 免得只展开一张、并排的另一张空出一截。两张卡的明细用同一个 data-detail，展开状态也一起记。
+function quotaDetailsList() {
+  return [...els.quotaGrid.querySelectorAll('details.quota-activity')];
+}
+
+function syncQuotaDetailsToggle() {
+  const button = els.quotaDetailsToggle;
+  if (!button || !els.quotaGrid) return;
+  const details = quotaDetailsList();
+  const open = details.some((detail) => detail.open);
+  button.hidden = !details.length;
+  button.setAttribute('aria-expanded', String(open));
+  const label = T('quotaDetails');
+  if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
+}
+
+els.quotaDetailsToggle?.addEventListener('click', () => {
+  const details = quotaDetailsList();
+  if (!details.length) return;
+  const open = !details.some((detail) => detail.open);
+  disclosureState.set(`${provider}:quota-activity`, open);
+  details.forEach((detail) => { detail.open = open; });
+  syncQuotaDetailsToggle();
+});
 
 // 大数字和单位分开排：数字用圆体，单位用小一号的次要色。
 function tokenValueHtml(value) {
@@ -1584,7 +1615,7 @@ function renderActivity(activitySlice) {
         <strong>${tokenValueHtml(total)}</strong>
       </div>
     </div>
-    <div class="token-stage${weekView ? ' is-week' : ''}">
+    <div class="token-stage${weekView ? ' is-week' : ''}${tokenRangeEnter ? ' range-enter' : ''}">
     <div class="heatmap"${weekView ? ' inert aria-hidden="true"' : ''}>
       ${days.map((day) => `
         <button
@@ -1624,6 +1655,8 @@ function readTokenRange() {
 function renderTokenRangeToggle() {
   els.tokenRange.hidden = false;
   els.tokenRange.setAttribute('aria-label', T('tokenRangeAria'));
+  // 选中底块是容器的伪元素，按 data-range 滑到对应按钮下面（1.1.1）
+  els.tokenRange.dataset.range = tokenRange;
   els.tokenRange.innerHTML = ['week', 'month'].map((range) => `
     <button
       class="token-range-button${range === tokenRange ? ' active' : ''}"
@@ -1673,7 +1706,7 @@ function weekChartHtml(days, selectedDay) {
             aria-pressed="${selected}"
             aria-label="${escapeHtml(`${formatDay(day.day)} · ${formatTokens(day.tokens)}`)}"
           >
-            <span class="week-track"><span class="week-bar" style="height:${heights[index].toFixed(1)}%">${segments.map((segment) => `<i class="week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
+            <span class="week-track"><span class="week-bar" style="height:${heights[index].toFixed(1)}%;--i:${index}">${segments.map((segment) => `<i class="week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
             <span class="week-day">${escapeHtml(shortMonthDay(day.day))}</span>
           </button>`;
         }).join('')}
@@ -2515,7 +2548,9 @@ els.tokenRange.addEventListener('click', (event) => {
   } catch {
     // 无痕模式等存不了：这次照样切换，下次打开回到 30 天。
   }
+  tokenRangeEnter = true;
   if (currentState) render();
+  tokenRangeEnter = false;
 });
 
 els.tokenCard.addEventListener('click', (event) => {

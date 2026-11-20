@@ -9,7 +9,7 @@ Codex Menu Meter 是一款 macOS 菜单栏小工具：查看 GPT（Codex）与 C
 
 | 平台 | 当前版本 | 开发者 | 许可 |
 |---|---|---|---|
-| macOS（Intel / Apple Silicon） | 1.1.0 | Jerry Wong | [MIT](LICENSE) |
+| macOS（Intel / Apple Silicon） | 1.1.1 | Jerry Wong | [MIT](LICENSE) |
 
 ## 主要功能
 
@@ -127,6 +127,7 @@ npm run qa:cloud
 
 ## 版本记录
 
+- **1.1.1**：进度条加粗到和 Claude「一周」卡的双道条一样；5 小时卡和一周卡的明细由一个按钮一起展开；7 天 / 30 天切换加动效，直方图柱子去圆角并加高。[发布记录](docs/RELEASE-1.1.1.md)
 - **1.1.0**：Token 活动新增 7 天 / 30 天切换，7 天为按模型分色的直方图；Claude 的 Fable 周限额并进「一周」卡。[发布记录](docs/RELEASE-1.1.0.md)
 - **1.0.1**：修复全屏应用遮挡用量面板的问题。[发布记录](docs/RELEASE-1.0.1.md)
 - **1.0.0**：首次公开发布。[首发说明](docs/RELEASE-1.0.0.md)

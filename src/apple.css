@@ -254,36 +254,49 @@ body.apple-theme.light-theme .quota-card > .quota-remaining-value {
   text-shadow: none;
 }
 body.apple-theme.light-theme .quota-card-unlimited > .quota-remaining-value { font-size: 24px; line-height: 1.447; font-weight: 600; letter-spacing: 0; }
-body.apple-theme.light-theme .quota-progress { height: 5px; margin-top: 6px; background: var(--a-fill); border-radius: 999px; box-shadow: none; }
+/* 1.1.1：和 Claude 一周卡的双道条（5 + 1 + 3）一样粗；上边距相应收 4px，卡片总高不变 */
+body.apple-theme.light-theme .quota-progress { height: 9px; margin-top: 2px; background: var(--a-fill); border-radius: 999px; box-shadow: none; }
 body.apple-theme.light-theme .panel[data-provider] .quota-progress i { background: var(--quota-accent); border-radius: 999px; box-shadow: none; }
 body.apple-theme .quota-flare { display: none; }
 body.apple-theme.light-theme .quota-card > small { margin-top: 6px; font-size: 11px; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
 /* 使用明细：不再单占一行。卡片右上角一个小箭头，点开后明细接在卡片底部。 */
 body.apple-theme.light-theme .quota-activity { margin-top: 0; border-top: 0; }
-body.apple-theme .quota-activity > summary {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 24px;
-  height: 24px;
-  min-height: 0;
+/* 1.1.1：两张卡不再各有一个小箭头，改由标题行右侧的一个按钮一起展开、一起收起 */
+body.apple-theme .quota-activity > summary { display: none; }
+body.apple-theme .usage-head > #usageUpdated { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.apple-theme .quota-details-toggle {
+  appearance: none;
+  display: grid;
+  flex: none;
+  place-items: center;
+  align-self: center;
+  width: 22px;
+  height: 22px;
+  /* 比标题字高，用负边距让它不撑高标题行 */
+  margin: -5px -3px -5px -4px;
   padding: 0;
-  justify-content: center;
+  border: 0;
   border-radius: 50%;
+  background: transparent;
+  color: var(--a-label-2);
+  cursor: default;
   transition: background 120ms ease;
 }
-body.apple-theme .quota-activity > summary > span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+body.apple-theme .quota-details-toggle[hidden] { display: none; }
+body.apple-theme .quota-details-toggle::after {
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-top: 1.6px solid currentColor;
+  border-right: 1.6px solid currentColor;
+  opacity: 0.55;
+  transform: rotate(135deg);
+  transition: transform 180ms ease, margin 180ms ease;
+  content: "";
 }
-body.apple-theme .quota-activity > summary::after { margin: 0 2px 0 0; transform: rotate(135deg); }
-body.apple-theme .quota-activity[open] > summary::after { margin: 3px 0 0; transform: rotate(-45deg); }
-body.apple-theme.light-theme .quota-activity > summary:hover,
-body.apple-theme.light-theme .quota-activity[open] > summary { background: var(--a-fill); }
+body.apple-theme .quota-details-toggle[aria-expanded="true"]::after { margin-top: 3px; transform: rotate(-45deg); }
+body.apple-theme.light-theme .quota-details-toggle:hover,
+body.apple-theme.light-theme .quota-details-toggle[aria-expanded="true"] { background: var(--a-fill); }
 body.apple-theme.light-theme .quota-activity[open] { margin-top: 9px; border-top: 0.5px solid var(--a-separator); }
 body.apple-theme.light-theme .quota-activity-head span { font-size: 11px; color: var(--a-label-2); }
 body.apple-theme.light-theme .quota-activity-head b { font-size: 12px; font-weight: 600; color: var(--a-label); }
@@ -571,7 +584,7 @@ body.apple-theme.light-theme .quota-card.has-scoped > .quota-progress {
   background:
     linear-gradient(var(--a-fill), var(--a-fill)) top / 100% 5px no-repeat,
     linear-gradient(var(--a-fill), var(--a-fill)) bottom / 100% 3px no-repeat;
-  border-radius: 3px;
+  border-radius: 999px;
 }
 body.apple-theme.light-theme .panel[data-provider] .quota-card.has-scoped > .quota-progress > i { height: 5px; border-radius: 3px 999px 999px 0; }
 body.apple-theme .quota-card.has-scoped .quota-pace-tick { bottom: 4px; }
@@ -1058,6 +1071,30 @@ body.apple-theme .token-range .trend-range-button { line-height: 16px; }
 /* 选中与否字重一样，切换时按钮宽度不跳 */
 body.apple-theme .token-range .trend-range-button,
 body.apple-theme .token-range .trend-range-button.active { font-weight: 500; }
+/* 1.1.1：两个按钮等宽，选中底块是容器上的一块，切换时从一边滑到另一边 */
+body.apple-theme .token-range {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+body.apple-theme .token-range::before {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / 2);
+  border-radius: 5px;
+  background: var(--a-card);
+  box-shadow: var(--a-thumb-shadow);
+  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  content: "";
+}
+body.apple-theme .token-range[data-range="month"]::before { transform: translateX(100%); }
+html[data-appearance="dark"] body.apple-theme .token-range::before { background: var(--a-thumb); }
+body.apple-theme .token-range .trend-range-button { position: relative; z-index: 1; transition: color 200ms ease; }
+body.apple-theme .token-range .trend-range-button.active,
+html[data-appearance="dark"] body.apple-theme .token-range .trend-range-button.active { background: transparent; box-shadow: none; }
 body.apple-theme .token-range[hidden] { display: none; }
 
 /* 两种视图叠在同一格：格子区始终参与排版（7 天时只是藏起来），7 天图撑满这一格，
@@ -1066,14 +1103,15 @@ body.apple-theme .token-range-stage { display: grid; margin-top: 8px; }
 body.apple-theme .token-range-stage > * { grid-area: 1 / 1; min-width: 0; min-height: 0; }
 body.apple-theme .token-range-stage > .token-heatmap-wrap { margin-top: 0; }
 body.apple-theme .token-range-stage.is-week > .token-heatmap-wrap { visibility: hidden; }
-body.apple-theme .token-week { display: flex; flex-direction: column; overflow: hidden; }
+/* 1.1.1：整张图往上提 6px，用掉格子区上方那段空白；区域总大小不变，柱子更高 */
+body.apple-theme .token-week { display: flex; flex-direction: column; margin-top: -6px; overflow: hidden; }
 body.apple-theme .token-week-legend {
   display: flex;
   flex: none;
   align-items: center;
   gap: 12px;
-  height: 15px;
-  margin-bottom: 5px;
+  height: 14px;
+  margin-bottom: 4px;
   overflow: hidden;
   white-space: nowrap;
   font-size: 11px;
@@ -1097,14 +1135,14 @@ body.apple-theme .token-week-plot {
   column-gap: 4px;
   /* 七根柱子往中间收一点，不贴卡片两边 */
   padding: 0 20px;
-  /* 基线紧贴柱子底部（日期 13px + 间隙 5px 之上），左右贯通（背景铺到内边距，所以仍是整卡宽） */
-  background: linear-gradient(var(--a-separator), var(--a-separator)) left 0 bottom 17px / 100% 1px no-repeat;
+  /* 基线紧贴柱子底部（日期 12px + 间隙 4px 之上），左右贯通（背景铺到内边距，所以仍是整卡宽） */
+  background: linear-gradient(var(--a-separator), var(--a-separator)) left 0 bottom 15px / 100% 1px no-repeat;
 }
 body.apple-theme .token-week-col {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
   min-height: 0;
   outline: none;
@@ -1122,8 +1160,11 @@ body.apple-theme .token-week-col:focus-visible .token-week-track { box-shadow: i
 body.apple-theme .token-week-bar {
   position: absolute;
   bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  /* 用自动外边距居中（不占 transform），入场动效才能从基线往上缩放 */
+  margin: 0 auto;
+  transform-origin: 50% 100%;
   display: flex;
   flex-direction: column-reverse;
   gap: 2px;
@@ -1138,8 +1179,7 @@ body.apple-theme .token-week-seg {
   min-height: 2px;
   background: var(--series-color);
 }
-/* 只有柱顶那一段圆角，底部贴着基线 */
-body.apple-theme .token-week-seg:last-child { border-radius: 4px 4px 0 0; }
+/* 1.1.1：柱顶不再做圆角，方头柱子和格子区的比例更协调 */
 body.apple-theme .token-week-day {
   display: block;
   flex: none;
@@ -1148,8 +1188,25 @@ body.apple-theme .token-week-day {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10.5px;
-  line-height: 13px;
+  line-height: 12px;
   color: var(--a-label-3);
   font-variant-numeric: tabular-nums;
 }
 body.apple-theme .token-week-col.selected .token-week-day { color: var(--a-label); font-weight: 600; }
+
+/* 1.1.1：切换 7 天 / 30 天时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入。
+   只在点切换的那次渲染带 range-enter，后台刷新不重播；系统要求减少动态效果时不播。 */
+@keyframes token-bar-grow { from { transform: scaleY(0); } }
+@keyframes token-range-fade { from { opacity: 0; } }
+body.apple-theme .token-range-stage.range-enter .token-week-bar {
+  animation: token-bar-grow 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+body.apple-theme .token-range-stage.range-enter .token-week-legend { animation: token-range-fade 240ms ease both; }
+body.apple-theme .token-range-stage.range-enter:not(.is-week) > .token-heatmap-wrap { animation: token-range-fade 260ms ease both; }
+@media (prefers-reduced-motion: reduce) {
+  body.apple-theme .token-range-stage.range-enter .token-week-bar,
+  body.apple-theme .token-range-stage.range-enter .token-week-legend,
+  body.apple-theme .token-range-stage.range-enter > .token-heatmap-wrap { animation: none; }
+  body.apple-theme .token-range::before { transition: none; }
+}

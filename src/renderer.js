@@ -49,6 +49,7 @@ const els = {
   quotaSource: document.getElementById('quotaSource'),
   usageUpdated: document.getElementById('usageUpdated'),
   meters: document.getElementById('meters'),
+  quotaDetailsToggle: document.getElementById('quotaDetailsToggle'),
   tokenUpdated: document.getElementById('tokenUpdated'),
   tokenActivity: document.getElementById('tokenActivity'),
   tokenRange: document.getElementById('tokenRange'),
@@ -88,12 +89,14 @@ function restoreDisclosures(root = document) {
     detail.dataset.detailOwner = currentProviderKey();
     detail.open = disclosureState.get(`${detail.dataset.detailOwner}:${detail.dataset.detail}`) || false;
   });
+  syncQuotaDetailsToggle();
 }
 
 document.addEventListener('toggle', (event) => {
   const detail = event.target;
   if (!detail.matches?.('details[data-detail]')) return;
   disclosureState.set(`${detail.dataset.detailOwner}:${detail.dataset.detail}`, detail.open);
+  if (detail.classList.contains('quota-activity')) syncQuotaDetailsToggle();
   hideChartTooltip();
   queuePanelHeightReport({ hold: 120 });
 }, true);
@@ -343,6 +346,8 @@ function selectTokenDay(cell) {
 // Token 活动的时间范围：30 天热力图（默认），或 7 天按模型分色的直方图。记在本机，下次打开沿用。
 const TOKEN_RANGE_STORAGE_KEY = 'cmm.tokenRange';
 let tokenRange = readTokenRange();
+// 只在用户点切换的那一次渲染里为真：7 天柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
+let tokenRangeEnter = false;
 
 function readTokenRange() {
   try {
@@ -363,7 +368,9 @@ function setTokenRange(range) {
   }
   activeTokenBar = null;
   hideChartTooltip();
+  tokenRangeEnter = true;
   if (currentState) renderVisibleContent(currentState, 'usage');
+  tokenRangeEnter = false;
   queuePanelHeightReport({ hold: 180 });
 }
 
@@ -378,6 +385,8 @@ function renderTokenRangeToggle() {
   if (!els.tokenRange) return;
   els.tokenRange.hidden = false;
   els.tokenRange.setAttribute('aria-label', T('tokenRangeAria'));
+  // 选中底块是容器的伪元素，按 data-range 滑到对应按钮下面（1.1.1）
+  els.tokenRange.dataset.range = tokenRange;
   const button = (key, label) => `<button type="button" class="trend-range-button${tokenRange === key ? ' active' : ''}" data-token-range="${key}" aria-pressed="${tokenRange === key}">${escapeHtml(label)}</button>`;
   updateHtml(els.tokenRange, `${button('week', T('tokenRangeWeek'))}${button('month', T('tokenRangeMonth'))}`);
 }
@@ -1458,7 +1467,7 @@ function quotaActivityTemplate(windowKey, activityWindow) {
   const tone = cacheHitTone(activityWindow.cachedInputTokens, activityWindow.inputTokens);
   const titleKey = windowKey === 'fiveHour' ? 'windowUsage5h' : 'windowUsageWeek';
   return `
-    <details class="quota-activity inline-details" data-detail="quota-${escapeHtml(windowKey)}">
+    <details class="quota-activity inline-details" data-detail="quota-activity">
       <summary title="${escapeHtml(T('quotaDetails'))}"><span>${escapeHtml(T('quotaDetails'))}</span></summary>
       <div class="disclosure-content">
       <div class="quota-activity-head">
@@ -1477,6 +1486,35 @@ function quotaActivityTemplate(windowKey, activityWindow) {
     </details>
   `;
 }
+
+// 5 小时卡和一周卡的明细共用标题行右侧这一个按钮（1.1.1）：一起展开、一起收起，
+// 免得只展开一张、并排的另一张空出一截。两张卡的明细用同一个 data-detail，展开状态也一起记。
+function quotaDetailsList() {
+  return [...els.meters.querySelectorAll('details.quota-activity')];
+}
+
+function syncQuotaDetailsToggle() {
+  const button = els.quotaDetailsToggle;
+  if (!button || !els.meters) return;
+  const details = quotaDetailsList();
+  const open = details.some((detail) => detail.open);
+  button.hidden = !details.length;
+  button.setAttribute('aria-expanded', String(open));
+  const label = T('quotaDetails');
+  if (button.title !== label) {
+    button.title = label;
+    button.setAttribute('aria-label', label);
+  }
+}
+
+els.quotaDetailsToggle?.addEventListener('click', () => {
+  const details = quotaDetailsList();
+  if (!details.length) return;
+  const open = !details.some((detail) => detail.open);
+  disclosureState.set(`${currentProviderKey()}:quota-activity`, open);
+  details.forEach((detail) => { detail.open = open; });
+  syncQuotaDetailsToggle();
+});
 
 // ---- Motion ----
 
@@ -1908,7 +1946,7 @@ function renderTokenActivity(tokenState) {
   const markup = `
     <section class="token-card">
       <div class="token-stats">${statsHtml}</div>
-      <div class="token-range-stage${weekView ? ' is-week' : ''}">
+      <div class="token-range-stage${weekView ? ' is-week' : ''}${tokenRangeEnter ? ' range-enter' : ''}">
         ${heatmapHtml}
         ${weekView ? tokenWeekChartHtml(rangeDays, selectedDay) : ''}
       </div>
@@ -1981,7 +2019,7 @@ function tokenWeekChartHtml(days, selectedDay) {
             data-threads="${escapeHtml(cellMetaText(day))}"
             aria-label="${escapeHtml(label)}"
           >
-            <span class="token-week-track"><span class="token-week-bar" style="height:${height.toFixed(1)}%">${segments.map((segment) => `<i class="token-week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
+            <span class="token-week-track"><span class="token-week-bar" style="height:${height.toFixed(1)}%;--i:${index}">${segments.map((segment) => `<i class="token-week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
             <span class="token-week-day">${escapeHtml(formatMonthDay(day.day))}</span>
           </span>`;
         }).join('')}

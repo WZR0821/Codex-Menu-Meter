@@ -59,12 +59,16 @@ app.whenReady().then(async () => {
   });
 
   await window.loadFile(path.join(__dirname, '..', 'src', 'index.html'));
-  await window.webContents.insertCSS(`
-    *, *::before, *::after {
-      animation: none !important;
-      transition: none !important;
-    }
-  `);
+  // 截图默认关掉所有动画，结果才稳定；CMM_QA_MOTION=1 保留动画，配合 CMM_QA_TOKEN_WAIT_MS 截动效中途的画面。
+  const keepMotion = process.env.CMM_QA_MOTION === '1';
+  if (!keepMotion) {
+    await window.webContents.insertCSS(`
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    `);
+  }
   await window.webContents.executeJavaScript(`document.querySelector('[data-tab="${tab === 'radar' ? 'radar' : 'usage'}"]').click()`);
   if (tab === 'radar' && ['intelligence', 'quota', 'reset'].includes(radarView)) {
     await window.webContents.executeJavaScript(`document.querySelector('[data-radar-view="${radarView}"]').click()`);
@@ -89,8 +93,20 @@ app.whenReady().then(async () => {
   // CMM_QA_TOKEN_RANGE=week|month：截图前把 Token 活动切到对应范围（按钮点击，和用户操作一样）。
   const tokenRange = ['week', 'month'].includes(process.env.CMM_QA_TOKEN_RANGE) ? process.env.CMM_QA_TOKEN_RANGE : '';
   if (tokenRange && tab !== 'radar') {
+    if (keepMotion) {
+      // 本机记着上次的范围，目标范围可能已经选中；先切到另一边，保证这次点击是一次真的切换、会播入场动效。
+      await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${tokenRange === 'week' ? 'month' : 'week'}"]')?.click()`);
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
     await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${tokenRange}"]')?.click()`);
-    await new Promise((resolve) => setTimeout(resolve, 360));
+    // 1.1.1 起切换带入场动效（柱子依次长出来，最长约 0.65 秒），等它播完再截；
+    // CMM_QA_TOKEN_WAIT_MS 可以改短，截动效播到一半的样子。
+    await new Promise((resolve) => setTimeout(resolve, Number(process.env.CMM_QA_TOKEN_WAIT_MS) || 900));
+  }
+  // CMM_QA_OPEN_QUOTA=1：截图前点额度标题行上的明细按钮，5 小时卡和一周卡一起展开。
+  if (process.env.CMM_QA_OPEN_QUOTA === '1' && tab !== 'radar') {
+    await window.webContents.executeJavaScript(`document.getElementById('quotaDetailsToggle')?.click()`);
+    await new Promise((resolve) => setTimeout(resolve, 400));
   }
   if (trendRange && tab !== 'radar') {
     await window.webContents.executeJavaScript(`(() => {

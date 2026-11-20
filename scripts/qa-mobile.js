@@ -108,7 +108,8 @@ app.whenReady().then(async () => {
   await capture('usage', { singleScreen: true });
   // 1.1.0：Token 活动切到 7 天直方图，也要一屏放完；点一根柱子看详情跟着换，再切回 30 天。
   await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="week"]').click()`);
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // 1.1.1 起切换带入场动效（柱子依次长出来，最长约 0.65 秒），等它播完再截
+  await new Promise((resolve) => setTimeout(resolve, 900));
   await capture('usage-week', { singleScreen: true });
   await window.webContents.executeJavaScript(`(() => {
     const cols = document.querySelectorAll('.week-col');
@@ -128,7 +129,7 @@ app.whenReady().then(async () => {
     document.querySelector('[data-token-range="month"]').click();
     window.scrollTo(0, 0);
   })()`);
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await new Promise((resolve) => setTimeout(resolve, 600));
   await window.webContents.executeJavaScript(`document.querySelector('[data-view="radar"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('radar');
@@ -186,16 +187,22 @@ app.whenReady().then(async () => {
     await capture('claude-usage-readout');
   }
   // 并进「一周」卡的 Fable：手机上没有悬停提示，它的重置时间在这张卡的明细里。
+  // 1.1.1：两张卡的明细由标题行上的一个按钮一起展开，按用户操作点这个按钮。
   const scopedReset = await window.webContents.executeJavaScript(`(() => {
-    const details = document.querySelector('details[data-detail="quota-week"]');
-    if (!details) return null;
-    details.open = true;
-    return [...details.querySelectorAll('.quota-activity-row span')].map((node) => node.textContent).join(' | ');
+    const toggle = document.getElementById('quotaDetailsToggle');
+    if (!toggle || toggle.hidden) return null;
+    toggle.click();
+    const cards = [...document.querySelectorAll('details.quota-activity')];
+    return JSON.stringify({
+      expanded: toggle.getAttribute('aria-expanded'),
+      open: cards.map((node) => node.open),
+      rows: cards.map((node) => [...node.querySelectorAll('.quota-activity-row span')].map((span) => span.textContent).join(' | '))
+    });
   })()`);
   console.log(`claude-week-detail: ${scopedReset}`);
   await new Promise((resolve) => setTimeout(resolve, 250));
   await capture('claude-week-detail');
-  await window.webContents.executeJavaScript(`document.querySelector('details[data-detail="quota-week"]').open = false`);
+  await window.webContents.executeJavaScript(`document.getElementById('quotaDetailsToggle').click()`);
   await new Promise((resolve) => setTimeout(resolve, 150));
   // Claude 的「一周」卡带着 Fable，两个平台都测，确认并进去以后卡片没有变高。
   window.setSize(375, 667);
