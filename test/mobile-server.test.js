@@ -226,6 +226,12 @@ test('mobile server requires the access token for state data', async (context) =
   assert.equal(paceScript.status, 200);
   assert.match(paceScript.headers.get('content-type'), /javascript/);
   assert.match(await paceScript.text(), /CMM_PACE/);
+  // 7 天直方图的计算也和桌面共用（1.1.0），同样要能单独加载、放在 mobile.js 之前。
+  assert.ok(pageText.indexOf('./token-week.js') > 0 && pageText.indexOf('./token-week.js') < pageText.indexOf('./mobile.js'));
+  const weekScript = await fetch(`${baseUrl}/mobile/token-week.js`);
+  assert.equal(weekScript.status, 200);
+  assert.match(weekScript.headers.get('content-type'), /javascript/);
+  assert.match(await weekScript.text(), /CMM_TOKEN_WEEK/);
 
   const installPage = await fetch(`${baseUrl}/mobile/?token=${token}`);
   assert.match(await installPage.text(), /manifest\.webmanifest\?token=/);

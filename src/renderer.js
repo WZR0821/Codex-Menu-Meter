@@ -51,6 +51,7 @@ const els = {
   meters: document.getElementById('meters'),
   tokenUpdated: document.getElementById('tokenUpdated'),
   tokenActivity: document.getElementById('tokenActivity'),
+  tokenRange: document.getElementById('tokenRange'),
   iqDate: document.getElementById('iqDate'),
   iqGrid: document.getElementById('iqGrid'),
   modelCatalogNotice: document.getElementById('modelCatalogNotice'),
@@ -277,8 +278,11 @@ els.openRadar.addEventListener('click', () => {
   window.codexMeter.openExternal(url);
 });
 
+// 30 天热力图的格子和 7 天直方图的柱子都是「某一天」：悬停出提示、点击选中这一天。
+const TOKEN_DAY_SELECTOR = '.token-heatmap-cell, .token-week-col';
+
 els.tokenActivity.addEventListener('mouseover', (event) => {
-  const cell = event.target.closest('.token-heatmap-cell');
+  const cell = event.target.closest(TOKEN_DAY_SELECTOR);
   if (!cell || !els.tokenActivity.contains(cell)) return;
   activeTokenBar = cell;
   showChartTooltip(cell, event);
@@ -293,7 +297,7 @@ els.tokenActivity.addEventListener('mouseout', (event) => {
   if (!activeTokenBar) return;
   const nextTarget = event.relatedTarget;
   if (nextTarget && activeTokenBar.contains(nextTarget)) return;
-  const nextCell = nextTarget?.closest?.('.token-heatmap-cell');
+  const nextCell = nextTarget?.closest?.(TOKEN_DAY_SELECTOR);
   if (nextCell && els.tokenActivity.contains(nextCell)) {
     activeTokenBar = nextCell;
     showChartTooltip(nextCell, event);
@@ -314,14 +318,14 @@ els.meters.addEventListener('click', (event) => {
 });
 
 els.tokenActivity.addEventListener('click', (event) => {
-  const cell = event.target.closest('.token-heatmap-cell');
+  const cell = event.target.closest(TOKEN_DAY_SELECTOR);
   if (!cell || !els.tokenActivity.contains(cell)) return;
   selectTokenDay(cell);
 });
 
 els.tokenActivity.addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
-  const cell = event.target.closest('.token-heatmap-cell');
+  const cell = event.target.closest(TOKEN_DAY_SELECTOR);
   if (!cell || !els.tokenActivity.contains(cell)) return;
   event.preventDefault();
   selectTokenDay(cell);
@@ -334,6 +338,48 @@ function selectTokenDay(cell) {
   hideChartTooltip();
   if (currentState) renderTokenActivity(activeSlices(currentState).activity);
   queuePanelHeightReport({ hold: 180 });
+}
+
+// Token 活动的时间范围：30 天热力图（默认），或 7 天按模型分色的直方图。记在本机，下次打开沿用。
+const TOKEN_RANGE_STORAGE_KEY = 'cmm.tokenRange';
+let tokenRange = readTokenRange();
+
+function readTokenRange() {
+  try {
+    return window.localStorage.getItem(TOKEN_RANGE_STORAGE_KEY) === 'week' ? 'week' : 'month';
+  } catch {
+    return 'month';
+  }
+}
+
+function setTokenRange(range) {
+  const next = range === 'week' ? 'week' : 'month';
+  if (next === tokenRange) return;
+  tokenRange = next;
+  try {
+    window.localStorage.setItem(TOKEN_RANGE_STORAGE_KEY, next);
+  } catch {
+    // 存储不可用时只在本次打开期间生效。
+  }
+  activeTokenBar = null;
+  hideChartTooltip();
+  if (currentState) renderVisibleContent(currentState, 'usage');
+  queuePanelHeightReport({ hold: 180 });
+}
+
+els.tokenRange?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-token-range]');
+  if (!button || !els.tokenRange.contains(button)) return;
+  event.preventDefault();
+  setTokenRange(button.dataset.tokenRange);
+});
+
+function renderTokenRangeToggle() {
+  if (!els.tokenRange) return;
+  els.tokenRange.hidden = false;
+  els.tokenRange.setAttribute('aria-label', T('tokenRangeAria'));
+  const button = (key, label) => `<button type="button" class="trend-range-button${tokenRange === key ? ' active' : ''}" data-token-range="${key}" aria-pressed="${tokenRange === key}">${escapeHtml(label)}</button>`;
+  updateHtml(els.tokenRange, `${button('week', T('tokenRangeWeek'))}${button('month', T('tokenRangeMonth'))}`);
 }
 
 els.panel.addEventListener('wheel', handlePanelWheel, { passive: true });
@@ -661,7 +707,7 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
     renderSection('meters', [slices.usage, slices.activity?.data?.windows, clockBucket, claudeReconnect], () => renderMeters(slices.usage, provider, slices.activity));
     const trendHistory = trendRange === 'week' ? stateValue.usageHistoryWeek?.[provider] : stateValue.usageHistory?.[provider];
     renderSection('trend', [slices.usage, trendRange, trendHistory, clockBucket], () => renderTrend(stateValue, slices.usage, provider));
-    if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, formatIsoDate(new Date())], () => renderTokenActivity(slices.activity));
+    if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, formatIsoDate(new Date()), tokenRange], () => renderTokenActivity(slices.activity));
     return;
   }
   if (!isExtra) {
@@ -678,6 +724,9 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
 // ---- 额度曲线 + 节奏 ----
 
 const PACE = window.CMM_PACE;
+// 7 天直方图的分组、分段和型号写法在 src/mobile/token-week.js，手机页共用同一份。
+const TOKEN_WEEK = window.CMM_TOKEN_WEEK;
+const TOKEN_WEEK_DAYS = TOKEN_WEEK.WEEK_DAYS;
 const TREND_W = 372;
 const TREND_H = 92;
 const TREND_PLOT = Object.freeze({ left: 34, right: 7, top: 11, bottom: 19 });
@@ -1186,8 +1235,8 @@ function renderMeters(usageState, provider, activityState) {
     }));
   }
   // 附加平台的额外窗口本身就是主要信息，保持整张卡。GPT / Claude 的专项周限额（例如 Fable）
-  // 是补充信息：只有一项时并进「一周」卡的底部，不占高度，GPT 与 Claude 的用量页因此同高、
-  // 切换时窗口尺寸不动；多于一项才在卡片下方逐行列出。
+  // 是补充信息：只有一项时并进「一周」卡、放在大数字右侧（1.1.0 起，手机页同样），不占高度，
+  // GPT 与 Claude 的用量页因此同高、切换时窗口尺寸不动；多于一项才在卡片下方逐行列出。
   const slimRows = [];
   (usage.extraWindows || []).forEach((windowValue) => {
     if (isExtra) {
@@ -1280,10 +1329,9 @@ function quotaCardTemplate(windowValue, label, {
   const windowMark = quotaWindowMark(activityWindowKey);
   const windowTitle = T('remainingTitle', { label });
   const paceClass = !critical && pace?.tier === 'serious' ? ' pace-serious' : '';
-  // 「一周」卡底部右侧放了专项限额时没有空位，节奏只靠进度条上的刻度和悬停说明。
-  const badge = scopedWindow ? '' : paceBadgeTemplate(pace);
+  const badge = paceBadgeTemplate(pace);
   return `
-    <article class="quota-card ${windowClass}${critical ? ' critical' : ''}${paceClass}" style="--quota-percent:${remaining}%;">
+    <article class="quota-card ${windowClass}${critical ? ' critical' : ''}${paceClass}${scopedWindow ? ' has-scoped' : ''}" style="--quota-percent:${remaining}%;">
       <div class="quota-card-top">
         <span class="quota-window-title" title="${escapeHtml(T('remainingTitle', { label }))}">
           <i class="quota-window-mark" aria-hidden="true">${escapeHtml(windowMark)}</i>
@@ -1291,14 +1339,14 @@ function quotaCardTemplate(windowValue, label, {
         </span>
       </div>
       <strong class="quota-remaining-value" data-quota-key="${escapeHtml(`${provider}:${label}`)}" data-quota-value="${remaining}">${remaining}%</strong>
+      ${scopedWindow ? quotaScopedStatTemplate(scopedWindow, provider) : ''}
       <div class="quota-progress" aria-hidden="true"${pace?.ready ? ` title="${escapeHtml(paceTickTip(pace))}"` : ''}>
         <i></i>
         ${paceTickTemplate(pace)}
+        ${scopedWindow ? quotaScopedLaneTemplate(scopedWindow, provider) : ''}
         <span class="quota-flare"></span>
       </div>
-      ${scopedWindow
-    ? `<small class="quota-foot-split"><span class="quota-foot-text" title="${escapeHtml(pace?.ready ? `${footer} · ${paceTickTip(pace)}` : footer)}">${escapeHtml(footer)}</span>${quotaScopedChipTemplate(scopedWindow, provider)}${quotaScopedBarTemplate(scopedWindow, provider)}</small>`
-    : `<small class="quota-foot${badge ? ' has-pace' : ''}"><span class="quota-foot-text">${escapeHtml(footer)}</span>${badge}</small>`}
+      <small class="quota-foot${badge ? ' has-pace' : ''}"><span class="quota-foot-text">${escapeHtml(footer)}</span>${badge}</small>
       ${quotaActivityTemplate(activityWindowKey, activityWindow)}
     </article>
   `;
@@ -1309,32 +1357,35 @@ function scopedWindowLabel(windowValue) {
   return name ? `${T('labelWeek')} · ${name}` : T('labelWeek');
 }
 
-// 「一周」卡底部右侧的专项限额：名称 + 剩余百分比；完整说明（含重置时间、节奏）放在悬停提示里。
-// 节奏偏快时名称前加一个状态图标，颜色只落在图标上。
-function quotaScopedChipTemplate(windowValue, provider = 'claude') {
+// 「一周」卡里的专项限额（1.1.0）：大数字右侧上面名称、下面剩余百分比，进度条下面多一道细条，
+// 都用曲线里同一种颜色。它自己的重置时间和节奏放在悬停提示里；节奏偏快时名称前加一个状态图标，颜色只落在图标上。
+function scopedWindowState(windowValue, provider) {
   const remaining = Number.isFinite(Number(windowValue.remainingPercent))
     ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
     : 0;
   const critical = !windowValue.inactive && remaining <= 10;
   const pace = windowValue.inactive ? null : windowPace(windowValue, paceKeyForWindow(null, windowValue), provider);
+  return { remaining, critical, pace };
+}
+
+function quotaScopedStatTemplate(windowValue, provider = 'claude') {
+  const { remaining, critical, pace } = scopedWindowState(windowValue, provider);
   const reset = windowValue.resetAt
     ? formatReset(windowValue.resetAt)
     : windowValue.inactive ? T('inactiveFooter') : T('noResetFooter');
-  const tipParts = [`${T('remainingTitle', { label: scopedWindowLabel(windowValue) })} ${remaining}%`, reset];
+  const title = `${T('remainingTitle', { label: scopedWindowLabel(windowValue) })} ${remaining}%`;
+  const tipParts = [title, reset];
   if (pace?.ready) tipParts.push(paceTickTip(pace));
   const tier = !critical && ['warning', 'serious'].includes(pace?.tier) ? pace.tier : '';
   const icon = tier ? `<i class="pace-icon tier-${tier}" aria-label="${escapeHtml(T('paceAheadShort'))}">▲</i>` : '';
-  return `<span class="quota-scoped-chip${critical ? ' critical' : ''}" title="${escapeHtml(tipParts.join(' · '))}">${icon}${escapeHtml(String(windowValue.name).trim())} <b>${remaining}%</b></span>`;
+  return `<span class="quota-scoped-stat${critical ? ' critical' : ''}" role="img" title="${escapeHtml(tipParts.join(' · '))}" aria-label="${escapeHtml(tipParts.join(' · '))}"><span class="quota-scoped-name">${icon}${escapeHtml(String(windowValue.name).trim())}</span><b>${remaining}%</b></span>`;
 }
 
-// 专项限额自己的细进度条：挂在底部文字下方、卡片的下内边距里，不改变卡片高度。
-function quotaScopedBarTemplate(windowValue, provider = 'claude') {
-  const remaining = Number.isFinite(Number(windowValue.remainingPercent))
-    ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
-    : 0;
-  const critical = !windowValue.inactive && remaining <= 10;
-  const pace = windowValue.inactive ? null : windowPace(windowValue, paceKeyForWindow(null, windowValue), provider);
-  return `<span class="quota-scoped-bar${critical ? ' critical' : ''}${!critical && pace?.tier === 'serious' ? ' pace-serious' : ''}" style="--scoped-percent:${remaining}%;" aria-hidden="true"><i></i>${paceTickTemplate(pace)}</span>`;
+// 进度条下面那一道：专项限额自己的剩余，和上面的一周共用一个圆角外框；匀速刻度只画在上面那道。
+function quotaScopedLaneTemplate(windowValue, provider = 'claude') {
+  const { remaining, critical, pace } = scopedWindowState(windowValue, provider);
+  const serious = !critical && pace?.tier === 'serious';
+  return `<span class="quota-scoped-lane${critical ? ' critical' : ''}${serious ? ' pace-serious' : ''}" style="--scoped-percent:${remaining}%;"><span class="quota-scoped-fill"></span></span>`;
 }
 
 // ---- 节奏刻度 ----
@@ -1758,22 +1809,28 @@ function renderTokenActivity(tokenState) {
     : '';
   els.tokenUpdated.title = activityNotice(activity);
   if (!activity) {
+    if (els.tokenRange) els.tokenRange.hidden = true;
     if (updateHtml(els.tokenActivity, emptyBlock(tokenState.error || T('noTokenData')))) hideChartTooltip();
     return;
   }
   if (activity.units !== 'tokens' || !isLocalActivitySource(activity.source)) {
+    if (els.tokenRange) els.tokenRange.hidden = true;
     if (updateHtml(els.tokenActivity, emptyBlock(T('noTokenData')))) hideChartTooltip();
     return;
   }
+  renderTokenRangeToggle();
 
   const heatmap = createTokenHeatmap(activity.days || []);
   const today = heatmap.today;
-  const windowDays = Number(activity.windowDays) || 30;
-  const totalIo = heatmap.days.reduce((sum, day) => sum + Number(day.ioTokens || 0), 0);
-  const totalTokens = heatmap.days.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
-  const totalInput = heatmap.days.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
-  const totalCachedInput = heatmap.days.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
-  const selectedDay = heatmap.days.find((day) => day.day === activeTokenDay) || today;
+  // 7 天视图取热力图的最后 7 天（截至今天），上面的合计、明细里的费用和缓存命中都按这一段算。
+  const weekView = tokenRange === 'week';
+  const rangeDays = weekView ? heatmap.days.slice(-TOKEN_WEEK_DAYS) : heatmap.days;
+  const windowDays = weekView ? TOKEN_WEEK_DAYS : Number(activity.windowDays) || 30;
+  const totalIo = rangeDays.reduce((sum, day) => sum + Number(day.ioTokens || 0), 0);
+  const totalTokens = rangeDays.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
+  const totalInput = rangeDays.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
+  const totalCachedInput = rangeDays.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
+  const selectedDay = rangeDays.find((day) => day.day === activeTokenDay) || today;
   const statsHtml = `
     <div>
       <span>${escapeHtml(T('todayUsed'))}</span>
@@ -1789,14 +1846,14 @@ function renderTokenActivity(tokenState) {
   const detailCache = T('cacheHitRate', {
     v: formatCacheHitRate(selectedDay.cachedInputTokens, selectedDay.inputTokens)
   });
-  const totalCost = heatmap.days.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
+  const totalCost = rangeDays.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
   const costLine = T('costLine', {
       today: formatCostUsd(today.costUsd),
       n: windowDays,
       total: formatCostUsd(totalCost)
     });
-  const unpricedTokens = heatmap.days.reduce((sum, day) => sum + Number(day.unpricedTokens || 0), 0);
-  const unpricedModels = [...new Set(heatmap.days.flatMap((day) => day.unpricedModels || []))];
+  const unpricedTokens = rangeDays.reduce((sum, day) => sum + Number(day.unpricedTokens || 0), 0);
+  const unpricedModels = [...new Set(rangeDays.flatMap((day) => day.unpricedModels || []))];
   const unpricedLine = unpricedTokens > 0
     ? T('costUnpriced', {
         v: formatTokenCount(unpricedTokens),
@@ -1804,10 +1861,10 @@ function renderTokenActivity(tokenState) {
       })
     : '';
 
-  const markup = `
-    <section class="token-card">
-      <div class="token-stats">${statsHtml}</div>
-      <div class="token-heatmap-wrap">
+  // 30 天格子区在 7 天视图里也照样排出来、只是藏起来（不可见、不可点、读屏跳过），
+  // 7 天图叠在同一格里、按它的高度排：切换时卡片和面板尺寸都不动。
+  const heatmapHtml = `
+      <div class="token-heatmap-wrap"${weekView ? ' inert aria-hidden="true"' : ''}>
         <div
           class="token-heatmap compact"
           style="--token-cols:${heatmap.columnCount}; --token-rows:${heatmap.rowCount}; --token-gap:${heatmap.gap}px;"
@@ -1846,6 +1903,15 @@ function renderTokenActivity(tokenState) {
           <span>${escapeHtml(T('heatmapMore'))}</span>
         </div>
       </div>
+  `;
+
+  const markup = `
+    <section class="token-card">
+      <div class="token-stats">${statsHtml}</div>
+      <div class="token-range-stage${weekView ? ' is-week' : ''}">
+        ${heatmapHtml}
+        ${weekView ? tokenWeekChartHtml(rangeDays, selectedDay) : ''}
+      </div>
       <details class="inline-details token-more" data-detail="token-metrics">
         <summary title="${escapeHtml(T('activityDetails'))}">
           <span class="token-detail"><strong>${escapeHtml(detailText)}</strong></span>
@@ -1870,6 +1936,58 @@ function renderTokenActivity(tokenState) {
     activeTokenBar = null;
     hideChartTooltip();
   }
+}
+
+function tokenWeekChartHtml(days, selectedDay) {
+  const series = TOKEN_WEEK.weekSeries(days);
+  const rows = days.map((day) => {
+    const segments = TOKEN_WEEK.weekSegments(day, series);
+    return { day, segments, total: segments.reduce((sum, segment) => sum + segment.value, 0) };
+  });
+  const heights = TOKEN_WEEK.barHeights(rows);
+  const legend = [
+    ...series.named.map((name, index) => ({ slot: index + 1, label: name === '?' ? T('modelUnknown') : formatModelName(name) })),
+    ...(series.hasOther ? [{ slot: 'other', label: T('modelGroupOther') }] : [])
+  ];
+  return `
+    <div class="token-week" role="group" aria-label="${escapeHtml(T('tokenWeekAria'))}">
+      <div class="token-week-legend">
+        ${legend.map((item) => `<span class="token-week-key" title="${escapeHtml(item.label)}"><i class="token-series-dot series-${item.slot}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span></span>`).join('')}
+      </div>
+      <div class="token-week-plot" style="--token-week-cols:${rows.length}">
+        ${rows.map(({ day, segments }, index) => {
+          const height = heights[index];
+          const models = (day.models || [])
+            .map((model) => ({
+              model: model?.model || '',
+              value: tokenModelValue(model),
+              slot: series.slots.get(String(model?.model || '')) || 'other'
+            }))
+            .filter((model) => model.model && model.value > 0);
+          const selected = day.day === selectedDay.day;
+          const label = `${day.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(day.tokens) })}`;
+          return `
+          <span
+            class="token-week-col${selected ? ' selected' : ''}"
+            tabindex="0"
+            role="button"
+            aria-pressed="${selected}"
+            data-day="${escapeHtml(day.day)}"
+            data-tokens="${escapeHtml(T('usedAmount', { v: formatTokenCount(day.tokens) }))}"
+            data-cost="${escapeHtml(cellSecondaryText(day))}"
+            data-cache="${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) }))}"
+            data-cache-tone="${cacheHitTone(day.cachedInputTokens, day.inputTokens)}"
+            data-models="${escapeHtml(JSON.stringify(models))}"
+            data-threads="${escapeHtml(cellMetaText(day))}"
+            aria-label="${escapeHtml(label)}"
+          >
+            <span class="token-week-track"><span class="token-week-bar" style="height:${height.toFixed(1)}%">${segments.map((segment) => `<i class="token-week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
+            <span class="token-week-day">${escapeHtml(formatMonthDay(day.day))}</span>
+          </span>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
 }
 
 // 单日详情里的项目拆分：横条长度是当天 token 占比，数值和费用写在右侧（文字不用序列色）。
@@ -2909,7 +3027,7 @@ function tokenModelTooltip(serializedModels) {
     const share = total > 0 ? `${((value / total) * 100).toFixed(value / total >= 0.1 ? 0 : 1)}%` : '-';
     return `
       <span class="chart-tooltip-model-row">
-        <i class="chart-tooltip-model-dot tone-${index % 5}" aria-hidden="true"></i>
+        <i class="chart-tooltip-model-dot ${model?.slot !== undefined ? `series-${escapeHtml(String(model.slot))}` : `tone-${index % 5}`}" aria-hidden="true"></i>
         <em>${escapeHtml(formatModelName(model?.model || '-'))}</em>
         <small>${escapeHtml(share)}</small>
         <b>${escapeHtml(formatTokenCount(value))}</b>
@@ -3065,16 +3183,9 @@ function cellMetaText(day) {
   return models ? `${sessions} · ${models}` : sessions;
 }
 
+// gpt-6.2-sol → GPT-6.2 Sol、claude-opus-5-5 → Opus 5.5，和雷达页的型号写法一致（规则在 token-week.js）。
 function formatModelName(value) {
-  const raw = String(value || '').replace(/-(\d{8})$/, '');
-  const claudeMatch = raw.match(/^claude-([a-z]+)-(\d+(?:-\d+)*)$/i);
-  if (claudeMatch) {
-    const family = claudeMatch[1];
-    const version = claudeMatch[2].split('-').join('.');
-    return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${version}`;
-  }
-  if (/^gpt-/i.test(raw)) return raw.replace(/^gpt/i, 'GPT');
-  return raw.replace(/^claude-/i, '');
+  return TOKEN_WEEK.formatModelName(value);
 }
 
 function clamp(value, min, max) {

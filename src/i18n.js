@@ -88,6 +88,10 @@
     heatmapLess: ['少', 'Less', '少'],
     heatmapMore: ['多', 'More', '多'],
     heatmapAria: ['每日用量热力图', 'Daily usage heatmap', '日次使用量ヒートマップ'],
+    tokenRangeAria: ['Token 活动时间范围', 'Token activity range', 'トークン活動の期間'],
+    tokenRangeWeek: ['7 天', '7d', '7日'],
+    tokenRangeMonth: ['30 天', '30d', '30日'],
+    tokenWeekAria: ['近 7 天每日用量，按模型分色', 'Daily usage for the last 7 days, colored by model', '直近7日の日別使用量（モデル別に色分け）'],
     noticeLocal: [
       '统计自 {dir} 本地会话记录',
       'Computed from local session logs in {dir}',

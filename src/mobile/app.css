@@ -970,6 +970,68 @@ footer span + span::before { margin-right: 6px; content: "·"; }
 }
 /* 专项周限额（Fable 等）和曲线、桌面面板同色：同一个限额在各处是同一种颜色 */
 .quota-slim-row { --quota-accent: var(--series-scoped); --quota-ink: var(--series-scoped-text); }
+/* 1.1.0：只有一项时并进「一周」卡，和桌面同样子——大数字右侧上面名称、下面剩余；
+   进度条分上下两道（一周 / 专项），共用一个圆角外框，中间 1px 缝露出卡片底色。
+   两道加外边距的总高和普通卡一样，卡片高度不变，两张卡仍然对齐。 */
+.quota-scoped-stat {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-self: flex-end;
+  align-items: flex-end;
+  margin-left: auto;
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+.quota-scoped-name { display: inline-flex; align-items: center; color: var(--label-2); font-size: 12px; font-weight: 500; line-height: 14px; }
+.quota-scoped-name .pace-icon { margin-right: 3px; vertical-align: 0; }
+.quota-scoped-stat b {
+  color: var(--series-scoped-text);
+  font-family: var(--rounded);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 20px;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.quota-scoped-stat.critical b { color: var(--red-text); }
+.quota-card.has-scoped .quota-progress {
+  height: 10px;
+  margin-top: 4px;
+  background:
+    linear-gradient(var(--fill), var(--fill)) top / 100% 6px no-repeat,
+    linear-gradient(var(--fill), var(--fill)) bottom / 100% 3px no-repeat;
+  border-radius: 3px;
+}
+.quota-card.has-scoped .quota-progress > i { height: 6px; border-radius: 3px 999px 999px 0; }
+.quota-card.has-scoped .pace-tick { bottom: 4px; }
+.quota-scoped-lane { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; overflow: hidden; pointer-events: none; }
+.quota-scoped-fill {
+  display: block;
+  width: var(--scoped, 0%);
+  height: 100%;
+  background: var(--series-scoped);
+  border-radius: 0 999px 999px 3px;
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.quota-scoped-lane.critical .quota-scoped-fill { background: var(--red); }
+.quota-scoped-lane.pace-serious .quota-scoped-fill { background: var(--status-serious); }
+@media (max-height: 720px) {
+  .quota-card.has-scoped .quota-progress {
+    height: 9px;
+    margin-top: 2px;
+    background-size: 100% 5px, 100% 3px;
+  }
+  .quota-card.has-scoped .quota-progress > i { height: 5px; }
+  /* 大数字随屏高变小，右侧这一块也跟着收，免得把这一行撑高 */
+  .quota-scoped-stat { margin-bottom: 2px; }
+  .quota-scoped-name { font-size: 11px; line-height: 13px; }
+  .quota-scoped-stat b { font-size: 16px; line-height: 18px; }
+}
+@media (max-height: 600px) {
+  .quota-scoped-stat { margin-bottom: 1px; }
+  .quota-scoped-stat b { font-size: 15px; line-height: 17px; }
+}
 .section-head > span.stale { color: var(--orange-text); }
 
 .quota-progress,
@@ -1112,4 +1174,145 @@ body.service-alert[data-view="usage"] footer { display: none; }
     --series-scoped: #c84bd0;
     --series-scoped-text: #e07ae6;
   }
+}
+
+/* ---- 1.1.0：Token 活动 7 天 / 30 天切换和 7 天直方图 ----
+   和桌面面板同一套样子（src/apple.css 同名一节）：30 天格子是正方形；7 天图是图例 + 柱区 + 日期，
+   柱宽 24px、左右各收 20px、柱顶 4px 圆角、段间 2px 空隙；模型分类色也是同一套，深色模式各取一档。
+   7 天图和 30 天格子区叠在同一格、一样高，切换时卡片尺寸不动；各档屏高下也就和 30 天一样能一屏放完。 */
+:root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-other: #c7c7cc;
+}
+.series-1 { --series-color: var(--series-1); }
+.series-2 { --series-color: var(--series-2); }
+.series-3 { --series-color: var(--series-3); }
+.series-other { --series-color: var(--series-other); }
+
+/* 30 天格子：行高跟着列宽走，每格正方形（和桌面一致） */
+.heat-cell { height: auto; aspect-ratio: 1 / 1; }
+
+.token-heading > #tokenUpdated { flex: 0 1 auto; min-width: 0; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 按钮比标题字高，用负边距让它不撑高标题行 */
+.token-range {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  margin: -4px 0;
+  padding: 2px;
+  background: var(--fill);
+  border-radius: 8px;
+}
+.token-range-button {
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--label);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+/* 选中与否字重一样，切换时按钮宽度不跳 */
+.token-range-button.active { background: var(--card); box-shadow: var(--thumb-shadow); }
+
+/* 两种视图叠在同一格：格子区始终参与排版（7 天时只是藏起来），7 天图撑满这一格，
+   所以两种视图一样高，切换时卡片尺寸不动，各档屏高也不用另配柱区高度。 */
+.token-stage { display: grid; margin-top: 12px; }
+.token-stage > * { grid-area: 1 / 1; min-width: 0; min-height: 0; }
+.token-stage > .heatmap { margin-top: 0; }
+.token-stage.is-week > .heatmap { visibility: hidden; }
+.week-chart { display: flex; flex-direction: column; overflow: hidden; }
+.week-legend {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 15px;
+  margin-bottom: 5px;
+  overflow: hidden;
+  color: var(--label-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.week-key { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.week-key > span { overflow: hidden; text-overflow: ellipsis; }
+.series-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--series-color); }
+.week-plot {
+  display: grid;
+  flex: 1 1 0;
+  min-height: 0;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  column-gap: 4px;
+  /* 七根柱子往中间收一点；基线铺满整卡宽，紧贴柱子底部（日期 13px + 间隙 5px 之上） */
+  padding: 0 20px;
+  background: linear-gradient(var(--separator), var(--separator)) left 0 bottom 17px / 100% 1px no-repeat;
+}
+.week-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+}
+/* 柱区高度跟着这一格走，柱子按百分比从基线往上长；选中的那天只把日期加粗，柱子背后不铺底色 */
+.week-track {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+}
+.week-bar {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  /* 柱宽和柱间空隙差不多 */
+  width: min(24px, 60%);
+  min-height: 0;
+}
+.week-seg { display: block; flex: 1 1 0; min-height: 2px; background: var(--series-color); }
+/* 只有柱顶那一段圆角，底部贴着基线 */
+.week-seg:last-child { border-radius: 4px 4px 0 0; }
+.week-day {
+  display: block;
+  flex: none;
+  overflow: hidden;
+  color: var(--label-3);
+  font-size: 10.5px;
+  line-height: 13px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.week-col.active .week-day { color: var(--label); font-weight: 600; }
+
+.week-models { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
+.week-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
+.week-models span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.week-models em { color: var(--label-3); font-style: normal; }
+.week-models b { color: var(--label); font-weight: 600; }
+
+@media (max-height: 600px) {
+  /* 和 30 天格子原来在这一档的上边距一样 */
+  .token-stage { margin-top: 9px; }
+}
+@media (max-width: 350px) {
+  /* 320 宽时七列太挤：柱区两侧少收一点、柱间空隙小 1px，日期才放得下「11/15」 */
+  .week-plot { padding: 0 6px; column-gap: 3px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-other: #636366;
+  }
+  .token-range-button.active { background: var(--thumb); }
 }

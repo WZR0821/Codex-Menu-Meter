@@ -521,65 +521,78 @@ body.apple-theme.light-theme .model-usage-summary strong { color: var(--a-label)
 body.apple-theme.light-theme .model-usage-share { background: var(--a-fill); }
 body.apple-theme.light-theme .model-usage-share i { background: var(--accent); }
 
-/* 热力图：铺满卡片宽度的日历网格 */
+/* 热力图：铺满卡片宽度的日历网格；1.1.0 起每格是正方形（行高跟着列宽走） */
 body.apple-theme .token-heatmap.compact {
   grid-template-columns: repeat(var(--token-cols, 10), minmax(0, 1fr));
-  grid-template-rows: repeat(var(--token-rows, 3), 20px);
+  grid-template-rows: repeat(var(--token-rows, 3), auto);
   gap: 4px;
   justify-content: stretch;
   align-items: stretch;
 }
-body.apple-theme .token-heatmap.compact .token-heatmap-cell { width: auto; height: auto; font-size: 11px; }
+body.apple-theme .token-heatmap.compact .token-heatmap-cell { width: auto; height: auto; aspect-ratio: 1 / 1; font-size: 11px; }
 body.apple-theme.light-theme .quota-card > small { font-weight: 400; }
 
-/* ---- 专项周限额只有一项时：并进「一周」卡底部右侧，不占高度 ---- */
-body.apple-theme.light-theme .quota-card > small.quota-foot-split {
+/* ---- 专项周限额只有一项时（1.1.0）：并进「一周」卡 ----
+   大数字右侧放专项限额的名称和剩余；进度条分上下两道，上面是一周、下面是专项，共用一个圆角外框，
+   中间 1px 缝露出卡片底色。两道加外边距的总高和普通卡一样，GPT 与 Claude 的用量页仍然同高。 */
+body.apple-theme.light-theme .quota-card.has-scoped > .quota-remaining-value { grid-column: 1; }
+body.apple-theme .quota-scoped-stat {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  justify-self: end;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-end;
   min-width: 0;
-}
-body.apple-theme .quota-foot-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-bottom: 2px;
   white-space: nowrap;
 }
-body.apple-theme .quota-scoped-chip {
-  flex: none;
-  white-space: nowrap;
+body.apple-theme .quota-scoped-name {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 13px;
   color: var(--a-label-2);
 }
-body.apple-theme .quota-scoped-chip b {
+body.apple-theme .quota-scoped-stat b {
   font-family: var(--a-rounded);
+  font-size: 17px;
   font-weight: 700;
-  color: var(--a-blue-text);
+  line-height: 19px;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
-body.apple-theme .quota-scoped-chip.critical b { color: var(--a-red-text); }
-/* 专项限额的细进度条：相对底部文字行定位，落在卡片下内边距里，卡片高度不变 */
-body.apple-theme.light-theme .quota-card > small.quota-foot-split { position: relative; }
-body.apple-theme .quota-scoped-bar {
+body.apple-theme .quota-scoped-stat.critical b { color: var(--a-red-text); }
+body.apple-theme.light-theme .quota-card.has-scoped > .quota-progress {
+  height: 9px;
+  margin-top: 2px;
+  background:
+    linear-gradient(var(--a-fill), var(--a-fill)) top / 100% 5px no-repeat,
+    linear-gradient(var(--a-fill), var(--a-fill)) bottom / 100% 3px no-repeat;
+  border-radius: 3px;
+}
+body.apple-theme.light-theme .panel[data-provider] .quota-card.has-scoped > .quota-progress > i { height: 5px; border-radius: 3px 999px 999px 0; }
+body.apple-theme .quota-card.has-scoped .quota-pace-tick { bottom: 4px; }
+body.apple-theme .quota-scoped-lane {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(100% + 4px);
+  bottom: 0;
   height: 3px;
   overflow: hidden;
-  background: var(--a-fill);
-  border-radius: 999px;
+  pointer-events: none;
 }
-body.apple-theme .quota-scoped-bar i {
+body.apple-theme .quota-scoped-fill {
   display: block;
   width: var(--scoped-percent, 0%);
   height: 100%;
-  background: var(--a-blue);
-  border-radius: 999px;
+  border-radius: 0 999px 999px 3px;
   transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-body.apple-theme .quota-scoped-bar.critical i { background: var(--a-red); }
-/* 展开「使用明细」时，分隔线要离专项限额的细条远一点；两张卡一起加，分隔线才对得齐。 */
-body.apple-theme.light-theme .quota-cards:has(.quota-scoped-bar) .quota-activity[open] { margin-top: 14px; }
+body.apple-theme .quota-scoped-lane.critical .quota-scoped-fill { background: var(--a-red); }
+body.apple-theme .quota-scoped-lane.pace-serious .quota-scoped-fill { background: var(--a-status-serious); }
 
 /* ---- 专项周限额（例如 Fable）：额度卡下方的单行 ---- */
 body.apple-theme .quota-slim-rows {
@@ -895,7 +908,6 @@ body.apple-theme .quota-slim-bar { position: relative; }
 /* 节奏明显偏快：填充改成橙色，大数字不变（数字是剩余，颜色只提示节奏）。 */
 body.apple-theme.light-theme .panel[data-provider] .quota-card.pace-serious { --quota-accent: var(--a-status-serious); }
 body.apple-theme .quota-slim-row.pace-serious { --quota-accent: var(--a-status-serious); }
-body.apple-theme .quota-scoped-bar.pace-serious i { background: var(--a-status-serious); }
 body.apple-theme.light-theme .quota-card > small.quota-foot {
   display: flex;
   align-items: baseline;
@@ -906,8 +918,8 @@ body.apple-theme.light-theme .quota-card > small.quota-foot {
 body.apple-theme .quota-foot > .quota-foot-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.apple-theme .pace-badge { flex: none; font-style: normal; white-space: nowrap; color: var(--a-label-2); }
 /* 专项周限额（Fable 等）跟曲线里同色，同一个限额在面板各处是同一种颜色。 */
-body.apple-theme .quota-scoped-chip b { color: var(--a-series-scoped-text); }
-body.apple-theme .quota-scoped-bar i { background: var(--a-series-scoped); }
+body.apple-theme .quota-scoped-stat b { color: var(--a-series-scoped-text); }
+body.apple-theme .quota-scoped-fill { background: var(--a-series-scoped); }
 
 /* ---- 数据过期 / 官方状态 ---- */
 body.apple-theme.light-theme .section-head .subtle.stale { color: var(--a-orange-text); }
@@ -1016,3 +1028,128 @@ html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider][
 html[data-appearance="dark"] body.apple-theme.light-theme .panel[data-provider] :is(.radar-subtab.active, .radar-sort-button.active),
 html[data-appearance="dark"] body.apple-theme .trend-range-button.active { background: var(--a-thumb); }
 html[data-appearance="dark"] body.apple-theme.light-theme .provider-option.active[data-provider] { color: var(--accent-thumb-text, var(--a-label)); }
+
+/* ---- Token 活动：7 天 / 30 天切换和 7 天直方图（1.1.0） ---- */
+/* 模型配色用 dataviz 校验器过检的前三个分类色，加一档中性灰作「其他」：
+   浅色卡片 #ffffff 上相邻色盲 ΔE ≥ 9.2、正常视力 ΔE ≥ 21.7；深色卡片 #2c2c2e 上 ≥ 9.4 / 17.8。
+   青绿和灰在浅色下对比度不足 3:1，靠图例文字和悬停提示补足。 */
+body.apple-theme {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-other: #c7c7cc;
+}
+html[data-appearance="dark"] body.apple-theme {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-other: #636366;
+}
+.series-1 { --series-color: var(--series-1); }
+.series-2 { --series-color: var(--series-2); }
+.series-3 { --series-color: var(--series-3); }
+.series-other { --series-color: var(--series-other); }
+.chart-tooltip-model-dot:is(.series-1, .series-2, .series-3, .series-other) { background: var(--series-color); }
+
+body.apple-theme .token-head > #tokenUpdated { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 切换按钮比标题文字高，用负边距让它不撑高标题行：30 天视图要和加按钮之前一样高 */
+body.apple-theme .token-head > .token-range { align-self: center; margin: -3px 0; }
+body.apple-theme .token-range .trend-range-button { line-height: 16px; }
+/* 选中与否字重一样，切换时按钮宽度不跳 */
+body.apple-theme .token-range .trend-range-button,
+body.apple-theme .token-range .trend-range-button.active { font-weight: 500; }
+body.apple-theme .token-range[hidden] { display: none; }
+
+/* 两种视图叠在同一格：格子区始终参与排版（7 天时只是藏起来），7 天图撑满这一格，
+   所以两种视图一样高，切换时卡片和面板尺寸都不动。 */
+body.apple-theme .token-range-stage { display: grid; margin-top: 8px; }
+body.apple-theme .token-range-stage > * { grid-area: 1 / 1; min-width: 0; min-height: 0; }
+body.apple-theme .token-range-stage > .token-heatmap-wrap { margin-top: 0; }
+body.apple-theme .token-range-stage.is-week > .token-heatmap-wrap { visibility: hidden; }
+body.apple-theme .token-week { display: flex; flex-direction: column; overflow: hidden; }
+body.apple-theme .token-week-legend {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 15px;
+  margin-bottom: 5px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--a-label-2);
+}
+body.apple-theme .token-week-key { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+body.apple-theme .token-week-key > span { overflow: hidden; text-overflow: ellipsis; }
+body.apple-theme .token-series-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--series-color);
+}
+body.apple-theme .token-week-plot {
+  display: grid;
+  flex: 1 1 0;
+  min-height: 0;
+  grid-template-columns: repeat(var(--token-week-cols, 7), minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  column-gap: 4px;
+  /* 七根柱子往中间收一点，不贴卡片两边 */
+  padding: 0 20px;
+  /* 基线紧贴柱子底部（日期 13px + 间隙 5px 之上），左右贯通（背景铺到内边距，所以仍是整卡宽） */
+  background: linear-gradient(var(--a-separator), var(--a-separator)) left 0 bottom 17px / 100% 1px no-repeat;
+}
+body.apple-theme .token-week-col {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  min-width: 0;
+  min-height: 0;
+  outline: none;
+  cursor: default;
+}
+/* 柱区高度跟着这一格走，柱子按百分比从基线往上长；选中的那天只把日期加粗，柱子背后不铺底色 */
+body.apple-theme .token-week-track {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  border-radius: 6px 6px 0 0;
+}
+body.apple-theme .token-week-col:hover .token-week-track { background: var(--a-fill); }
+body.apple-theme .token-week-col:focus-visible .token-week-track { box-shadow: inset 0 0 0 2px var(--a-blue); }
+body.apple-theme .token-week-bar {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  /* 柱宽和柱间空隙差不多（约 24px 对 21px） */
+  width: min(24px, 60%);
+  min-height: 0;
+}
+body.apple-theme .token-week-seg {
+  display: block;
+  flex: 1 1 0;
+  /* 占比很小的模型也留 2px，不至于和段间空隙混成一条细线 */
+  min-height: 2px;
+  background: var(--series-color);
+}
+/* 只有柱顶那一段圆角，底部贴着基线 */
+body.apple-theme .token-week-seg:last-child { border-radius: 4px 4px 0 0; }
+body.apple-theme .token-week-day {
+  display: block;
+  flex: none;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  line-height: 13px;
+  color: var(--a-label-3);
+  font-variant-numeric: tabular-nums;
+}
+body.apple-theme .token-week-col.selected .token-week-day { color: var(--a-label); font-weight: 600; }

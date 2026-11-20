@@ -14,7 +14,7 @@ app.whenReady().then(async () => {
   if (state.radar?.data?.modelIq?.items?.[0]) {
     state.radar.data.modelIq.items[0].modelLabel = 'GPT-5.6-Sol-Codex Extended';
   }
-  // Claude 的专项周限额（Fable）会在两张额度卡下面多占一行，单屏检查要把它算进去。
+  // Claude 的专项周限额（Fable）：1.1.0 起并进「一周」卡，截图要能看到它，单屏检查也要带上它。
   const claudeUsage = state.claudeUsage?.data;
   if (claudeUsage && !claudeUsage.extraWindows?.length) {
     claudeUsage.planType = claudeUsage.planType || 'Max 5x';
@@ -106,6 +106,29 @@ app.whenReady().then(async () => {
   };
 
   await capture('usage', { singleScreen: true });
+  // 1.1.0：Token 活动切到 7 天直方图，也要一屏放完；点一根柱子看详情跟着换，再切回 30 天。
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="week"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-week', { singleScreen: true });
+  await window.webContents.executeJavaScript(`(() => {
+    const cols = document.querySelectorAll('.week-col');
+    cols[cols.length - 3]?.click();
+    const more = document.querySelector('.token-more');
+    if (more) more.open = true;
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-week-detail');
+  // 详情的展开状态是在 toggle 事件里记下的（异步），先收起、等它记完再切回 30 天，否则切换后会按「展开」恢复。
+  await window.webContents.executeJavaScript(`(() => {
+    const more = document.querySelector('.token-more');
+    if (more) more.open = false;
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  await window.webContents.executeJavaScript(`(() => {
+    document.querySelector('[data-token-range="month"]').click();
+    window.scrollTo(0, 0);
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
   await window.webContents.executeJavaScript(`document.querySelector('[data-view="radar"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('radar');
@@ -162,13 +185,34 @@ app.whenReady().then(async () => {
     console.log(`readout: ${readout}`);
     await capture('claude-usage-readout');
   }
-  // Claude 用量页多一行 Fable，是三种屏高里最容易超出一屏的情形，所以两个平台都测。
+  // 并进「一周」卡的 Fable：手机上没有悬停提示，它的重置时间在这张卡的明细里。
+  const scopedReset = await window.webContents.executeJavaScript(`(() => {
+    const details = document.querySelector('details[data-detail="quota-week"]');
+    if (!details) return null;
+    details.open = true;
+    return [...details.querySelectorAll('.quota-activity-row span')].map((node) => node.textContent).join(' | ');
+  })()`);
+  console.log(`claude-week-detail: ${scopedReset}`);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await capture('claude-week-detail');
+  await window.webContents.executeJavaScript(`document.querySelector('details[data-detail="quota-week"]').open = false`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Claude 的「一周」卡带着 Fable，两个平台都测，确认并进去以后卡片没有变高。
   window.setSize(375, 667);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('claude-usage-compact', { singleScreen: true });
   window.setSize(320, 568);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('claude-usage-narrow', { singleScreen: true });
+  // 7 天直方图比 30 天格子高，Claude 又带着 Fable，是最容易超出一屏的组合。
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="week"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('claude-usage-week-narrow', { singleScreen: true });
+  window.setSize(375, 667);
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  await capture('claude-usage-week-compact', { singleScreen: true });
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="month"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
   await window.webContents.executeJavaScript(`document.querySelector('[data-provider="codex"]').click()`);
   window.setSize(375, 667);
   await new Promise((resolve) => setTimeout(resolve, 450));
@@ -176,6 +220,16 @@ app.whenReady().then(async () => {
   window.setSize(320, 568);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('usage-narrow', { singleScreen: true });
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="week"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-week-narrow', { singleScreen: true });
+  window.setSize(375, 667);
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  await capture('usage-week-compact', { singleScreen: true });
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="month"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  window.setSize(320, 568);
+  await new Promise((resolve) => setTimeout(resolve, 450));
   await window.webContents.executeJavaScript(`document.querySelector('[data-view="radar"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('radar-narrow');

@@ -86,6 +86,12 @@ app.whenReady().then(async () => {
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+  // CMM_QA_TOKEN_RANGE=week|month：截图前把 Token 活动切到对应范围（按钮点击，和用户操作一样）。
+  const tokenRange = ['week', 'month'].includes(process.env.CMM_QA_TOKEN_RANGE) ? process.env.CMM_QA_TOKEN_RANGE : '';
+  if (tokenRange && tab !== 'radar') {
+    await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${tokenRange}"]')?.click()`);
+    await new Promise((resolve) => setTimeout(resolve, 360));
+  }
   if (trendRange && tab !== 'radar') {
     await window.webContents.executeJavaScript(`(() => {
       const detail = document.querySelector('details[data-detail="usage-trend"]');
@@ -163,6 +169,20 @@ app.whenReady().then(async () => {
       const left = rect.left + rect.width * (34 / 372);
       const right = rect.right - rect.width * (7 / 372);
       return { x: Math.round(left + (right - left) * ${hoverRatio}), y: Math.round(rect.top + rect.height * 0.5) };
+    })()`);
+    if (point) {
+      window.webContents.sendInputEvent({ type: 'mouseEnter', x: point.x, y: point.y });
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  // CMM_QA_TOKEN_HOVER=0–6：7 天视图下把指针放到第几根柱子上，截悬停提示。
+  const tokenHover = Number(process.env.CMM_QA_TOKEN_HOVER);
+  if (tokenRange === 'week' && process.env.CMM_QA_TOKEN_HOVER !== undefined && Number.isInteger(tokenHover)) {
+    const point = await window.webContents.executeJavaScript(`(() => {
+      const col = document.querySelectorAll('.token-week-col')[${tokenHover}];
+      const rect = col?.querySelector('.token-week-track')?.getBoundingClientRect();
+      return rect ? { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.bottom - 8) } : null;
     })()`);
     if (point) {
       window.webContents.sendInputEvent({ type: 'mouseEnter', x: point.x, y: point.y });
