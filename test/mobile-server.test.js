@@ -71,7 +71,13 @@ function sampleState() {
         sourceUrl: 'https://codexradar.com/',
         modelIq: {
           updatedAt: '2026-07-23T10:00:00Z',
-          items: [{ label: 'GPT-5.6', score: 101, status: 'green' }]
+          scoreMode: 'codex-four-weighted-150-v2',
+          roundTestedAt: '2026-11-19T14:27:52.091213+00:00',
+          items: [{
+            label: 'GPT-5.6', score: 101, status: 'green',
+            totalCostUsd: 0.36, totalTaskSeconds: 411.9,
+            taskScores: [{ key: 'combined', points: 40.8, max: 60, secret: 'must-not-leak' }]
+          }]
         },
         quotaRadar: { rows: [{ tier: 'Plus', five_h: 12, seven_d: 30 }] }
       }
@@ -89,6 +95,9 @@ test('mobile payload includes display data and excludes credential-shaped fields
   assert.equal(payload.providers.codex.activity.data.days[0].cachedInputTokens, 40);
   assert.equal(payload.providers.codex.activity.data.windows.fiveHour.tokens, 60);
   assert.equal(payload.providers.codex.radar.data.modelIq.items[0].score, 101);
+  assert.equal(payload.providers.codex.radar.data.modelIq.roundTestedAt, '2026-11-19T14:27:52.091213+00:00');
+  assert.deepEqual(payload.providers.codex.radar.data.modelIq.items[0].taskScores, [{ key: 'combined', points: 40.8, max: 60 }]);
+  assert.equal(payload.providers.codex.radar.data.modelIq.items[0].totalTaskSeconds, 411.9);
   assert.equal(payload.providers.codex.usage.data.resetCredits.credits[0].title, 'Reset credit');
   const serialized = JSON.stringify(payload);
   assert.equal(serialized.includes('must-not-leak'), false);

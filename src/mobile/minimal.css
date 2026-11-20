@@ -66,6 +66,7 @@ body {
 .source-details .radar-data-notice { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; line-height: 1.6; }
 .radar-brief-status { margin-top: 8px; color: #d8bd83; font-size: 11px; line-height: 1.5; }
 .radar-brief-status[hidden] { display: none; }
+.radar-degradation[hidden] { display: none; }
 
 body .radar-intelligence-summary {
   display: grid;

@@ -2224,16 +2224,21 @@ function renderIq(radarState, provider) {
         radar.modelIq.latestDate,
         radar.quotaRadar.updatedAt
       );
-  if (els.iqDate) els.iqDate.textContent = updatedLabel
-    ? T(radar.modelIq?.timestampBasis === 'read' ? 'radarReadAt' : 'lastUpdated', { t: updatedLabel }) : '';
+  // 四题分榜只有读取时间，和顶栏的「已更新」重复，就不在标题旁再写一遍。
+  if (els.iqDate) els.iqDate.textContent = updatedLabel && radar.modelIq?.timestampBasis !== 'read'
+    ? T('lastUpdated', { t: updatedLabel }) : '';
   renderIqCards(provider === 'claude' ? radar.items || [] : radar.modelIq.items || [], provider);
   const updatedAt = provider === 'claude' ? radar.iqUpdatedAt || radar.updatedAt
     : radar.modelIq.updatedAt || radar.modelIq.latestDate;
   const timestamp = Date.parse(updatedAt);
   const notices = [];
+  const fourMode = isCodexFourMode(radar.modelIq);
   if (radar.modelIq?.scoreMode === 'radar-bench-v2-150') {
     notices.push(T('radarBenchNotice'));
     if (radar.modelIq.partial) notices.push(T('radarPartialRead', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }));
+  } else if (fourMode) {
+    notices.push(T('radarFourNotice', { date: formatRadarRoundDate(radar.modelIq.roundTestedAt) }));
+    if (radar.modelIq.partial) notices.push(T('radarFourPartial', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }));
   }
   if (radarState.error) notices.push(radarState.error);
   if (Number.isFinite(timestamp) && Date.now() - timestamp > 72 * 3600_000) {
@@ -2245,12 +2250,24 @@ function renderIq(radarState, provider) {
   }
   els.radarDataNotice.textContent = notices.join(' ');
   els.radarDataNotice.hidden = !notices.length;
-  els.radarDataNotice.classList.toggle('info', radar.modelIq?.scoreMode === 'radar-bench-v2-150' && !radarState.error);
+  els.radarDataNotice.classList.toggle('info', (radar.modelIq?.scoreMode === 'radar-bench-v2-150' || fourMode) && !radarState.error);
   const stale = Number.isFinite(timestamp) && Date.now() - timestamp > 72 * 3600_000;
   const partial = radar.modelIq?.partial;
   els.radarBriefStatus.hidden = !radarState.error && !stale && !partial;
   els.radarBriefStatus.textContent = radarState.error || stale ? T('radarAttention')
-    : partial ? T('radarPartialShort', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }) : '';
+    : partial ? T(fourMode ? 'radarFourPartialShort' : 'radarPartialShort', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }) : '';
+}
+
+// 四题众测分榜（scoreMode 形如 codex-four-weighted-150-v2）。
+function isCodexFourMode(modelIq) {
+  return typeof modelIq?.scoreMode === 'string' && modelIq.scoreMode.startsWith('codex-four');
+}
+
+function formatRadarRoundDate(value) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    ? new Intl.DateTimeFormat(lang, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(timestamp)
+    : '--';
 }
 
 // 雷达停更时用官方状态页补位：逐个列出相关组件的状态，颜色只在小圆点上，文字说明状态。
@@ -2343,6 +2360,12 @@ function renderIqCards(allItems, provider = currentProviderKey()) {
   }
 }
 
+// 按原站显示精度（两位小数）比较 IQ：四题分榜常有多档并列满分，浮点误差不该拆开它们。
+function radarScoreKey(item) {
+  const score = radarScore(item);
+  return score === null ? null : Math.round(score * 100) / 100;
+}
+
 function sortRadarItems(items, sort) {
   return items.slice().sort((left, right) => {
     if (sort === 'value') {
@@ -2353,8 +2376,11 @@ function sortRadarItems(items, sort) {
       if (speedOrder !== 0) return speedOrder;
     }
 
-    const iqOrder = compareRadarNumbers(radarScore(left), radarScore(right));
+    const iqOrder = compareRadarNumbers(radarScoreKey(left), radarScoreKey(right));
     if (iqOrder !== 0) return iqOrder;
+    // 同分时便宜的在前，推荐模型也就落在同分里最省钱的那一档。
+    const costOrder = compareRadarNumbers(radarAverageCost(left), radarAverageCost(right), { ascending: true });
+    if (costOrder !== 0) return costOrder;
     return String(left.modelLabel || left.label || '').localeCompare(String(right.modelLabel || right.label || ''), 'en', { sensitivity: 'base' });
   });
 }
@@ -2445,13 +2471,43 @@ function radarModelCardTemplate(item) {
         <dl class="detail-metrics">
           ${detailMetric(T('iqMetricCost'), radarMetricText(formatAverageCost(item)))}
           ${detailMetric(T('iqMetricTime'), radarMetricText(formatAverageTime(item)))}
-          ${detailMetric(T(item.sampleBasis === 'graded' ? 'iqColumnGradedSamples' : 'iqColumnSamples'), radarMetricText(formatSampleCount(item)))}
-          ${detailMetric(T('metricCoverage'), formatPassedRatio(item))}
+          ${radarTaskMetrics(item)}
         </dl>
         ${item.costBasis === 'official_standard_api_equivalent' ? `<p class="detail-note">${escapeHtml(T('radarCostEvidence', { n: item.costKnownSamples ?? '-', total: item.costTotalSamples ?? '-' }))}</p>` : ''}
       </div>
     </details>
   `;
+}
+
+const RADAR_TASK_LABELS = {
+  combined: 'iqTaskCombined',
+  pompeii: 'iqTaskPompeii',
+  pelican: 'iqTaskPelican',
+  candy: 'iqTaskCandy'
+};
+
+// 四题众测：详情里换成每题的加权得分（如 秦始皇 40.8/60），不认识的题目不显示；
+// 其他数据源仍显示题次和测评覆盖。
+function radarTaskMetrics(item) {
+  const tasks = Array.isArray(item?.taskScores)
+    ? item.taskScores.filter((task) => RADAR_TASK_LABELS[task?.key])
+    : [];
+  if (!tasks.length) {
+    return `${detailMetric(T(item.sampleBasis === 'graded' ? 'iqColumnGradedSamples' : 'iqColumnSamples'), radarMetricText(formatSampleCount(item)))}
+          ${detailMetric(T('metricCoverage'), formatPassedRatio(item))}`;
+  }
+  return tasks.map((task) => detailMetric(T(RADAR_TASK_LABELS[task.key]), formatTaskPoints(task))).join('');
+}
+
+function trimDecimal(value) {
+  return String(Number(Number(value).toFixed(1)));
+}
+
+function formatTaskPoints(task) {
+  const points = Number(task?.points);
+  const max = Number(task?.max);
+  if (task?.points === null || task?.points === undefined || !Number.isFinite(points)) return T('metricPending');
+  return Number.isFinite(max) && max > 0 ? `${trimDecimal(points)}/${trimDecimal(max)}` : trimDecimal(points);
 }
 
 function formatPassedRatio(item) {
@@ -2487,6 +2543,8 @@ function renderRadarSummary(items, provider) {
 
   const signal = radarDegradationSignal(items);
   if (els.iqDegradeAlert) {
+    // 没有任何档位带历史分数时只会一直显示「样本积累中」，整行收起。
+    els.iqDegradeAlert.hidden = signal.level === 'neutral';
     els.iqDegradeAlert.classList.toggle('warning', signal.level === 'warning');
     els.iqDegradeAlert.classList.toggle('watch', signal.level === 'watch');
   }

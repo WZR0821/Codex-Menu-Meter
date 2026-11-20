@@ -50,7 +50,7 @@ Codex Menu Meter 是一款 macOS 菜单栏小工具：查看 GPT（Codex）与 C
 - **Codex Token 活动**：离线统计 `~/.codex/sessions` 与 `~/.codex/archived_sessions` 里的 `token_count` 事件（覆盖 CLI / VS Code / 桌面版），排除子代理日志中继承的父任务历史。
 - **Claude 用量**：读取 Claude Code CLI 的登录凭证（钥匙串 `Claude Code-credentials` 或 `~/.claude/.credentials.json`），请求 `api.anthropic.com/api/oauth/usage`。令牌临近过期或返回 401 时刷新一次，并把新令牌写回原来的凭证来源。官方请求失败时保留上一次结果并显示错误，不用本地记录推算额度。
 - **Claude Token 活动**：离线统计 `~/.claude/projects` 近 30 天的会话记录。
-- **雷达**：`codexradar.com/current.json` 与 `claudecoderadar.com/data/claude-code-radar.json`，界面保留来源标注。
+- **雷达**：Codex 智力页读 `codexradar.com/data/codex-four-task-results.json`（四题众测正式分榜，满分 150），额度页读 `codexradar.com/current.json`；Claude 读 `claudecoderadar.com/data/claude-code-radar.json`。界面保留来源标注。
 - **Kimi Code**：`api.kimi.com/coding/v1/usages`（Coding Plan 专用 Key）。
 - **GLM Coding Plan**：`open.bigmodel.cn/api/monitor/usage/quota/limit`（国际站 `api.z.ai` 同路径，自动探测）。
 - **Qwen Coding Plan**：官方暂无额度查询接口，开启后只显示说明。

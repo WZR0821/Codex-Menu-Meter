@@ -109,6 +109,24 @@ app.whenReady().then(async () => {
   await window.webContents.executeJavaScript(`document.querySelector('[data-view="radar"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await capture('radar');
+  // 展开第一张模型卡截一张，核对详情里的指标；截完收起，免得影响后面的截图。
+  const openedModel = await window.webContents.executeJavaScript(`(() => {
+    const detail = document.querySelector('#iqList details.model-detail');
+    if (!detail) return false;
+    detail.querySelector('summary').click();
+    detail.scrollIntoView({ block: 'start' });
+    return true;
+  })()`);
+  if (openedModel) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await capture('radar-model-open');
+    await window.webContents.executeJavaScript(`(() => {
+      const detail = document.querySelector('#iqList details.model-detail');
+      if (detail?.open) detail.querySelector('summary').click();
+      window.scrollTo(0, 0);
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
   await window.webContents.executeJavaScript(`document.querySelector('[data-radar-view="quota"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 350));
   await capture('radar-quota');

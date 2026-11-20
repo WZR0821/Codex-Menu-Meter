@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
 const { readModelCatalog, mergeCatalogItems, latestFamilyItem, compareModelVersions } = require('./model-catalog');
-const { createRadarBenchReader } = require('./radar-bench');
+const { createCodexFourReader } = require('./codex-four-results');
 const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
@@ -1601,7 +1601,7 @@ async function getCodexRequestHeaders() {
 }
 
 async function fetchJson(url, options = {}) {
-  const { requestTimeoutMs = REQUEST_TIMEOUT_MS, ...requestOptions } = options;
+  const { requestTimeoutMs = REQUEST_TIMEOUT_MS, allowNotModified = false, onResponse, ...requestOptions } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
@@ -1616,6 +1616,9 @@ async function fetchJson(url, options = {}) {
         ...(options.headers || {})
       }
     });
+    onResponse?.(response);
+    // 只有调用方带了 If-None-Match 才会收到 304，这时返回 null，由调用方沿用上次的内容。
+    if (allowNotModified && response.status === 304) return null;
     const text = await response.text();
     if (!response.ok) {
       const error = new Error(`HTTP ${response.status}`);
@@ -1729,32 +1732,30 @@ function normalizeWindow(windowValue) {
   };
 }
 
-const readRadarBench = createRadarBenchReader(fetchJson);
+const readCodexFourResults = createCodexFourReader(fetchJson);
 
 function refreshRadar() {
   return refreshStateSlice('codex-radar', 'radar', async () => {
     const previous = state.radar.data;
-    const createData = (modelIq) => ({
+    // 旧 current.json 仅保留额度参考；IQ 改读原站首页的四题众测正式分榜
+    // （原来的 RadarBench 打分接口 2026-11 起在原站自己的页面上也是 502）。
+    const quotaRead = fetchJson(RADAR_URL, { headers: { Referer: RADAR_HOME } })
+      .then((raw) => raw?.model_iq?.quota_radar).catch(() => null);
+    const modelIq = await readCodexFourResults();
+    const normalized = {
       sourceUrl: RADAR_HOME, monitoredAt: modelIq.updatedAt,
       modelIq: { ...modelIq, items: mergeCatalogItems(modelIq.items, codexModelCatalog) },
       quotaRadar: previous?.quotaRadar || { updatedAt: null, rows: [] }
-    });
-    // 旧 current.json 仅保留额度参考；IQ 使用网页当前公开的 RadarBench 接口。
-    const quotaRead = fetchJson(RADAR_URL, { headers: { Referer: RADAR_HOME } })
-      .then((raw) => raw?.model_iq?.quota_radar).catch(() => null);
-    const modelIq = await readRadarBench({
-      previous: previous?.modelIq,
-      onProgress: (partial) => {
-        state.radar = { ...state.radar, data: createData(partial) };
-        sendState();
-      }
-    });
-    const normalized = createData(modelIq);
+    };
     const quota = await quotaRead;
     if (Array.isArray(quota?.rows)) normalized.quotaRadar = { updatedAt: quota.updated_at || null, rows: quota.rows };
     await cacheRadarData('codex', normalized);
     return normalized;
-  }, { formatError: (error) => requestErrorMessage(error, 'Codex Radar') });
+  }, {
+    formatError: (error) => error?.code === 'radar-format-changed'
+      ? tr('errRadarFormatChanged')
+      : requestErrorMessage(error, 'Codex Radar')
+  });
 }
 
 // 仅保存公开雷达快照；短暂断网或上游停供时保留最后一次有效测评，不包含登录凭据。

@@ -121,7 +121,10 @@ Codex/Claude 本机凭证与会话文件
 - 额度接口：
   - `https://chatgpt.com/backend-api/wham/usage`
   - `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`
-- 雷达：`https://codexradar.com/current.json`
+- 雷达：
+  - 智力页：`https://codexradar.com/data/codex-four-task-results.json`（`src/codex-four-results.js`；四题都判完才有总分，带 ETag，原站 304 回应不带 ETag，读取器只在 200 时更新）
+  - 额度页：`https://codexradar.com/current.json`
+  - 2026-11-20 前智力页读的 RadarBench（`radar-bench-binding.json` + `/api/radar-bench-score`）在原站返回 502，已停用，`src/radar-bench.js` 已删
 - Token：
   - `~/.codex/sessions`
   - `~/.codex/archived_sessions`

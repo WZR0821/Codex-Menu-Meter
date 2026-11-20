@@ -78,6 +78,14 @@ app.whenReady().then(async () => {
     await window.webContents.executeJavaScript(`document.querySelector('[data-radar-view="${radarView}"]')?.click()`);
     await window.webContents.executeJavaScript(`new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   }
+  // CMM_QA_OPEN_MODEL=1：雷达智力页截图前展开第一张模型卡，用来核对详情里的指标。
+  if (tab === 'radar' && radarView === 'intelligence' && process.env.CMM_QA_OPEN_MODEL === '1') {
+    await window.webContents.executeJavaScript(`(() => {
+      const detail = document.querySelector('#iqGrid details.model-detail');
+      if (detail && !detail.open) detail.querySelector('summary').click();
+    })()`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
   if (trendRange && tab !== 'radar') {
     await window.webContents.executeJavaScript(`(() => {
       const detail = document.querySelector('details[data-detail="usage-trend"]');

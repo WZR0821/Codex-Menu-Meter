@@ -199,6 +199,14 @@ function sanitizeIqItem(item) {
     costTotalSamples: safeNumber(item?.costTotalSamples),
     costBasis: item?.costBasis ? String(item.costBasis) : null,
     costPartial: Boolean(item?.costPartial),
+    // 四题众测：四题合计费用、耗时和每题加权得分。
+    totalCostUsd: safeNumber(item?.totalCostUsd),
+    totalTaskSeconds: safeNumber(item?.totalTaskSeconds),
+    taskScores: Array.isArray(item?.taskScores) ? item.taskScores.slice(0, 8).map((task) => ({
+      key: String(task?.key || '').slice(0, 24),
+      points: safeNumber(task?.points),
+      max: safeNumber(task?.max)
+    })).filter((task) => task.key) : [],
     recentScores: Array.isArray(item?.recentScores) ? item.recentScores.slice(-32).map((sample) => ({
       date: sample?.date ? String(sample.date) : null,
       score: safeNumber(sample?.score)
@@ -251,6 +259,7 @@ function sanitizeRadarSlice(slice, provider) {
       receivedCount: safeNumber(data.modelIq.receivedCount),
       updatedAt: data.modelIq.updatedAt ? String(data.modelIq.updatedAt) : null,
       latestDate: data.modelIq.latestDate ? String(data.modelIq.latestDate) : null,
+      roundTestedAt: data.modelIq.roundTestedAt ? String(data.modelIq.roundTestedAt) : null,
       items: Array.isArray(data.modelIq.items) ? data.modelIq.items.slice(0, 96).map(sanitizeIqItem) : []
     } : null,
     quotaRadar: data.quotaRadar ? {

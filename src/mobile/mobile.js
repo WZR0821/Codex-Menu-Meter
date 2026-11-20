@@ -58,6 +58,13 @@ const TEXT = {
     quotaDetails: '使用明细',
     metricCoverage: '测评覆盖',
     radarAttention: '数据需留意 · 展开数据说明查看',
+    radarFourNotice: '原站四题众测正式分榜，{date} 批次，满分 150（秦始皇 60、庞贝 45、鹈鹕 22.5、糖果 22.5）。费用和耗时是每题平均，费用按 API 价格估算，不是订阅实扣。',
+    radarFourPartial: '本批次 {n}/{total} 个档位四题已判完，其余缺题，暂不计总分。',
+    radarFourPartialShort: '已判完 {n}/{total} 个档位',
+    iqTaskCombined: '秦始皇',
+    iqTaskPompeii: '庞贝',
+    iqTaskPelican: '鹈鹕',
+    iqTaskCandy: '糖果',
     radarPartialShort: '已读取 {n}/{total} 个档位',
     radarCoverage: '覆盖 {n}/{total} 题',
     radarReadAt: '读取 {t}',
@@ -239,6 +246,13 @@ const TEXT = {
     quotaDetails: 'Usage details',
     metricCoverage: 'Coverage',
     radarAttention: 'Data needs attention · expand data notes',
+    radarFourNotice: 'Codex Radar four-task leaderboard, {date} round, out of 150 (Qin Shi Huang 60, Pompeii 45, Pelican 22.5, Candy 22.5). Cost and time are per-task averages; costs are API-equivalent estimates, not subscription charges.',
+    radarFourPartial: '{n}/{total} selections have all four tasks graded; the rest have no total yet.',
+    radarFourPartialShort: '{n}/{total} selections graded',
+    iqTaskCombined: 'Qin Shi Huang',
+    iqTaskPompeii: 'Pompeii',
+    iqTaskPelican: 'Pelican',
+    iqTaskCandy: 'Candy',
     radarPartialShort: '{n}/{total} selections loaded',
     radarCoverage: '{n}/{total} tasks covered',
     radarReadAt: 'Read {t}',
@@ -419,6 +433,13 @@ const TEXT = {
     quotaDetails: '使用内訳',
     metricCoverage: '測定範囲',
     radarAttention: 'データに注意・詳細をご確認ください',
+    radarFourNotice: '原サイトの4問テスト正式ランキング（{date}実施、150点満点：始皇帝60・ポンペイ45・ペリカン22.5・キャンディ22.5）。費用と時間は1問あたりの平均で、費用はAPI換算の推定です（実際のサブスク課金ではありません）。',
+    radarFourPartial: '{n}/{total}設定は4問とも採点済み。残りは未採点の問題があり、合計点はまだありません。',
+    radarFourPartialShort: '{n}/{total}設定を採点済み',
+    iqTaskCombined: '始皇帝',
+    iqTaskPompeii: 'ポンペイ',
+    iqTaskPelican: 'ペリカン',
+    iqTaskCandy: 'キャンディ',
     radarPartialShort: '{n}/{total} 段階を取得済み',
     radarCoverage: '{n}/{total}問をカバー',
     radarReadAt: '取得 {t}',
@@ -1568,9 +1589,13 @@ function renderRadar(radarSlice, usageSlice, activitySlice) {
     renderSection('iq', [radarSlice, radarSortByProvider[provider], radarExpandedByProvider[provider], radarLatestByProvider[provider]], () => renderIqCards(items, radarSlice));
     const timestamp = Date.parse(updatedAt);
     const notices = [];
+    const fourMode = isCodexFourMode(radar?.modelIq);
     if (radar?.modelIq?.scoreMode === 'radar-bench-v2-150') {
       notices.push(T('radarBenchNotice'));
       if (radar.modelIq.partial) notices.push(T('radarPartialRead', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }));
+    } else if (fourMode) {
+      notices.push(T('radarFourNotice', { date: formatRadarRoundDate(radar.modelIq.roundTestedAt) }));
+      if (radar.modelIq.partial) notices.push(T('radarFourPartial', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }));
     }
     if (radar && radarSlice?.error) notices.push(radarSlice.error);
     if (Number.isFinite(timestamp) && Date.now() - timestamp > 72 * 3600_000) {
@@ -1579,12 +1604,12 @@ function renderRadar(radarSlice, usageSlice, activitySlice) {
     if (radarLatestByProvider[provider] && !items.some((item) => item.isLatest && item.isCurrentGeneration && radarScore(item) !== null)) notices.push(T('radarLatestPending'));
     els.radarDataNotice.textContent = notices.join(' ');
     els.radarDataNotice.hidden = !notices.length;
-    els.radarDataNotice.classList.toggle('info', radar?.modelIq?.scoreMode === 'radar-bench-v2-150' && !radarSlice?.error);
+    els.radarDataNotice.classList.toggle('info', (radar?.modelIq?.scoreMode === 'radar-bench-v2-150' || fourMode) && !radarSlice?.error);
     const stale = Number.isFinite(timestamp) && Date.now() - timestamp > 72 * 3600_000;
     const partial = radar?.modelIq?.partial;
     els.radarBriefStatus.hidden = !radarSlice?.error && !stale && !partial;
     els.radarBriefStatus.textContent = radarSlice?.error || stale ? T('radarAttention')
-      : partial ? T('radarPartialShort', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }) : '';
+      : partial ? T(fourMode ? 'radarFourPartialShort' : 'radarPartialShort', { n: radar.modelIq.receivedCount, total: radar.modelIq.requestedCount }) : '';
   } else if (activeRadarView === 'quota') {
     renderSection('quota', [radarSlice, activitySlice?.data], () => {
       renderModelUsage(radar, activitySlice);
@@ -1594,6 +1619,42 @@ function renderRadar(radarSlice, usageSlice, activitySlice) {
     renderSection('reset', [usageSlice, radarSlice], () => renderResetCards(usageSlice, radar, provider));
   }
   syncRadarView();
+}
+
+// 四题众测分榜（scoreMode 形如 codex-four-weighted-150-v2），和桌面面板同一套判断。
+function isCodexFourMode(modelIq) {
+  return typeof modelIq?.scoreMode === 'string' && modelIq.scoreMode.startsWith('codex-four');
+}
+
+function formatRadarRoundDate(value) {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp)
+    ? new Intl.DateTimeFormat(lang, { year: 'numeric', month: '2-digit', day: '2-digit' }).format(timestamp)
+    : '--';
+}
+
+const RADAR_TASK_LABELS = {
+  combined: 'iqTaskCombined',
+  pompeii: 'iqTaskPompeii',
+  pelican: 'iqTaskPelican',
+  candy: 'iqTaskCandy'
+};
+
+function radarTaskScores(item) {
+  return Array.isArray(item?.taskScores)
+    ? item.taskScores.filter((task) => RADAR_TASK_LABELS[task?.key])
+    : [];
+}
+
+function trimDecimal(value) {
+  return String(Number(Number(value).toFixed(1)));
+}
+
+function formatTaskPoints(task) {
+  const points = Number(task?.points);
+  const max = Number(task?.max);
+  if (task?.points === null || task?.points === undefined || !Number.isFinite(points)) return T('metricPending');
+  return Number.isFinite(max) && max > 0 ? `${trimDecimal(points)}/${trimDecimal(max)}` : trimDecimal(points);
 }
 
 function radarItemsForProvider(radar) {
@@ -1658,6 +1719,12 @@ function renderIqCards(allItems, radarSlice = null) {
   els.expandModels.setAttribute('aria-expanded', String(expanded));
 }
 
+// 按原站显示精度（两位小数）比较 IQ：四题分榜常有多档并列满分，浮点误差不该拆开它们。
+function radarScoreKey(item) {
+  const score = radarScore(item);
+  return score === null ? null : Math.round(score * 100) / 100;
+}
+
 function sortRadarItems(items, sort) {
   return items.slice().sort((left, right) => {
     if (sort === 'value') {
@@ -1667,8 +1734,11 @@ function sortRadarItems(items, sort) {
       const speedOrder = compareRadarNumbers(radarAverageSeconds(left), radarAverageSeconds(right), true);
       if (speedOrder !== 0) return speedOrder;
     }
-    const iqOrder = compareRadarNumbers(radarScore(left), radarScore(right));
+    const iqOrder = compareRadarNumbers(radarScoreKey(left), radarScoreKey(right));
     if (iqOrder !== 0) return iqOrder;
+    // 同分时便宜的在前，推荐模型也就落在同分里最省钱的那一档。
+    const costOrder = compareRadarNumbers(radarAverageCost(left), radarAverageCost(right), true);
+    if (costOrder !== 0) return costOrder;
     return String(left.modelLabel || left.label || '').localeCompare(String(right.modelLabel || right.label || ''), 'en', { sensitivity: 'base' });
   });
 }
@@ -1743,11 +1813,16 @@ function mobileIqTemplate(item) {
   const status = item.status || 'unknown';
   const modelName = item.modelLabel || item.label || 'Model';
   const reasoning = item.reasoningEffort ? String(item.reasoningEffort).toUpperCase() : T('metricPending');
+  const tasks = radarTaskScores(item);
   const metrics = [
     [T('iqMetricCost'), formatAverageCost(item), item.costBasis === 'official_standard_api_equivalent' ? T('radarCostEvidence', { n: item.costKnownSamples ?? '-', total: item.costTotalSamples ?? '-' }) : ''],
     [T('iqMetricTime'), formatAverageTime(item)],
-    [T(item.sampleBasis === 'graded' ? 'iqMetricGraded' : 'iqMetricSamples'), formatSampleCount(item)],
-    [T('metricCoverage'), formatPassedRatio(item)]
+    ...(tasks.length
+      ? tasks.map((task) => [T(RADAR_TASK_LABELS[task.key]), formatTaskPoints(task)])
+      : [
+          [T(item.sampleBasis === 'graded' ? 'iqMetricGraded' : 'iqMetricSamples'), formatSampleCount(item)],
+          [T('metricCoverage'), formatPassedRatio(item)]
+        ])
   ];
   return `
     <details class="model-detail inline-details ${escapeHtml(status)}" data-detail="model:${escapeHtml(`${item.modelId || modelName}:${item.reasoningEffort || ''}`)}">
@@ -1821,6 +1896,8 @@ function renderRadarSummary(items) {
     : T('recommendedWaiting');
 
   const signal = radarDegradationSignal(items);
+  // 没有任何档位带历史分数时只会一直显示「样本积累中」，整行收起。
+  els.iqDegradeAlert.hidden = signal.level === 'neutral';
   els.iqDegradeAlert.classList.toggle('warning', signal.level === 'warning');
   els.iqDegradeAlert.classList.toggle('watch', signal.level === 'watch');
   els.iqDegradeValue.textContent = signal.message;
