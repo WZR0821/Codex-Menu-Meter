@@ -9,6 +9,14 @@ const els = {
   notificationsEnabled: document.getElementById('notificationsEnabled'),
   alertThresholds: document.getElementById('alertThresholds'),
   paceAlertsEnabled: document.getElementById('paceAlertsEnabled'),
+  creditExpiryAlerts: document.getElementById('creditExpiryAlerts'),
+  weeklyResetReminder: document.getElementById('weeklyResetReminder'),
+  updateCheckEnabled: document.getElementById('updateCheckEnabled'),
+  updateStatus: document.getElementById('updateStatus'),
+  updateAction: document.getElementById('updateAction'),
+  priceAutoUpdate: document.getElementById('priceAutoUpdate'),
+  priceStatus: document.getElementById('priceStatus'),
+  copyDiagnostics: document.getElementById('copyDiagnostics'),
   webhookUrl: document.getElementById('webhookUrl'),
   webhookHint: document.getElementById('webhookHint'),
   testWebhook: document.getElementById('testWebhook'),
@@ -54,6 +62,7 @@ const els = {
 const providerEls = Object.fromEntries(PROVIDERS.OPTIONAL_PROVIDER_IDS.map((id) => [id, {
   enabled: document.getElementById(`${id}Enabled`),
   key: document.getElementById(`${id}Key`),
+  keyClear: document.getElementById(`${id}KeyClear`),
   keyRow: document.getElementById(`${id}KeyRow`)
 }]));
 
@@ -75,6 +84,12 @@ els.autoSwitchProvider.addEventListener('change', () => updateSetting({ autoSwit
 els.notificationsEnabled.addEventListener('change', () => updateSetting({ notificationsEnabled: els.notificationsEnabled.checked }));
 els.alertThresholds.addEventListener('change', () => updateSetting({ alertThresholds: els.alertThresholds.value }));
 els.paceAlertsEnabled.addEventListener('change', () => updateSetting({ paceAlertsEnabled: els.paceAlertsEnabled.checked }));
+els.creditExpiryAlerts.addEventListener('change', () => updateSetting({ creditExpiryAlerts: els.creditExpiryAlerts.checked }));
+els.weeklyResetReminder.addEventListener('change', () => updateSetting({ weeklyResetReminder: els.weeklyResetReminder.checked }));
+els.updateCheckEnabled.addEventListener('change', () => updateSetting({ updateCheckEnabled: els.updateCheckEnabled.checked }));
+els.priceAutoUpdate.addEventListener('change', () => updateSetting({ priceAutoUpdate: els.priceAutoUpdate.checked }));
+els.updateAction.addEventListener('click', handleUpdateAction);
+els.copyDiagnostics.addEventListener('click', () => runAction('diagnosticsCopied', () => window.codexMeter.copyDiagnostics()));
 els.webhookUrl.addEventListener('change', () => updateSetting({ webhookUrl: els.webhookUrl.value.trim() }));
 els.testWebhook.addEventListener('click', testWebhook);
 els.appearance.addEventListener('change', () => updateSetting({ appearance: els.appearance.value }));
@@ -86,7 +101,55 @@ els.cloudSyncServerUrl.addEventListener('change', handleCloudSyncServerChange);
 for (const id of PROVIDERS.OPTIONAL_PROVIDER_IDS) {
   const controls = providerEls[id];
   controls.enabled?.addEventListener('change', () => updateProvider(id, { enabled: controls.enabled.checked }));
-  controls.key?.addEventListener('change', () => updateProvider(id, { apiKey: controls.key.value.trim() }));
+  // 密钥单独走钥匙串：输入框不回显已存的密钥，留空表示不改，清除用旁边的按钮。
+  controls.key?.addEventListener('change', () => {
+    const value = controls.key.value.trim();
+    if (value) saveProviderKey(id, value);
+  });
+  controls.keyClear?.addEventListener('click', () => saveProviderKey(id, ''));
+}
+
+async function saveProviderKey(id, value) {
+  els.saveState.textContent = T('saving');
+  const result = await window.codexMeter.setProviderKey(id, value);
+  if (result?.settings) render(result.settings);
+  const controls = providerEls[id];
+  if (controls.key && result?.ok) controls.key.value = '';
+  els.saveState.textContent = result?.ok ? T('synced') : (result?.error || T('errKeychainWrite'));
+}
+
+async function handleUpdateAction() {
+  if (currentSettings?.update?.available) {
+    await window.codexMeter.openUpdate();
+    return;
+  }
+  els.updateAction.disabled = true;
+  try {
+    currentSettings = await window.codexMeter.checkUpdate();
+    render(currentSettings);
+  } finally {
+    els.updateAction.disabled = false;
+  }
+}
+
+function renderUpdates(settings) {
+  const update = settings.update || {};
+  let status;
+  if (update.status === 'checking') status = T('updateChecking');
+  else if (update.available) status = T('updateAvailable', { version: update.latest.version, current: update.current });
+  else if (update.status === 'error' && update.error) status = T('updateFailed', { error: update.error });
+  else if (update.latest && update.enabled) status = T('updateCurrent', { version: update.current });
+  else status = T('updateUnknown', { version: update.current || appVersion });
+  els.updateStatus.textContent = status;
+  els.updateAction.textContent = update.available ? T('updateOpen') : T('updateCheckNow');
+  els.updateAction.disabled = update.status === 'checking';
+
+  const prices = settings.priceTable || {};
+  let priceText = prices.source === 'litellm'
+    ? T('priceSourceLitellm', { date: prices.asOf, count: prices.models })
+    : T('priceSourceBuiltin', { date: prices.asOf || '--' });
+  if (prices.enabled && prices.error) priceText += ` · ${T('priceSourceError', { error: prices.error })}`;
+  els.priceStatus.textContent = priceText;
 }
 
 function updateProvider(id, patch) {
@@ -132,6 +195,10 @@ function render(settings) {
   els.notificationsEnabled.checked = Boolean(settings.notificationsEnabled);
   els.alertThresholds.value = settings.alertThresholds || '20,5';
   els.paceAlertsEnabled.checked = settings.paceAlertsEnabled !== false;
+  els.creditExpiryAlerts.checked = settings.creditExpiryAlerts !== false;
+  els.weeklyResetReminder.checked = settings.weeklyResetReminder !== false;
+  els.updateCheckEnabled.checked = settings.updateCheckEnabled !== false;
+  els.priceAutoUpdate.checked = settings.priceAutoUpdate !== false;
   if (document.activeElement !== els.webhookUrl) els.webhookUrl.value = settings.webhookUrl || '';
   els.appearance.value = settings.appearance || 'light';
   els.mobileListenScope.value = settings.mobileListenScope || 'lan';
@@ -146,7 +213,12 @@ function render(settings) {
     const controls = providerEls[id];
     if (!controls.enabled) continue;
     controls.enabled.checked = Boolean(providerSettings[id]?.enabled);
-    if (controls.key) controls.key.value = providerSettings[id]?.apiKey || '';
+    const stored = Boolean(providerSettings[id]?.apiKeyStored);
+    if (controls.key) {
+      if (document.activeElement !== controls.key) controls.key.value = '';
+      controls.key.dataset.stored = stored ? 'true' : 'false';
+    }
+    if (controls.keyClear) controls.keyClear.hidden = !stored;
     if (controls.keyRow) controls.keyRow.hidden = !controls.enabled.checked;
   }
   applyLanguage(els.language.value);
@@ -399,6 +471,11 @@ function applyLanguage(language) {
   if (els.appMeta) {
     els.appMeta.textContent = appVersion ? `${T('subtitle')} · v${appVersion}` : T('subtitle');
   }
+  for (const id of PROVIDERS.OPTIONAL_PROVIDER_IDS) {
+    const key = providerEls[id]?.key;
+    if (key) key.placeholder = key.dataset.stored === 'true' ? T('apiKeyStoredPlaceholder') : key.dataset.emptyPlaceholder || '';
+  }
+  if (currentSettings) renderUpdates(currentSettings);
   els.saveState.textContent = T('synced');
 }
 

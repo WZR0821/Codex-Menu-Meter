@@ -207,7 +207,9 @@ body.apple-theme.light-theme .status-item.danger i { background: var(--a-red); }
 body.apple-theme .sync-details > .disclosure-content { gap: 5px; padding: 8px 4px 4px; }
 
 /* ---- 分区与标题 ---- */
-body.apple-theme .tab-panel { padding: 0 14px 12px; }
+/* 2.0.0：滚动条两侧各留一道 8px 的槽、左右内边距相应减 8px，看上去和以前一样宽。
+   内容超出时滚动条出现在右边的槽里，不再把卡片挤窄（以前展开明细时会冒出滚动条、整页变窄 8px） */
+body.apple-theme .tab-panel { padding: 0 6px 12px; scrollbar-gutter: stable both-edges; }
 body.apple-theme .section { margin-top: 12px; }
 body.apple-theme .tab-panel > .section:first-child { margin-top: 6px; }
 body.apple-theme .section-head { margin-bottom: 6px; padding: 0 2px; align-items: baseline; }
@@ -280,9 +282,15 @@ body.apple-theme .quota-details-toggle {
   background: transparent;
   color: var(--a-label-2);
   cursor: default;
-  transition: background 120ms ease;
+  transition: background 120ms ease, opacity 160ms ease;
 }
 body.apple-theme .quota-details-toggle[hidden] { display: none; }
+/* 2.0.0：平时不显示，指针移到额度区（标题行和卡片）上才出现；用键盘移到它上面时也显示。只是看不见，位置照占，标题行不跳 */
+@media (hover: hover) {
+  body.apple-theme .quota-details-toggle { opacity: 0; }
+  body.apple-theme .section:hover > .usage-head > .quota-details-toggle,
+  body.apple-theme .quota-details-toggle:focus-visible { opacity: 1; }
+}
 body.apple-theme .quota-details-toggle::after {
   width: 6px;
   height: 6px;
@@ -300,7 +308,62 @@ body.apple-theme.light-theme .quota-details-toggle[aria-expanded="true"] { backg
 body.apple-theme.light-theme .quota-activity[open] { margin-top: 9px; border-top: 0.5px solid var(--a-separator); }
 body.apple-theme.light-theme .quota-activity-head span { font-size: 11px; color: var(--a-label-2); }
 body.apple-theme.light-theme .quota-activity-head b { font-size: 12px; font-weight: 600; color: var(--a-label); }
-body.apple-theme.light-theme .quota-activity small { font-size: 11px; color: var(--a-label-2); }
+/* 卡内「读写 … 命中 …」一行（2.0.0）：读写量和命中率都用等宽数字（宽度只看位数）、字距收 0.15px，间距和胶囊内边距各收 1–2px，中文、英文取最长的数（9999.99 万 + 命中 88.8%）也排得下一行，
+   GPT 和 Claude 展开后一样高。以前 Claude 一周读写过千万时命中率会被挤到第二行，面板比 GPT 高 19px；日文文案本来就放不下，照旧两行。 */
+body.apple-theme.light-theme .quota-activity small { gap: 2px; font-size: 11px; color: var(--a-label-2); }
+body.apple-theme.light-theme .quota-activity small > :is(span, .cache-hit-rate) { font-variant-numeric: tabular-nums; letter-spacing: -0.15px; }
+body.apple-theme.light-theme .quota-activity small .cache-hit-rate { padding: 1px 5px; }
+
+/* 2.0.0 额度去向：额度卡下面整宽的一块，跟着标题行的「使用明细」按钮一起展开；收起时不占位置 */
+/* 它也带 quota-activity 类：卡片内明细的「第 5 行」（styles.css）不能带到外层网格里，否则前面空出三行间距 */
+body.apple-theme .quota-cards > .quota-attribution { grid-column: 1 / -1; grid-row: auto; }
+body.apple-theme .quota-cards > .quota-card:nth-child(odd):nth-last-child(2):has(+ .quota-attribution) { grid-column: 1 / -1; }
+body.apple-theme .quota-attribution:not([open]) { display: none; }
+body.apple-theme.light-theme .quota-attribution[open] {
+  margin-top: 0;
+  padding: 10px 13px 11px;
+  border-top: 0;
+  background: var(--a-card);
+  border-radius: 13px;
+  box-shadow: var(--a-card-shadow);
+}
+body.apple-theme .quota-attribution > .disclosure-content { display: grid; gap: 7px; padding: 0; }
+body.apple-theme .attribution-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+body.apple-theme .attribution-head > span { flex: none; font-size: 12px; font-weight: 600; color: var(--a-label); }
+body.apple-theme .attribution-head em {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--a-fill);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 15px;
+  color: var(--a-label-2);
+  vertical-align: 1px;
+}
+body.apple-theme .attribution-head > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
+body.apple-theme .attribution-rows { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+/* 每行：目录名 · 占比条 · 约多少个百分点 · 折合费用；固定三行，不够的空行占位，展开后高度不随项目数变 */
+body.apple-theme .attribution-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 44px 46px;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--a-label-2);
+  font-variant-numeric: tabular-nums;
+}
+body.apple-theme .attribution-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--a-label); }
+body.apple-theme .attribution-bar { height: 5px; overflow: hidden; border-radius: 999px; background: var(--a-fill); }
+/* 额度去向说的是一周额度，条用一周卡的蓝色 */
+body.apple-theme .attribution-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--a-blue); }
+body.apple-theme .attribution-row > b { font-weight: 600; text-align: right; color: var(--a-label); }
+body.apple-theme .attribution-row > small { font-size: 11px; text-align: right; color: var(--a-label-2); }
+body.apple-theme .attribution-row.is-message { grid-template-columns: minmax(0, 1fr); color: var(--a-label-2); }
+body.apple-theme .attribution-row.is-message > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.apple-theme .attribution-note { margin: 1px 0 0; font-size: 11px; line-height: 1.4; color: var(--a-label-3); }
 
 /* 缓存命中率：系统色胶囊 */
 body.apple-theme.light-theme .cache-hit-rate { padding: 1px 6px; border: 0; border-radius: 999px; font-style: normal; font-weight: 500; }
@@ -1071,7 +1134,8 @@ body.apple-theme .token-range .trend-range-button { line-height: 16px; }
 /* 选中与否字重一样，切换时按钮宽度不跳 */
 body.apple-theme .token-range .trend-range-button,
 body.apple-theme .token-range .trend-range-button.active { font-weight: 500; }
-/* 1.1.1：两个按钮等宽，选中底块是容器上的一块，切换时从一边滑到另一边 */
+/* 1.1.1：按钮等宽，选中底块是容器上的一块，切换时滑到对应按钮下面（2.0.0 起四段：7 天 / 30 天 / 90 天 / 1 年） */
+body.apple-theme .token-range .trend-range-button { padding: 0 6px; }
 body.apple-theme .token-range {
   position: relative;
   display: inline-grid;
@@ -1083,7 +1147,7 @@ body.apple-theme .token-range::before {
   top: 2px;
   bottom: 2px;
   left: 2px;
-  width: calc((100% - 4px) / 2);
+  width: calc((100% - 4px) / 4);
   border-radius: 5px;
   background: var(--a-card);
   box-shadow: var(--a-thumb-shadow);
@@ -1091,6 +1155,8 @@ body.apple-theme .token-range::before {
   content: "";
 }
 body.apple-theme .token-range[data-range="month"]::before { transform: translateX(100%); }
+body.apple-theme .token-range[data-range="quarter"]::before { transform: translateX(200%); }
+body.apple-theme .token-range[data-range="year"]::before { transform: translateX(300%); }
 html[data-appearance="dark"] body.apple-theme .token-range::before { background: var(--a-thumb); }
 body.apple-theme .token-range .trend-range-button { position: relative; z-index: 1; transition: color 200ms ease; }
 body.apple-theme .token-range .trend-range-button.active,
@@ -1193,6 +1259,25 @@ body.apple-theme .token-week-day {
   font-variant-numeric: tabular-nums;
 }
 body.apple-theme .token-week-col.selected .token-week-day { color: var(--a-label); font-weight: 600; }
+/* 2.0.0：90 天（13 根，每根一周）和 1 年（12 根，每根一个月）柱子多，两侧和柱间都收窄；
+   刻度隔几根写一个，写出来的可以伸出本列、居中不截断（左右相邻的刻度都空着），选中的那根一定写出来 */
+body.apple-theme .token-week-plot.sparse { column-gap: 3px; padding: 0 10px; }
+body.apple-theme .token-week-plot.sparse .token-week-day { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
+body.apple-theme .token-week-day.is-blank { visibility: hidden; }
+
+/* 2.0.0：统计数字的标签后面跟一个和上一段同样长时间的对比（↑12%），只是信息，不用红绿 */
+body.apple-theme .token-stat-label { display: flex; align-items: baseline; gap: 5px; min-width: 0; white-space: nowrap; }
+body.apple-theme .token-stat-label > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.apple-theme .range-change { flex: none; font-style: normal; font-size: 11px; font-weight: 500; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
+body.apple-theme .range-change.flat { color: var(--a-label-3); }
+
+/* 一段时间里的模型拆分（90 天 / 1 年的某一根），颜色和柱子一致 */
+body.apple-theme .range-models { display: grid; gap: 3px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--a-label-2); }
+body.apple-theme .range-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
+body.apple-theme .range-models span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.apple-theme .range-models em { font-style: normal; color: var(--a-label-3); font-variant-numeric: tabular-nums; }
+body.apple-theme .range-models b { font-weight: 600; color: var(--a-label); font-variant-numeric: tabular-nums; }
+body.apple-theme .range-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-color); }
 
 /* 1.1.1：切换 7 天 / 30 天时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入。
    只在点切换的那次渲染带 range-enter，后台刷新不重播；系统要求减少动态效果时不播。 */

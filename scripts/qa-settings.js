@@ -40,11 +40,21 @@ let settings = {
   },
   provider: 'codex',
   providerSettings: {
-    claude: { enabled: true, apiKey: '' },
-    kimi: { enabled: true, apiKey: 'sk-kimi-example' },
-    glm: { enabled: true, apiKey: 'glm-example' },
-    qwen: { enabled: true, apiKey: '' }
-  }
+    claude: { enabled: true, apiKeyStored: false },
+    kimi: { enabled: true, apiKeyStored: true },
+    glm: { enabled: true, apiKeyStored: false },
+    qwen: { enabled: true, apiKeyStored: false }
+  },
+  paceAlertsEnabled: true,
+  creditExpiryAlerts: true,
+  weeklyResetReminder: true,
+  updateCheckEnabled: true,
+  priceAutoUpdate: true,
+  // CMM_QA_UPDATE=available：模拟 GitHub 上有更新的版本。
+  priceTable: { enabled: true, source: 'litellm', asOf: '2026-11-23', models: 135, checkedAt: 1795400000000, error: null },
+  update: process.env.CMM_QA_UPDATE === 'available'
+    ? { enabled: true, current: require('../package.json').version, status: 'ready', error: null, checkedAt: 1795400000000, latest: { version: '9.9.9', url: 'https://github.com/WZR0821/Codex-Menu-Meter/releases/latest' }, available: true }
+    : { enabled: true, current: require('../package.json').version, status: 'ready', error: null, checkedAt: 1795400000000, latest: { version: require('../package.json').version, url: 'https://github.com/WZR0821/Codex-Menu-Meter/releases/latest' }, available: false }
 };
 
 app.disableHardwareAcceleration();
@@ -83,6 +93,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('cloud-sync:copy-recovery', () => true);
   ipcMain.handle('cloud-sync:open', () => true);
   ipcMain.handle('cloud-sync:reset', () => settings);
+  ipcMain.handle('provider:set-key', () => ({ ok: true, settings }));
+  ipcMain.handle('update:check', () => settings);
+  ipcMain.handle('update:open', () => true);
+  ipcMain.handle('diagnostics:copy', () => true);
 
   const window = new BrowserWindow({
     width: 390,
@@ -137,6 +151,15 @@ app.whenReady().then(async () => {
   })`);
   const topImage = await window.webContents.capturePage();
   await fs.writeFile(path.join(parsedOutput.dir, `${parsedOutput.name}-top${parsedOutput.ext}`), topImage.toPNG());
+  for (const [selector, suffix] of [['.alerts-section', 'alerts'], ['.update-section', 'updates'], ['#kimiKeyRow', 'keys']]) {
+    await window.webContents.executeJavaScript(`new Promise((resolve) => {
+      document.querySelector(${JSON.stringify(selector)}).scrollIntoView({ block: 'start' });
+      document.querySelector('.settings-scroll')?.scrollBy(0, -30);
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    })`);
+    const sectionImage = await window.webContents.capturePage();
+    await fs.writeFile(path.join(parsedOutput.dir, `${parsedOutput.name}-${suffix}${parsedOutput.ext}`), sectionImage.toPNG());
+  }
   app.quit();
 }).catch((error) => {
   console.error(error);

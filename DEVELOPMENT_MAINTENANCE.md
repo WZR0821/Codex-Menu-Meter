@@ -2,10 +2,10 @@
 
 ## 1. 文档信息
 
-- 当前基线版本：`1.1.1`
+- 当前基线版本：`2.0.0`
 - 应用名称：Codex Menu Meter
 - Bundle ID：`local.codex-menu-meter`
-- 技术栈：Electron 43、Node.js、原生 Swift Touch Bar helper
+- 技术栈：Electron 43、Node.js、原生 Swift Touch Bar helper、Objective-C++ 面板窗口模块（Node-API）
 - 支持架构：Intel (`x86_64`) 与 Apple Silicon (`arm64`)
 - 当前开发机：Intel Mac，macOS 26
 - 项目目录：仓库根目录（下文命令都在这里执行）
@@ -37,6 +37,9 @@ Touch Bar helper：
 CMM_USER_DATA_DIR=/tmp/cmm-dev-data CMM_DISABLE_TOUCHBAR=1 npm start
 ```
 
+这样启动没有全局点击和前台应用事件（两者都由 helper 发出）：点面板外部只能靠失焦收起，前台自动切换也不会
+触发。测这两项时要开着 helper。
+
 ## 3. 项目目录
 
 | 路径 | 用途 |
@@ -44,23 +47,41 @@ CMM_USER_DATA_DIR=/tmp/cmm-dev-data CMM_DISABLE_TOUCHBAR=1 npm start
 | `src/main.js` | Electron 主进程、托盘、窗口、数据抓取、设置、Touch Bar、手机服务 |
 | `src/index.html` | 桌面面板结构 |
 | `src/renderer.js` | 桌面面板渲染、切换、动效和交互 |
-| `src/styles.css` | 桌面面板视觉样式 |
-| `src/settings.*` | 设置窗口结构、样式和行为 |
-| `src/mobile/*` | 手机端 PWA 页面、样式（`app.css`）和渲染；`minimal.css`、`light.css` 是桌面面板和设置窗口在用 |
+| `src/styles.css` | 桌面面板基础样式 |
+| `src/apple.css` | 桌面面板的 Apple 外观层：最后加载，覆盖配色、字体、圆角和控件，含深色 |
+| `src/theme.js` | 桌面面板和设置窗口的深浅色切换 |
+| `src/settings.*` | 设置窗口结构、样式和行为；`settings-apple.css` 是设置窗口的 Apple 外观层 |
+| `src/mobile/*` | 手机端 PWA 页面、样式（`app.css`）和渲染；文案在 `mobile.js` 的 `TEXT`，不读 `i18n.js` |
+| `src/mobile/cards.js`、`token-week.js`、`usage-pace.js` | 桌面面板也加载：Token 活动卡和额度去向、直方图分段、用量节奏 |
+| `src/mobile/minimal.css`、`light.css` | 桌面在用：`minimal.css` 只有面板加载，`light.css` 面板和设置窗口都加载；手机页面不用 |
 | `src/mobile-server.js` | 只读手机端 HTTP/SSE 服务、鉴权和数据脱敏 |
 | `cloud/*` | 端到端加密快照 Worker、Durable Object 与 Wrangler 配置 |
 | `src/provider-config.js` | GPT、Claude、Kimi、GLM、Qwen 的统一配置 |
 | `src/foreground-provider.js` | 前台应用识别和手动覆盖状态机 |
+| `src/panel-window.js`、`native/panel-window.mm` | 面板窗口的呈现和全屏空间属性，原生部分编译成 `native/panel-window.node`（第 8 节） |
+| `src/claude-credentials.js`、`src/claude-usage.js` | Claude 凭据判断、官方额度接口返回值解析 |
+| `src/codex-four-results.js` | Codex 雷达智力页（四题众测榜）解析 |
+| `src/model-catalog.js` | Codex 型号目录合并和型号版本排序 |
+| `src/service-status.js` | 官方状态页解析，只看和本应用相关的组件 |
+| `src/push-webhook.js` | 提醒推送的请求格式（Bark、ntfy、通用 JSON） |
 | `src/activity-windows.js` | 5 小时/周周期 Token 汇总及滚动窗口降级 |
 | `src/codex-token-activity.js` | Codex rollout token 事件解析 |
 | `src/claude-token-activity.js` | Claude 会话记录解析、去重键和 token 口径 |
-| `src/transcript-reader.js` | 大型会话文件的增量读取和缓存 |
-| `src/i18n.js` | 中文、English、日本語共享文案 |
+| `src/transcript-reader.js` | 大型会话文件的增量读取和缓存，含 `.jsonl.zst` 解压 |
+| `src/daily-store.js` | 按天存档 `token-daily.json`（2.0.0） |
+| `src/model-pricing.js` | 内置价格、LiteLLM 价格表筛选和费用计算（2.0.0） |
+| `src/i18n.js` | 桌面面板和设置窗口的中文、English、日本語文案 |
 | `src/preload.js` | 受限 IPC 接口 |
-| `native/touchbar-helper.swift` | Touch Bar 原生实现和前台应用事件监听 |
+| `native/touchbar-helper.swift` | Touch Bar 原生实现，以及全局点击和前台应用事件监听 |
 | `native/touchbar-helper` | 已编译的双架构 helper |
-| `scripts/build-*.sh` | 原生 helper、Intel/Apple Silicon DMG 构建 |
-| `scripts/qa-*.js` | 桌面、手机和设置窗口截图 QA |
+| `scripts/build-*.sh` | Touch Bar helper、面板原生模块、Intel/Apple Silicon DMG 构建；`build-icons.sh` 生成图标 |
+| `scripts/after-pack.js` | electron-builder 打包后的处理 |
+| `scripts/qa-*.js` | 桌面、手机、设置窗口截图 QA，云同步端到端（`qa-cloud-sync.js`），面板窗口原生属性检查（`qa-panel-window.js`） |
+| `scripts/smoke-test.sh` | 打包后的冒烟测试（2.0.0，第 13.1 节） |
+| `scripts/make-demo-state.js` | 生成 README 截图用的合成演示数据（2.0.0） |
+| `scripts/create-handoff-zip.sh` | 生成开发交接包（`npm run package:handoff`） |
+| `.github/workflows/ci.yml` | GitHub Actions（2.0.0，第 13.1 节） |
+| `docs/` | 各版发布说明、开发历史、README 截图 |
 | `test/*` | Node 单元测试与 QA 固定状态 |
 | `assets/icon.icns` | 应用图标 |
 | `package.json` | 版本、脚本和 electron-builder 配置 |
@@ -96,9 +117,11 @@ Codex/Claude 本机凭证与会话文件
 设置变化通过 `saveSettings()` 同步到 `state`，然后调用：
 
 - `updateTrayTitle()`：更新菜单栏标题。
-- `sendState()`：推送给桌面面板。
-- `queueTouchBarStateWrite()`：合并写入 Touch Bar 状态文件。
-- 手机端 SSE：向已认证客户端推送脱敏状态。
+- `sendState()`：把 24ms 内的多次变化合并成一次（`SEND_STATE_COALESCE_MS`），由 `flushState()` 一起写 Touch Bar
+  状态文件（`queueTouchBarStateWrite()`）、排队推送云同步、向已认证的手机 SSE 客户端广播脱敏状态，并更新桌面面板。
+- `sendSettings()`：把设置推给设置窗口。
+
+数据刷新完成后也走 `sendState()`，所以面板、Touch Bar、手机和云同步拿到的是同一份状态。
 
 当前刷新周期：
 
@@ -107,9 +130,19 @@ Codex/Claude 本机凭证与会话文件
 | Codex 额度 | 120 秒 |
 | Claude 额度 | 5 分钟 |
 | Kimi/GLM 等额外平台 | 5 分钟 |
-| Codex/Claude 雷达 | 15 分钟 |
+| Codex/Claude 雷达 | 5 分钟 |
 | Token 活动 | 5 分钟 |
+| 服务状态页 | 5 分钟 |
+| Codex 型号目录（读本机文件） | 60 秒 |
+| Claude 断连时检查本机凭据（不联网） | 8 秒 |
+| 云同步（开着时；内容没变也至少每 5 分钟上传一次，当作心跳） | 5 分钟 |
+| 价格表 | 24 小时，失败 3 小时后重试 |
+| 新版本检查 | 12 小时，失败 1 小时后重试 |
 | Touch Bar 本地状态读取 | 0.5 秒 |
+
+另有几次补刷：最早的一个额度重置时间过后 20 秒，刷新那个平台（接口要十几秒才切到新窗口）；Mac 唤醒或解锁后
+等 4 秒全部刷新一遍，30 秒后再重试失败的额度。接口回 429 时按 `retry-after` 退避，没给就至少等 10 分钟，最长
+1 小时。
 
 不要在渲染循环、鼠标移动或窗口跟随逻辑中增加网络请求或全量会话扫描。
 
@@ -125,16 +158,26 @@ Codex/Claude 本机凭证与会话文件
   - 智力页：`https://codexradar.com/data/codex-four-task-results.json`（`src/codex-four-results.js`；四题都判完才有总分，带 ETag，原站 304 回应不带 ETag，读取器只在 200 时更新）
   - 额度页：`https://codexradar.com/current.json`
   - 2026-11-20 前智力页读的 RadarBench（`radar-bench-binding.json` + `/api/radar-bench-score`）在原站返回 502，已停用，`src/radar-bench.js` 已删
+- 型号目录：`~/.codex/models_cache.json`（`src/model-catalog.js`；雷达智力页和 Touch Bar 的型号列表据此补上雷达还没收录的型号）
+- 服务状态：`https://status.openai.com/api/v2/summary.json`（`src/service-status.js`，只看 Codex、Responses、Login 组件）
 - Token：
   - `~/.codex/sessions`
   - `~/.codex/archived_sessions`
 
-Token 活动读取 `token_count` 事件，并排除子代理继承的父任务历史。主数字采用本机
-精确 token；本机无记录时才使用后台百分比，不能把百分比伪装成 token 数量。
+两个目录里的 `.jsonl` 和 `.jsonl.zst` 都读（2.0.0 起）。Codex 会把闲置一段时间的会话压成 zstd、删掉原文件，
+1.1.1 及以前不读压缩文件，开发者本机近 30 天的 Codex 用量少算了约八成。压缩文件由 `src/transcript-reader.js`
+用 Node 自带的 zstd 分块边读边解压，不会整个读进内存。压缩文件不会再变，解析出的、落在统计窗口内的记录存进
+`codex-archive-cache.json`，下次启动不用再解压；改了 Codex 记录的解析口径时，把 `CODEX_ARCHIVE_CACHE_VERSION`
+加 1，旧缓存就会作废。
+
+Token 活动读取 `token_count` 事件，并排除子代理继承的父任务历史。主数字只用本机
+精确 token，本机没有记录时也不用后台百分比代替，不能把百分比伪装成 token 数量。
 缓存命中率为 `cached_input_tokens / input_tokens`，必须保留每日的
 `inputTokens` 和 `cachedInputTokens`；缺少输入数据时显示 `--`，不得显示为 0%。
-着色分界为：`≥99%` 绿色，`95–99%` 黄色，`<95%` 红色；无数据保持中性灰。判色必须
-基于四舍五入到一位小数后的显示值，避免出现「显示 99.0% 却是黄色」。
+着色分界为：`≥97%` 绿色，`93–97%` 黄色，`<93%` 红色（2.0.0 起；此前是 99 / 95）；无数据保持中性灰。判色必须
+基于四舍五入到一位小数后的显示值，避免出现「显示 97.0% 却是黄色」。分界写在三处，要一起改：
+`src/renderer.js`、`src/mobile/mobile.js`、`src/mobile/cards.js` 的 `cacheHitTone`，说明文字在
+`src/i18n.js` 和 `src/mobile/mobile.js` 的 `cacheHitHint`。
 
 会话数以 `session_meta.payload.session_id` 计。子代理有各自的 rollout 文件，但
 `session_id` 指向父线程，所以子代理会并入发起它的会话，与 Claude 侧
@@ -149,20 +192,77 @@ Token 活动读取 `token_count` 事件，并排除子代理继承的父任务�
 - 凭证：
   - `~/.claude/.credentials.json`
   - 钥匙串服务 `Claude Code-credentials`
-- 额度接口：`https://api.anthropic.com/api/oauth/usage`
-- 雷达：`https://claudecoderadar.com/data/claude-code-radar.json`
+- 额度接口：`https://api.anthropic.com/api/oauth/usage?cedar_ember=1`
+- 套餐：`https://api.anthropic.com/api/oauth/profile`（钥匙串里的 `subscriptionType` 只在登录时写一次，升降级后
+  不变，所以以这个接口为准；读不到时沿用上次结果，从没读到过才用钥匙串里的值）
+- 刷新 token：`https://platform.claude.com/v1/oauth/token`
+- 雷达：`https://claudecoderadar.com/data/claude-code-radar.json`（原站已改作他用，取不到时界面按中性状态处理，
+  错误码 `radar-source-unavailable`）
+- 服务状态：`https://status.claude.com/api/v2/summary.json`（只看 Claude Code、Claude API 组件）
 - Token：`~/.claude/projects`
 
-Claude OAuth 失效时允许刷新一次，并写回原凭证来源。官方额度失败时保留最近一次
+Claude OAuth 失效（401）时允许刷新一次，并写回原凭证来源；刷新后仍是 401，再换另一份凭据（文件和钥匙串里
+不同的那份）试一次。凭据失效或缺失时面板显示「重新连接」卡片（第 16 节）。官方额度失败时保留最近一次
 精确结果，不使用本地 token 推算百分比。
+
+`cedar_ember=1` 让额度接口顺带返回重置卡。接口按客户端类型放行，本应用拿到的是 `eligible: false`、
+`ineligible_reason: "surface"`，界面显示「官方未提供」。不要改 User-Agent 冒充 Claude CLI 去取，
+也不调用兑换重置卡的接口，应用只读。
 
 ### 6.3 其他平台
 
-- Kimi Code：`https://api.kimi.com/coding/v1/usages`
+- Kimi Code：`https://api.kimi.com/coding/v1/usages`，返回 404 时改试 `/usage`
 - GLM：`https://open.bigmodel.cn/api/monitor/usage/quota/limit`，并自动尝试国际站
 - Qwen：当前无官方额度查询接口，只显示说明
 
-API Key 只保存在应用数据目录的 `settings.json`，不能进入源码、截图或交接包。
+Kimi / GLM 的 API Key 存在 macOS 钥匙串（2.0.0 起），服务名 `Codex Menu Meter API Key`，账户名是平台 id
+（`kimi`、`glm`），`settings.json` 里不再有 Key。1.x 存在 `settings.json` 里的 Key 由启动时的 `loadExtraApiKeys`
+迁移：写进钥匙串成功后才从设置文件删掉，写不进去就留在原处照常使用。读取顺序是钥匙串、设置文件、环境变量
+（见第 11 节）。设置页的 Key 输入框留空表示不修改，另有清除按钮。Key 不能进入源码、截图或交接包。
+
+### 6.4 按天存档与 90 天 / 1 年视图（2.0.0）
+
+- `src/daily-store.js` 把每天的用量存进 `token-daily.json`。每天按「模型 × 速度档 × 提示长度档」记 token 分量
+  （未缓存输入、5 分钟缓存写、1 小时缓存写、缓存读、输出、请求数）和会话数，不记费用。费用每次按当前价格表
+  重算，价格表更新后旧日子的费用也跟着变。最多保留 800 天（`DAILY_STORE_MAX_DAYS`）。
+- 统计窗口（30 天）内的天每次由日志现算，同时写回存档；窗口之前的天只从存档取（`attachHistory`），最多给
+  渲染层 366 天（`HISTORY_VIEW_DAYS`）。Claude Code 默认只留 30 天日志，30 天以前的 Claude 用量只能靠存档。
+- 回填：启动约 20 秒后（`HISTORY_BACKFILL_DELAY_MS`），后台把窗口之前的全部旧日志读一遍，两个平台排队依次做，
+  做完把该平台的 `backfilled` 记成 true，之后只增量更新。回填完成前 `history.status` 是 `pending`，完成后是
+  `ready`；`coverageStart` 是存档里最早有记录的一天。开发者本机首次回填约 86 秒，主进程内存最高约 430 MB。
+- 存档版本 `DAILY_STORE_VERSION` 变了（改了汇总口径）时，已存的天先保留，回填重跑一遍，能从日志重算的天以新算的为准。
+- 90 天视图是截至今天的 13 个 7 天段（最早一段 6 天），1 年视图是 12 个自然月（本月算到今天）。
+- 环比（`src/mobile/cards.js`）：近 N 天（含今天）和前 N 天比；只有 `coverageStart` 不晚于前一段的第一天、
+  前一段有用量时才显示。
+
+### 6.5 价格表与额度去向（2.0.0）
+
+- 内置价格在 `src/model-pricing.js`。设置 `priceAutoUpdate` 打开时（默认），主进程每 24 小时从 LiteLLM 的公开
+  价格表（`PRICE_TABLE_URL`）取一次，失败 3 小时后重试，带 ETag。只留 OpenAI / Anthropic 的 chat、responses
+  型号（名字以 claude、gpt、o+数字、codex、chatgpt 开头），存进 `model-prices.json`。同一型号以在线价格为准，
+  内置表里的快速档倍率和提示长度分档在在线价格缺这些字段时补上；在线表没有的型号用内置价格。关掉这项立即
+  回到只用内置价格。设置页显示当前价格的来源、日期和型号数。
+- 额度去向：`buildWindowsWithAttribution` 把本周额度周期内的本机用量按项目汇总，只给渲染层前 2 个项目
+  （`ATTRIBUTION_PROJECTS`）和「其他 N 个」的合计。项目按会话的工作目录归并：子目录并入同一批记录里出现过的
+  上级目录，主目录和 Documents、Desktop 这类容器目录不算项目。`src/mobile/cards.js` 按「项目费用 ÷ 本周总费用
+  × 已用百分比」估算每个项目约占几个百分点；已用不到 1%（`ATTRIBUTION_MIN_USED`）或本周没有可计价的用量时，
+  只显示一句说明。这是按本机日志的 API 等价费用折算的估算，不含网页版和其他设备。
+
+### 6.6 提醒、新版本检查和诊断信息（2.0.0）
+
+- 提醒都要设置里的通知总开关打开（`alertsActive`），提醒过的记录存在 `alert-state.json`。
+- 重置卡到期（`creditExpiryAlerts`，默认开）：可用的重置卡（Claude 还包括 pending 状态的）到期前 72 小时和
+  24 小时各提醒一次（`CREDIT_EXPIRY_LEADS_MS`）。
+- 周额度重置前（`weeklyResetReminder`，默认开）：离周额度重置不到 12 小时、剩余不少于 20% 时，每个周期提醒一次
+  （`WEEKLY_RESET_LEAD_MS`、`WEEKLY_RESET_MIN_REMAINING`）。
+- 新版本检查（`updateCheckEnabled`，默认开）：启动 45 秒后查一次，之后每小时看是否到期；距上次检查满 12 小时
+  （上次失败则 1 小时）才请求 GitHub Releases 的 latest 接口，带 ETag。只认 `x.y.z` 正式版，草稿和预发布不算。
+  有新版本时每个版本只通知一次（`alert-state.json` 里的 `update.notifiedVersion`），不走推送 webhook，点通知打开
+  Release 页面；应用不下载也不安装。设置页「更新」一栏可以立即检查。价格表和新版本检查共用这个每小时的定时器。
+- 复制诊断信息：带版本、架构、系统、语言和外观、各开关状态、`DIAGNOSTIC_SLICES` 里各数据源的状态和报错、
+  本机日志文件数、存档天数、价格表来源、Key 存在哪里（只写 keychain / file / none）。家目录换成 `~`，URL 参数里的
+  token、key 等打码。不带用量数字、费用、Key、推送地址、手机访问密钥和云同步账号。新增数据源时要加进
+  `DIAGNOSTIC_SLICES`，并确认它的报错文案里不会带出敏感内容。
 
 ## 7. 前台应用自动切换
 
@@ -211,7 +311,7 @@ foreground-app:<bundleId>\t<name>\t<bundlePath>\t<pid>
 
 ## 8. 菜单栏与面板
 
-1.0.1 的窗口呈现由 `src/panel-window.js` 管理，`native/panel-window.mm` 使用公开 AppKit
+1.0.1 起，窗口呈现由 `src/panel-window.js` 管理，`native/panel-window.mm` 使用公开 AppKit
 API 设置瞬态窗口及跨应用全屏空间属性。macOS 13+ 明确加入 `CanJoinAllApplications`；
 `setAlwaysOnTop` 和 `visibleOnFullScreen` 不能替代这个空间归属设置。应在显示、聚焦和
 设置窗口层级之后再应用原生属性，避免 Chromium 重置窗口行为。不要用修改 Objective-C
@@ -235,15 +335,27 @@ CC 5h：35%  周：51%
 面板为透明、无边框 BrowserWindow，宽度固定 `406`，高度跟随当前页内容：渲染层在
 `renderer.js` 量出「工具栏 + 状态行 + 活动页内容」的高度，通过 `panel:content-height`
 报给主进程，主进程在 `PANEL_CONTENT_MIN_HEIGHT`~`PANEL_CONTENT_MAX_HEIGHT` 之间取值
-并重新 `setBounds`。`PANEL_HEIGHT` 只是首帧的起点。**同一版式共用一个高度**：
-渲染层按「当前页 × 是否附加平台」分档缓存该档见过的最大高度，所以 GPT 和 Claude
-之间来回切时窗口尺寸完全不动，只有附加平台和雷达页各自成一档。切换动画期间
-（`PANEL_HEIGHT_SWITCH_HOLD_MS`）不上报高度；主进程侧变高立刻生效、变矮延后
-`PANEL_HEIGHT_SHRINK_DELAY_MS` 再收，避免刷新中间态引起窗口抖动。这样用量页永远不需要滚动；
-附加平台虽然保留额度曲线，但没有 Token 区，仍不会留下大片空白。关键交互约束：
+并重新 `setBounds`。`PANEL_HEIGHT` 只是首帧的起点。这样用量页永远不需要滚动；附加平台虽然保留额度曲线，
+但没有 Token 区，也不会留下大片空白。
 
-- 正常桌面点击外部关闭。
-- 全屏菜单栏收回时，光标在面板内则保持，离开面板才关闭。
+- 渲染层每次上报当前可见内容的实际高度，不按页缓存；只有不到 3px 的变矮不报。切换平台、页面或雷达视图后
+  先等 `PANEL_HEIGHT_SWITCH_HOLD_MS`（180ms）再报。
+- 主进程：变高不论多少都立刻跟上；6px（`PANEL_HEIGHT_EPSILON`）以内的变矮不收，更大的变矮等
+  `PANEL_HEIGHT_SHRINK_DELAY_MS`（80ms）再收，避免刷新中间态引起窗口抖动；尺寸变化用 180–260ms 的动画过渡。
+  2.0.0 以前 6px 以内的变高也被略过，展开明细后内容溢出一点就冒出滚动条，整页变窄 8px。
+- GPT 和 Claude 来回切时窗口尺寸不变，靠的是两边版式相同，不是缓存。改用量页版式时两边要一起改，并按第 14 节
+  第 19 条截图核对两边高度一致。
+- `apple.css` 给 `.tab-panel` 设了 `scrollbar-gutter: stable both-edges`，滚动条出现与否都不改变内容宽度。
+- 额度标题行右侧的明细按钮 `#quotaDetailsToggle` 平时透明，指针移到额度区域或用键盘聚焦时才显示，隐藏时仍占位，
+  标题行不跳。桌面写在 `apple.css` 的 `@media (hover: hover)` 里；手机写在 `app.css` 的
+  `@media (hover: hover) and (pointer: fine)` 里，所以触屏上一直显示。
+
+关键交互约束：
+
+- 点击面板外部关闭（全局点击由 Touch Bar helper 发出，见第 9 节）。
+- 「跟随菜单栏收起」（`autoHideWithMenuBar`，默认开）开着时，不论是否全屏，光标离开面板和屏幕顶部 44px 的
+  菜单栏区域持续 0.7 秒就收起，在面板或菜单栏区域内则保持；每 500ms（`PANEL_FOLLOW_MS`）检查一次，刚打开的
+  850ms（`AUTO_HIDE_GRACE_MS`）内不收。
 - 自动平台切换不得打开面板。
 - 面板首次点击前已预创建和预热，避免冷启动卡顿。
 - 用量页应完整显示且不产生多余纵向滚动。
@@ -257,20 +369,33 @@ CC 5h：35%  周：51%
 Touch Bar 使用私有 `DFRFoundation` API，因此由单独的 Swift helper 负责。主应用通过
 `touchbar-state.json` 输出状态，通过 helper stdout 接收点击和前台事件。
 
-主要协议：
+主要协议（helper 的 stdout，每行一条）：
 
 ```text
 touchbar-provider:<provider>
+touchbar-open-panel
 pointer-down
 foreground-app:<bundleId>\t<name>\t<bundlePath>\t<pid>
 ```
 
+- `touchbar-provider:`：点平台按钮，按手动选择切换平台。
+- `touchbar-open-panel`：点额度块，打开面板（已开着就不动）并刷新当前平台。
+- `pointer-down`：全局鼠标按下，主进程据此判断是否点到了面板外部。
+- `foreground-app:`：前台应用变化（第 7 节）。
+
+反方向只有一条 stdin 命令 `present`：每次打开面板时主进程发给 helper，让它重新呈现 Touch Bar；Mac 唤醒后
+helper 也会自己重新呈现。
+
 当前 UI 规则：
 
 - 显示 5h/7d 剩余额度、进度条和重置倒计时（0.10.16 起；每一块是整条高度的灰色圆角块）。
-- 剩余较多为绿色、中等为黄色、较少为红色。
-- GPT 切换按钮为蓝色，CC 为橙色；只启用一个平台时是灰色。
-- 有 IQ 数据的平台显示能力排序后的六个 IQ，两页手动切换。
+- 额度条颜色跟用量节奏走（`quotaColor`）：剩余 ≤10% 一律红色；有节奏档位（`tier`）时 critical 红、serious 橙、
+  warning 黄、其余绿；没有档位时按剩余比例，≤20% 红、≤50% 黄、其余绿。主进程只在节奏算得出（刚开窗时还
+  算不出）或已是 critical 时才给 `tier`；附加平台没有节奏，一直按剩余比例。
+- 平台切换按钮用平台色：GPT 蓝、CC 橙、Kimi 粉、GLM 紫、Qwen 青；只启用一个平台时是灰色。
+- 有 IQ 数据的平台显示六个 IQ，每页三个，点 IQ 区翻页。Codex 第一页取各系列最新型号里版本最新的三个
+  （每个优先 max 档），第二页固定为 sol medium、terra max、luna max 的最新版；其他平台按型号版本从新到旧取
+  前六个（`createTouchBarProviderPayload`）。
 - 没有 IQ 数据的平台，额度块铺满整条，带名称的附加限额（状态文件的 `usage.extra`，如 Fable）各占一块。
 - 折叠控制条显示“用量”。
 - 平台切换会同步菜单栏和面板状态。
@@ -300,7 +425,8 @@ x86_64 arm64
 手机端由 `src/mobile-server.js` 提供：
 
 - 默认端口：`43821`
-- 监听地址：`0.0.0.0`
+- 监听地址：随设置里的访问范围（`mobileListenScope`）变。局域网（默认）听 `0.0.0.0`；Tailscale 和仅本机
+  都只听 `127.0.0.1`，Tailscale 由 `tailscale serve` 转发进来，仅本机还会拒绝经代理转来的请求。改范围会重建服务
 - 页面路径：`/mobile/`
 - 状态接口：`/api/state`
 - 实时更新：SSE
@@ -314,9 +440,11 @@ Claude 凭证发送到手机；手机只收到 `createMobilePayload()` 生成的
 
 页面样式（0.10.17 起）：
 
-- 手机页面只加载 `src/mobile/app.css`，配色与桌面的 `src/apple.css` 一致，只有浅色。
-  同目录下的 `minimal.css`、`light.css` 由桌面面板（`src/index.html`）和设置窗口
-  （`src/settings.html`）加载，不属于手机页面，不要删。
+- 手机页面只加载 `src/mobile/app.css`，配色与桌面的 `src/apple.css` 一致，深浅色跟随手机系统
+  （0.11 起，`prefers-color-scheme`）。同目录下的 `minimal.css` 只有桌面面板（`src/index.html`）加载，
+  `light.css` 由桌面面板和设置窗口（`src/settings.html`）加载，都不属于手机页面，不要删。
+- 同目录的 `usage-pace.js`、`token-week.js`、`cards.js` 桌面面板也加载，改它们要同时核对桌面和手机。
+- 手机页面的文案在 `mobile.js` 的 `TEXT` 里，不读 `src/i18n.js`；两边都有的文案要一起改。
 - 新增静态文件要同时加进 `mobile-server.js` 的 `STATIC_FILES` 白名单，否则本地服务返回 404。
 - 用量页必须单屏：390×844、375×667、320×568 三种尺寸下 GPT 和 Claude（含 Fable 行）都不能出现
   纵向滚动。`app.css` 末尾按屏高分三档收紧字号和间距，`npm run qa:mobile` 会逐项检查。
@@ -345,8 +473,9 @@ npx wrangler login
 npm run sync:deploy
 ```
 
-部署配置绑定 Cloudflare SQLite Durable Object `SYNC_ACCOUNTS`。新安装预填的地址是
-`src/main.js` 的 `DEFAULT_CLOUD_SYNC_SERVER_URL`。
+部署配置绑定 Cloudflare SQLite Durable Object `SYNC_ACCOUNTS`。公开版不预填地址（`src/main.js` 的
+`DEFAULT_CLOUD_SYNC_SERVER_URL` 为空）：部署后在设置里填 Worker 地址，或首次启动时用环境变量
+`CMM_SYNC_SERVER_URL` 预填。已经填过地址的设置不受影响。
 
 本地端到端 QA（先在一个终端启动 Worker）：
 
@@ -379,10 +508,19 @@ CMM_SYNC_QA_URL=http://127.0.0.1:8799 npm run qa:cloud -- /tmp/cmm-cloud.png
 
 | 文件 | 内容 |
 | --- | --- |
-| `settings.json` | 语言、开机启动、平台开关、API Key、手机访问密钥 |
-| `usage-history.json` | 最近 7 天额度采样 |
+| `settings.json` | 语言、外观、开机启动、平台开关、提醒与更新开关、手机访问密钥（2.0.0 起不含 API Key） |
+| `usage-history.json` | 最近 30 天额度采样（最近 1 天是原始采样，更早的按 15 分钟合并） |
+| `token-daily.json` | 每天的 token 分量汇总，最多 800 天（2.0.0） |
+| `codex-archive-cache.json` | Codex 压缩会话的解析缓存（2.0.0） |
+| `model-prices.json` | LiteLLM 价格表缓存（2.0.0） |
+| `alert-state.json` | 已发过的提醒、重置卡到期提醒记录、新版本检查结果 |
+| `radar-cache.json` | 雷达数据缓存 |
 | `touchbar-state.json` | Touch Bar 脱敏显示状态 |
 | `touchbar-helper.log` | helper 启停、点击和自动切换日志 |
+| `claude-reconnect.command` | 「重新连接 Claude」时生成、交给「终端」打开的登录脚本 |
+
+钥匙串里另有两类条目：`Codex Menu Meter Cloud Sync`（云同步密钥）和 `Codex Menu Meter API Key`（Kimi / GLM
+的 Key，2.0.0 起）。
 
 这些文件含本机设置或敏感字段，不能复制到源码仓库、开发交接 ZIP 或公开 issue。
 
@@ -394,8 +532,9 @@ CMM_SYNC_QA_URL=http://127.0.0.1:8799 npm run qa:cloud -- /tmp/cmm-cloud.png
 | `CMM_DISABLE_TOUCHBAR=1` | 不启动 Touch Bar helper |
 | `CMM_DEBUG_STATE_PATH` | 每 2 秒输出一次主状态快照 |
 | `CMM_SYNC_SERVER_URL` | 新安装时预填加密云同步 Worker 地址 |
-| `KIMI_API_KEY` | 覆盖 Kimi 设置 Key |
-| `GLM_API_KEY` / `ZHIPU_API_KEY` | 覆盖 GLM 设置 Key |
+| `CMM_DEBUG_EVENTS=1` | 在控制台打印前台切换、面板开关等事件 |
+| `KIMI_API_KEY` / `KIMI_CODING_API_KEY` | 钥匙串和设置里都没有 Kimi Key 时使用 |
+| `GLM_API_KEY` / `ZHIPU_API_KEY` | 钥匙串和设置里都没有 GLM Key 时使用 |
 
 ## 12. 测试与视觉 QA
 
@@ -406,7 +545,7 @@ npm run lint
 npm test
 ```
 
-当前基线为 108 项单元测试。重点覆盖：
+当前基线为 127 项单元测试。重点覆盖：
 
 - Codex token 解析和子代理去重
 - 5 小时/周 Token 周期边界与滚动窗口降级
@@ -414,9 +553,16 @@ npm test
 - 前台应用识别、手动覆盖和恢复自动切换
 - 手机鉴权、SSE 断开和数据脱敏
 - 平台配置升级兼容
+- Claude 会话记录解析、去重和 token 口径
+- Claude 凭据判断与官方额度解析、状态页解析、推送请求格式
+- 面板窗口呈现与开关、用量节奏、四题榜单解析
 - 云同步密钥派生、加解密、错误密钥拒绝与 HTTPS 校验
 - Durable Object 首次绑定、鉴权、旧快照拒绝和删除
 - Token 活动 7 天直方图的分色、分段、柱高和型号写法
+- Codex `.jsonl.zst` 压缩会话的读取和缓存（2.0.0）
+- 按天存档的分量记录、增量构建、合并、版本变化后重建和裁剪（2.0.0）
+- 四种时间范围的分段、存档与实时数据的拼接、环比的显示条件、额度去向的折算（`test/cards.test.js`，2.0.0）
+- LiteLLM 价格表的筛选、校验和 272K 分档（2.0.0）
 
 依赖审计基线：
 
@@ -480,7 +626,8 @@ dist/Codex-Menu-Meter-macOS26-AppleSilicon-<version>.dmg
 
 构建脚本会：
 
-1. 重新编译双架构 Touch Bar helper。
+1. 跑 `npm run build:native`：Touch Bar helper 和 `panel-window.node` 比源码新、且已含双架构时直接复用，
+   要强制重编加 `CMM_FORCE_NATIVE_REBUILD=1`。
 2. 用 electron-builder 构建目标架构应用。
 3. 清理 Finder 扩展属性。
 4. 验证 ad-hoc 签名。
@@ -493,8 +640,24 @@ Developer ID、hardened runtime、entitlements 和 notarization 流程。
 
 - `package.json`
 - `package-lock.json` 顶部两个版本字段
-- `scripts/qa-settings.js` 中的模拟版本
-- `README.md` 或维护手册中的当前版本说明
+- `README.md` 的版本表和版本历史
+- `docs/RELEASE-<version>.md`（新版本的发布说明）
+- 本手册第 1 节的当前基线版本
+
+`scripts/qa-settings.js` 从 2.0.0 起直接读 `package.json` 的版本，不用再手改。
+
+### 13.1 GitHub Actions（2.0.0）
+
+`.github/workflows/ci.yml` 在推送到 `main`、提交 PR 和手动触发时运行：
+
+- `test`（ubuntu-latest，Node 24）：`npm ci`（设 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，不下载 Electron）、
+  `npm run lint`、`npm test`。
+- `package-macos`（macos-15，和本机打包用的 Xcode 16 同一代工具链）：`npm run build:native`，用 electron-builder
+  打 Apple Silicon 版 `.app`（`--dir`，不出 DMG）到 `$RUNNER_TEMP`，验证签名，再用 `scripts/smoke-test.sh` 冒烟测试。
+
+`scripts/smoke-test.sh <应用路径>` 本机也能跑：它用一个临时数据目录启动应用，设置里关掉所有联网和提醒功能，
+等应用写出 `provider`、`tokenActivity.status` 为 `ok`、`history.status` 为 `ready` 的状态快照才算通过。
+超时默认 90 秒（`CMM_SMOKE_TIMEOUT`），`CMM_SMOKE_KEEP=1` 保留临时目录便于排查。
 
 ## 14. 发布前检查清单
 
@@ -515,6 +678,12 @@ Developer ID、hardened runtime、entitlements 和 notarization 流程。
 15. 云端 Worker `/health`、首次配对、断网缓存与恢复轮询均可用。
 16. Worker 存储和日志中没有恢复码、主密钥或明文快照。
 17. 交付包不含 `settings.json`、OAuth token、API Key 或本机访问密钥。
+18. 版本号、README 版本表和版本历史、`docs/RELEASE-<version>.md`、本手册第 1 节都已同步。
+19. 桌面 GPT/Claude × 四种时间范围 × 明细收起/展开：同一状态下面板尺寸相同，切换不跳；手机三档屏高下四种范围都在一屏内。
+20. `bash scripts/smoke-test.sh <应用路径>` 通过（把 `HOME` 指向空目录可模拟 CI）。
+21. 安装包里 app.asar 的 `src/` 与仓库逐文件一致；`package.json` 只差 electron-builder 去掉的 `scripts`、`devDependencies`、`build`。
+22. 从上一版覆盖安装后，首次启动的回填能走完（`token-daily.json` 里两个平台的 `backfilled` 都是 true），记下用时和主进程内存峰值。
+23. 推送后 GitHub Actions 的两个任务都通过。
 
 ## 15. 安装开发构建
 
@@ -576,7 +745,8 @@ open -a "Codex Menu Meter"
 ### 面板点击外部不关闭
 
 检查全局 `pointer-down`、`handleGlobalPointerDown()`、窗口 bounds 和打开宽限时间。
-普通桌面依赖外部点击关闭；全屏自动收起还受面板 hover 状态控制。
+`pointer-down` 由 Touch Bar helper 发出；helper 没在跑（例如用了 `CMM_DISABLE_TOUCHBAR=1`）时，只能靠失焦收起。
+「跟随菜单栏收起」开着时，光标离开面板和菜单栏区域 0.7 秒也会收起（第 8 节）。
 
 ### 首次打开或切换卡顿
 
@@ -609,6 +779,9 @@ open -a "Codex Menu Meter"
 2. 检查钥匙串 `Claude Code-credentials`。
 3. 检查 access token 过期时间和 refresh token。
 4. 记录官方接口错误，不能用本地 token 伪造额度。
+5. 凭据失效或缺失（`claude-auth-expired`、`claude-no-creds`）时，面板显示「重新连接」卡片。点它会生成
+   `claude-reconnect.command` 交给「终端」运行 `claude auth login --claudeai`，登录由用户在浏览器里完成。
+   断连期间每 8 秒读一次本机凭据（不联网），发现重新登录后自动恢复。
 
 ## 17. 包体维护
 
@@ -634,20 +807,17 @@ open -a "Codex Menu Meter"
 不要在未确认用户已备份前直接删除 `dist` 或 `backups`。开发交接 ZIP 应始终排除
 `node_modules`、`dist`、`backups`、`.DS_Store` 和本机应用数据。
 
-## 18. 当前 0.10.6 验证状态
+## 18. 当前 2.0.0 验证状态
 
 - JavaScript 语法检查：通过
-- 单元测试：38/38 通过
-- 生产依赖审计：0 个已知漏洞
-- 设置窗口 QA：通过
-- 本地/Tailscale 手机页面 QA：通过
-- 云端密文上传、浏览器解密、配对重载 QA：通过
-- Cloudflare 本地 Worker 与 SQLite Durable Object：通过
-- Touch Bar helper：`x86_64 arm64`
-- Touch Bar helper 源码未变时会复用已校验的 universal 二进制；需强制重编译时设置 `CMM_FORCE_NATIVE_REBUILD=1`。
-- Intel 应用主程序：`x86_64`
-- Apple Silicon 应用主程序：`arm64`
-- 前台 Codex -> GPT：实机通过
-- 前台 Claude -> CC：实机通过
-- 前台 Finder 保持原选择：实机通过
-- 自动切换不展开面板：实现路径已核对
+- 单元测试：127/127 通过；另在 UTC、洛杉矶、基里蒂马蒂三个时区和模拟 Linux 平台下各跑过一遍
+- 桌面面板（合成数据）：GPT/Claude × 四种时间范围 × 明细收起/展开共 16 种组合，收起 522、展开 714，额度卡宽 185，无溢出；深色外观、按钮悬停显示、强制出现滚动条时宽度不变都核对过
+- 真实面板窗口：反复展开、收起，两个平台宽度不变；真实数据下展开后 GPT、Claude 一样高
+- 手机页面：390×844、375×667、320×568 三档下四种范围都在一屏内
+- Touch Bar helper 和 `panel-window.node`：`x86_64 arm64`；Touch Bar helper 源码未变时会复用已校验的 universal 二进制，需强制重编译时设置 `CMM_FORCE_NATIVE_REBUILD=1`
+- Intel 应用主程序 `x86_64`，Apple Silicon 应用主程序 `arm64`，两个都通过 `codesign --verify --deep --strict`
+- 冒烟测试：打好的 Intel 版在空用户目录下 26 秒通过
+- 本机从 1.1.1 覆盖安装：约 88 秒补完历史，主进程内存峰值约 400 MB，之后回落到约 190 MB；价格表取到 135 个型号；新版本检查正常
+- API Key 钥匙串迁移：用测试 Key 验证过成功和失败两条路径
+- 没验证：Apple Silicon 实机；真实 Kimi / GLM Key 的迁移；Apple 公证（安装包是 ad-hoc 签名）
+- 前台自动切换、全屏菜单栏、Touch Bar 的实机检查：2.0.0 没有改 `foreground-provider.js`、`panel-window.js` 和 `native/`，本版没有重测，沿用 1.0.0 时的结论

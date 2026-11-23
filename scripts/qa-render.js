@@ -90,12 +90,12 @@ app.whenReady().then(async () => {
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  // CMM_QA_TOKEN_RANGE=week|month：截图前把 Token 活动切到对应范围（按钮点击，和用户操作一样）。
-  const tokenRange = ['week', 'month'].includes(process.env.CMM_QA_TOKEN_RANGE) ? process.env.CMM_QA_TOKEN_RANGE : '';
+  // CMM_QA_TOKEN_RANGE=week|month|quarter|year：截图前把 Token 活动切到对应范围（按钮点击，和用户操作一样）。
+  const tokenRange = ['week', 'month', 'quarter', 'year'].includes(process.env.CMM_QA_TOKEN_RANGE) ? process.env.CMM_QA_TOKEN_RANGE : '';
   if (tokenRange && tab !== 'radar') {
     if (keepMotion) {
       // 本机记着上次的范围，目标范围可能已经选中；先切到另一边，保证这次点击是一次真的切换、会播入场动效。
-      await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${tokenRange === 'week' ? 'month' : 'week'}"]')?.click()`);
+      await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${tokenRange === 'month' ? 'week' : 'month'}"]')?.click()`);
       await new Promise((resolve) => setTimeout(resolve, 900));
     }
     await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${tokenRange}"]')?.click()`);
@@ -192,9 +192,9 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
-  // CMM_QA_TOKEN_HOVER=0–6：7 天视图下把指针放到第几根柱子上，截悬停提示。
+  // CMM_QA_TOKEN_HOVER=0–12：柱状图视图（7 天 / 90 天 / 1 年）下把指针放到第几根柱子上，截悬停提示。
   const tokenHover = Number(process.env.CMM_QA_TOKEN_HOVER);
-  if (tokenRange === 'week' && process.env.CMM_QA_TOKEN_HOVER !== undefined && Number.isInteger(tokenHover)) {
+  if (tokenRange && tokenRange !== 'month' && process.env.CMM_QA_TOKEN_HOVER !== undefined && Number.isInteger(tokenHover)) {
     const point = await window.webContents.executeJavaScript(`(() => {
       const col = document.querySelectorAll('.token-week-col')[${tokenHover}];
       const rect = col?.querySelector('.token-week-track')?.getBoundingClientRect();
@@ -206,8 +206,50 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
+  // CMM_QA_MOUSE='<CSS 选择器>'：把指针移到第一个匹配元素的中心（例如 .usage-head），核对悬停才显示的控件。
+  if (process.env.CMM_QA_MOUSE) {
+    const point = await window.webContents.executeJavaScript(`(() => {
+      const rect = document.querySelector(${JSON.stringify(process.env.CMM_QA_MOUSE)})?.getBoundingClientRect();
+      return rect ? { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) } : null;
+    })()`);
+    if (!point) throw new Error(`CMM_QA_MOUSE target not found: ${process.env.CMM_QA_MOUSE}`);
+    window.webContents.sendInputEvent({ type: 'mouseEnter', x: point.x, y: point.y });
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
   window.webContents.invalidate();
   await new Promise((resolve) => setTimeout(resolve, 24));
+  // CMM_QA_MEASURE=1：截图前打印一行 JSON（窗口与内容高度、是否溢出出滚动条、两张额度卡的宽度），
+  // 用来核对「展开明细后宽度会不会变」「GPT / Claude 是否等高」。
+  if (process.env.CMM_QA_MEASURE === '1') {
+    const measure = await window.webContents.executeJavaScript(`(() => {
+      const panel = document.querySelector('.tab-panel.active');
+      const round = (value) => Math.round(value * 10) / 10;
+      const cards = [...document.querySelectorAll('#meters .quota-card')].map((card) => round(card.getBoundingClientRect().width));
+      const tokenCard = document.querySelector('.tab-panel.active .token-card')?.getBoundingClientRect();
+      const attribution = document.querySelector('#meters .quota-attribution')?.getBoundingClientRect();
+      const range = document.getElementById('tokenRange')?.getBoundingClientRect();
+      const head = document.querySelector('.token-head')?.getBoundingClientRect();
+      return {
+        innerHeight: window.innerHeight,
+        panelClient: panel ? panel.clientHeight : null,
+        panelScroll: panel ? panel.scrollHeight : null,
+        scrollbar: panel ? panel.offsetWidth - panel.clientWidth : null,
+        cards,
+        tokenCard: tokenCard ? [round(tokenCard.width), round(tokenCard.height)] : null,
+        attribution: attribution ? [round(attribution.width), round(attribution.height)] : null,
+        tokenRange: range ? [round(range.width), round(range.height)] : null,
+        tokenHead: head ? round(head.height) : null,
+        bodyWidth: round(document.body.getBoundingClientRect().width)
+      };
+    })()`);
+    console.log(`QA_MEASURE ${JSON.stringify({ provider: targetProvider, reportedHeight, ...measure })}`);
+  }
+  // CMM_QA_EVAL='<表达式>'：截图前在页面里求一个表达式的值，打印成一行 QA_EVAL <JSON>，排查样式问题用。
+  if (process.env.CMM_QA_EVAL) {
+    const value = await window.webContents.executeJavaScript(`(() => (${process.env.CMM_QA_EVAL}))()`);
+    console.log(`QA_EVAL ${JSON.stringify(value)}`);
+  }
   const image = await window.webContents.capturePage();
   await fs.writeFile(path.resolve(outputPath), image.toPNG());
   if (motion) {

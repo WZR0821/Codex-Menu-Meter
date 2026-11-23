@@ -79,3 +79,42 @@ test('replacing a transcript with a larger file starts parsing from zero', async
   await fs.rename(replacement, file);
   assert.deepEqual((await readTranscriptFile(file, cache, parseTestLines)).map(e => e.id), [2, 3]);
 });
+
+test('reads zstd-compressed transcripts whole and caches them by file identity', async (context) => {
+  const zlib = require('zlib');
+  const { readTranscriptOnce, exportCompressedCache, importCompressedCache } = require('../src/transcript-reader');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cmm-zst-'));
+  const file = path.join(dir, 'rollout.jsonl.zst');
+  context.after(() => fs.rm(dir, { recursive: true, force: true }));
+
+  // 最后一行没有换行：压缩档的内容是完整的，也要读到。
+  const lines = Array.from({ length: 40 }, (_, index) => JSON.stringify({ id: index + 1, ts: (index + 1) * 100 }));
+  await fs.writeFile(file, zlib.zstdCompressSync(Buffer.from(lines.join('\n'), 'utf8')));
+  const cache = new Map();
+  const entries = await readTranscriptFile(file, cache, parseTestLines, { chunkSize: 64, retainFromTs: 1_000 });
+  assert.deepEqual(entries.map((entry) => entry.id), Array.from({ length: 31 }, (_, index) => index + 10));
+  assert.equal(cache.get(file).compressed, true);
+
+  // 文件没变：直接用缓存，不再解析。
+  const cachedRecord = cache.get(file);
+  const again = await readTranscriptFile(file, cache, () => { throw new Error('should not re-parse'); }, { retainFromTs: 1_000 });
+  assert.equal(again.length, 31);
+  assert.equal(cache.get(file), cachedRecord);
+
+  // 落盘再读回（模拟重启）：按 dev/ino/mtime/size 命中，同样不必解压。
+  const exported = JSON.parse(JSON.stringify(exportCompressedCache(cache, 3_000)));
+  const restored = new Map();
+  assert.equal(importCompressedCache(restored, exported), 1);
+  const fromDisk = await readTranscriptFile(file, restored, () => { throw new Error('should not re-parse'); }, { retainFromTs: 3_000 });
+  assert.deepEqual(fromDisk.map((entry) => entry.id), Array.from({ length: 11 }, (_, index) => index + 30));
+
+  // 一次性读取（历史回填）：全部条目、不进缓存。
+  const once = await readTranscriptOnce(file, parseTestLines, { chunkSize: 50 });
+  assert.equal(once.length, 40);
+
+  // 坏掉的压缩档：读不到就当空，不抛错。
+  const broken = path.join(dir, 'broken.jsonl.zst');
+  await fs.writeFile(broken, Buffer.from('not zstd'));
+  assert.deepEqual(await readTranscriptFile(broken, new Map(), parseTestLines), []);
+  assert.deepEqual(await readTranscriptOnce(broken, parseTestLines), []);
+});

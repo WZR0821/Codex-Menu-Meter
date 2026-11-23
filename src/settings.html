@@ -116,6 +116,24 @@
             <span class="switch"></span>
           </label>
 
+          <label class="setting-row switch-row" for="creditExpiryAlerts">
+            <span>
+              <strong data-i18n="creditExpiryAlerts">重置卡到期提醒</strong>
+              <small data-i18n="creditExpiryAlertsHint">过期前 3 天和 1 天各提醒一次</small>
+            </span>
+            <input id="creditExpiryAlerts" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
+          <label class="setting-row switch-row" for="weeklyResetReminder">
+            <span>
+              <strong data-i18n="weeklyResetReminder">周额度重置前提醒</strong>
+              <small data-i18n="weeklyResetReminderHint">重置前 12 小时还剩 20% 以上时提醒一次</small>
+            </span>
+            <input id="weeklyResetReminder" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+
           <div class="webhook-setup">
             <label class="mobile-link-row" for="webhookUrl">
               <span data-i18n="webhookUrl">推送到手机</span>
@@ -151,9 +169,12 @@
           <label class="setting-row key-row" for="kimiKey" id="kimiKeyRow" hidden>
             <span>
               <strong data-i18n="apiKey">API Key</strong>
-              <small data-i18n="apiKeyHint">仅保存在本机设置文件中</small>
+              <small data-i18n="apiKeyHint">存在钥匙串里</small>
             </span>
-            <input id="kimiKey" class="key-input" type="password" placeholder="sk-kimi-…" autocomplete="off" spellcheck="false" />
+            <span class="key-field">
+              <input id="kimiKey" class="key-input" type="password" placeholder="sk-kimi-…" data-empty-placeholder="sk-kimi-…" autocomplete="off" spellcheck="false" />
+              <button id="kimiKeyClear" class="key-clear" type="button" data-i18n="apiKeyClear" hidden>清除</button>
+            </span>
           </label>
 
           <label class="setting-row switch-row" for="glmEnabled">
@@ -167,9 +188,12 @@
           <label class="setting-row key-row" for="glmKey" id="glmKeyRow" hidden>
             <span>
               <strong data-i18n="apiKey">API Key</strong>
-              <small data-i18n="apiKeyHint">仅保存在本机设置文件中</small>
+              <small data-i18n="apiKeyHint">存在钥匙串里</small>
             </span>
-            <input id="glmKey" class="key-input" type="password" placeholder="API Key" autocomplete="off" spellcheck="false" />
+            <span class="key-field">
+              <input id="glmKey" class="key-input" type="password" placeholder="API Key" data-empty-placeholder="API Key" autocomplete="off" spellcheck="false" />
+              <button id="glmKeyClear" class="key-clear" type="button" data-i18n="apiKeyClear" hidden>清除</button>
+            </span>
           </label>
 
           <label class="setting-row switch-row" for="qwenEnabled">
@@ -284,6 +308,39 @@
           </div>
         </section>
 
+        <section class="settings-section update-section">
+          <p class="section-label" data-i18n="updateSection">更新</p>
+
+          <label class="setting-row switch-row" for="updateCheckEnabled">
+            <span>
+              <strong data-i18n="updateCheck">检查新版本</strong>
+              <small id="updateStatus">--</small>
+            </span>
+            <input id="updateCheckEnabled" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+          <div class="webhook-setup update-foot">
+            <div class="webhook-foot">
+              <small data-i18n="updateCheckHint">查询 GitHub Releases，只提示、不自动安装</small>
+              <button id="updateAction" type="button">立即检查</button>
+            </div>
+          </div>
+
+          <label class="setting-row switch-row" for="priceAutoUpdate">
+            <span>
+              <strong data-i18n="priceAutoUpdate">自动更新价格表</strong>
+              <small id="priceStatus">--</small>
+            </span>
+            <input id="priceAutoUpdate" type="checkbox" />
+            <span class="switch"></span>
+          </label>
+          <div class="webhook-setup update-foot">
+            <div class="webhook-foot">
+              <small data-i18n="priceAutoUpdateHint">每天从 LiteLLM 公开价格表取一次，取不到时用内置价格；旧记录的等价费用也按新价重算</small>
+            </div>
+          </div>
+        </section>
+
         <section class="settings-section action-section">
           <button class="action-row" id="refreshData" type="button">
             <span>
@@ -303,6 +360,13 @@
             <span>
               <strong data-i18n="showApp">显示应用位置</strong>
               <small data-i18n="showAppHint">在访达中定位这个 App</small>
+            </span>
+          </button>
+
+          <button class="action-row" id="copyDiagnostics" type="button">
+            <span>
+              <strong data-i18n="diagnosticsCopy">复制诊断信息</strong>
+              <small data-i18n="diagnosticsHint">反馈问题时贴上；不含用量数字、密钥、推送地址和账号</small>
             </span>
           </button>
 

@@ -27,6 +27,10 @@ contextBridge.exposeInMainWorld('codexMeter', {
   showAppInFolder: () => ipcRenderer.invoke('app:show-in-folder'),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
+  setProviderKey: (id, key) => ipcRenderer.invoke('provider:set-key', id, key),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  openUpdate: () => ipcRenderer.invoke('update:open'),
+  copyDiagnostics: () => ipcRenderer.invoke('diagnostics:copy'),
   onState: (callback) => {
     const listener = (_event, state) => callback(state);
     ipcRenderer.on('state:update', listener);

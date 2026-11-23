@@ -1,5 +1,7 @@
 const I18N = window.CMM_I18N;
 const PROVIDERS = window.CMM_PROVIDERS;
+// 7 天 / 90 天 / 1 年柱状图、对比、分组明细和额度去向的渲染在 src/mobile/cards.js，手机页共用同一份（2.0.0）。
+const CARDS = window.CMM_CARDS;
 const EXTRA_PROVIDER_IDS = PROVIDERS.USAGE_ONLY_PROVIDER_IDS;
 const PROVIDER_LABELS = Object.fromEntries(PROVIDERS.PROVIDERS.map((provider) => [provider.id, provider.switchLabel]));
 const EXTRA_PROVIDER_NAMES = Object.fromEntries(EXTRA_PROVIDER_IDS.map((id) => [id, PROVIDERS.PROVIDER_BY_ID[id].label]));
@@ -335,30 +337,39 @@ els.tokenActivity.addEventListener('keydown', (event) => {
 });
 
 function selectTokenDay(cell) {
-  if (!cell?.dataset.day) return;
-  activeTokenDay = cell.dataset.day;
+  if (cell?.dataset.bucket) {
+    if (!(tokenRange in activeTokenBucket)) return;
+    activeTokenBucket[tokenRange] = cell.dataset.bucket;
+  } else if (cell?.dataset.day) {
+    activeTokenDay = cell.dataset.day;
+  } else {
+    return;
+  }
   activeTokenBar = null;
   hideChartTooltip();
   if (currentState) renderTokenActivity(activeSlices(currentState).activity);
   queuePanelHeightReport({ hold: 180 });
 }
 
-// Token 活动的时间范围：30 天热力图（默认），或 7 天按模型分色的直方图。记在本机，下次打开沿用。
+// Token 活动的时间范围：30 天热力图（默认），7 天按天、90 天按周、1 年按月的分色直方图（2.0.0 加了后两种）。
+// 记在本机，下次打开沿用。
 const TOKEN_RANGE_STORAGE_KEY = 'cmm.tokenRange';
 let tokenRange = readTokenRange();
+// 90 天 / 1 年视图里选中的那一根（key 是「起~止」），按范围分别记；没选过就默认最近一根。
+const activeTokenBucket = { quarter: null, year: null };
 // 只在用户点切换的那一次渲染里为真：7 天柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
 let tokenRangeEnter = false;
 
 function readTokenRange() {
   try {
-    return window.localStorage.getItem(TOKEN_RANGE_STORAGE_KEY) === 'week' ? 'week' : 'month';
+    return CARDS.normalizeRange(window.localStorage.getItem(TOKEN_RANGE_STORAGE_KEY));
   } catch {
     return 'month';
   }
 }
 
 function setTokenRange(range) {
-  const next = range === 'week' ? 'week' : 'month';
+  const next = CARDS.normalizeRange(range);
   if (next === tokenRange) return;
   tokenRange = next;
   try {
@@ -385,10 +396,9 @@ function renderTokenRangeToggle() {
   if (!els.tokenRange) return;
   els.tokenRange.hidden = false;
   els.tokenRange.setAttribute('aria-label', T('tokenRangeAria'));
-  // 选中底块是容器的伪元素，按 data-range 滑到对应按钮下面（1.1.1）
+  // 选中底块是容器的伪元素，按 data-range 滑到对应按钮下面（1.1.1；2.0.0 起四段）
   els.tokenRange.dataset.range = tokenRange;
-  const button = (key, label) => `<button type="button" class="trend-range-button${tokenRange === key ? ' active' : ''}" data-token-range="${key}" aria-pressed="${tokenRange === key}">${escapeHtml(label)}</button>`;
-  updateHtml(els.tokenRange, `${button('week', T('tokenRangeWeek'))}${button('month', T('tokenRangeMonth'))}`);
+  updateHtml(els.tokenRange, CARDS.toggleHtml(tokenRange, lang, 'trend-range-button'));
 }
 
 els.panel.addEventListener('wheel', handlePanelWheel, { passive: true });
@@ -531,14 +541,11 @@ function measurePanelHeight() {
     return bounds.height ? Math.max(lowest, bounds.bottom - top) : lowest;
   }, 0);
   const content = contentBottom + parseFloat(styles.paddingBottom || 0) + activePanel.scrollTop;
-  // 状态行现在放在工具栏的页签行里，工具栏高度已经包含它；只有不在其中时才单独计入。
-  const chromeNodes = els.toolbar?.contains(els.statusLine) ? [els.toolbar] : [els.toolbar, els.statusLine];
-  const chrome = chromeNodes.reduce((sum, node) => {
-    if (!node) return sum;
-    const nodeStyles = getComputedStyle(node);
-    return sum + node.offsetHeight + parseFloat(nodeStyles.marginTop || 0) + parseFloat(nodeStyles.marginBottom || 0);
-  }, 0);
-  return Math.ceil(chrome + content);
+  // 滚动区以外的部分（工具栏、页签、状态行，连同外框的内外边距）直接用窗口高度减去滚动区高度（2.0.0）：
+  // 以前逐个加工具栏的高度，会漏掉外框的边距，报上去的高度比需要的矮一点，内容就溢出、冒出滚动条。
+  const chrome = Math.max(0, window.innerHeight - activePanel.offsetHeight);
+  // 多留 1px：小数取整后也不会差那一点点。
+  return Math.ceil(chrome + content) + 1;
 }
 
 function reportPanelHeight({ force = false } = {}) {
@@ -546,8 +553,9 @@ function reportPanelHeight({ force = false } = {}) {
   const measured = measurePanelHeight();
   if (!measured) return;
   // 始终使用当前可见内容的实际高度，避免展开过模型后切回智力页仍保留大片空白。
+  // 变高哪怕只差 1px 也要报（不然内容被裁、冒出滚动条）；只有很小的变矮才略过，免得来回抖。
   const height = measured;
-  if (!force && Math.abs(height - reportedPanelHeight) < 3) return;
+  if (!force && height <= reportedPanelHeight && reportedPanelHeight - height < 3) return;
   reportedPanelHeight = height;
   window.codexMeter.reportPanelHeight(height);
 }
@@ -716,7 +724,7 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
     renderSection('meters', [slices.usage, slices.activity?.data?.windows, clockBucket, claudeReconnect], () => renderMeters(slices.usage, provider, slices.activity));
     const trendHistory = trendRange === 'week' ? stateValue.usageHistoryWeek?.[provider] : stateValue.usageHistory?.[provider];
     renderSection('trend', [slices.usage, trendRange, trendHistory, clockBucket], () => renderTrend(stateValue, slices.usage, provider));
-    if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, formatIsoDate(new Date()), tokenRange], () => renderTokenActivity(slices.activity));
+    if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, activeTokenBucket[tokenRange], formatIsoDate(new Date()), tokenRange], () => renderTokenActivity(slices.activity));
     return;
   }
   if (!isExtra) {
@@ -733,9 +741,8 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
 // ---- 额度曲线 + 节奏 ----
 
 const PACE = window.CMM_PACE;
-// 7 天直方图的分组、分段和型号写法在 src/mobile/token-week.js，手机页共用同一份。
+// 直方图的分组、分段和型号写法在 src/mobile/token-week.js，手机页共用同一份。
 const TOKEN_WEEK = window.CMM_TOKEN_WEEK;
-const TOKEN_WEEK_DAYS = TOKEN_WEEK.WEEK_DAYS;
 const TREND_W = 372;
 const TREND_H = 92;
 const TREND_PLOT = Object.freeze({ left: 34, right: 7, top: 11, bottom: 19 });
@@ -1254,8 +1261,12 @@ function renderMeters(usageState, provider, activityState) {
       slimRows.push(quotaSlimRowTemplate(windowValue, scopedWindowLabel(windowValue)));
     }
   });
+  // 额度去向（2.0.0）：一整块接在额度卡下面，跟着标题行的「使用明细」按钮一起展开（渲染在 cards.js，手机页同一份）。
+  const attribution = isExtra
+    ? ''
+    : CARDS.attributionHtml(CARDS.attributionModel(usage.secondaryWindow, activityWindows.week), { lang });
   const markup = cards.length || slimRows.length
-    ? `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows">${slimRows.join('')}</div>` : ''}`
+    ? `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows">${slimRows.join('')}</div>` : ''}${attribution}`
     : emptyBlock(T('windowUnavailable'));
   if (updateHtml(els.meters, markup)) animateQuotaNumbers();
 }
@@ -1860,49 +1871,34 @@ function renderTokenActivity(tokenState) {
 
   const heatmap = createTokenHeatmap(activity.days || []);
   const today = heatmap.today;
-  // 7 天视图取热力图的最后 7 天（截至今天），上面的合计、明细里的费用和缓存命中都按这一段算。
-  const weekView = tokenRange === 'week';
-  const rangeDays = weekView ? heatmap.days.slice(-TOKEN_WEEK_DAYS) : heatmap.days;
-  const windowDays = weekView ? TOKEN_WEEK_DAYS : Number(activity.windowDays) || 30;
-  const totalIo = rangeDays.reduce((sum, day) => sum + Number(day.ioTokens || 0), 0);
-  const totalTokens = rangeDays.reduce((sum, day) => sum + Number(day.tokens || 0), 0);
-  const totalInput = rangeDays.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
-  const totalCachedInput = rangeDays.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
-  const selectedDay = rangeDays.find((day) => day.day === activeTokenDay) || today;
+  // 合计、对比和分组都由共用模块按同一张「按天的表」算：近 30 天来自日志，更早的来自落盘的日汇总（2.0.0）。
+  const view = CARDS.buildView(tokenRange, activity);
+  const range = view.range;
+  const chartView = range !== 'month';
+  const dayView = range === 'week' || range === 'month';
+  const totals = view.totals;
+  // 7 天 / 30 天选的是某一天（从热力图的天里找，带项目拆分）；90 天 / 1 年选的是某一段（一周或一个月）。
+  const rangeDayKeys = new Set(range === 'week' ? view.buckets.map((bucket) => bucket.key) : heatmap.days.map((day) => day.day));
+  const selectedDay = dayView
+    ? heatmap.days.find((day) => day.day === activeTokenDay && rangeDayKeys.has(day.day)) || today
+    : null;
+  const selectedBucket = dayView ? null : CARDS.selectedBucket(view, activeTokenBucket[range]);
+  const series = chartView ? CARDS.seriesFor(view) : null;
   const statsHtml = `
     <div>
       <span>${escapeHtml(T('todayUsed'))}</span>
       <strong>${escapeHtml(formatTokenCount(today.tokens))}</strong>
     </div>
     <div>
-      <span>${escapeHtml(T('windowUsed', { n: windowDays }))}</span>
-      <strong>${escapeHtml(formatTokenCount(totalTokens))}</strong>
+      <span class="token-stat-label"><span>${escapeHtml(CARDS.statLabel(view, lang))}</span>${CARDS.changeHtml(view, lang)}</span>
+      <strong>${escapeHtml(formatTokenCount(totals.tokens))}</strong>
     </div>
   `;
-  const detailText = `${formatMonthDay(selectedDay.day)} · ${formatTokenCount(selectedDay.tokens)}`;
-  const detailSessions = T('sessionsCount', { n: Number(selectedDay.threads || 0) });
-  const detailCache = T('cacheHitRate', {
-    v: formatCacheHitRate(selectedDay.cachedInputTokens, selectedDay.inputTokens)
-  });
-  const totalCost = rangeDays.reduce((sum, day) => sum + Number(day.costUsd || 0), 0);
-  const costLine = T('costLine', {
-      today: formatCostUsd(today.costUsd),
-      n: windowDays,
-      total: formatCostUsd(totalCost)
-    });
-  const unpricedTokens = rangeDays.reduce((sum, day) => sum + Number(day.unpricedTokens || 0), 0);
-  const unpricedModels = [...new Set(rangeDays.flatMap((day) => day.unpricedModels || []))];
-  const unpricedLine = unpricedTokens > 0
-    ? T('costUnpriced', {
-        v: formatTokenCount(unpricedTokens),
-        models: unpricedModels.slice(0, 2).map((model) => (model === '?' ? T('modelUnknown') : formatModelName(model))).join(' / ')
-      })
-    : '';
 
-  // 30 天格子区在 7 天视图里也照样排出来、只是藏起来（不可见、不可点、读屏跳过），
-  // 7 天图叠在同一格里、按它的高度排：切换时卡片和面板尺寸都不动。
+  // 30 天格子区在其余视图里也照样排出来、只是藏起来（不可见、不可点、读屏跳过），
+  // 柱状图叠在同一格里、按它的高度排：切换时卡片和面板尺寸都不动。
   const heatmapHtml = `
-      <div class="token-heatmap-wrap"${weekView ? ' inert aria-hidden="true"' : ''}>
+      <div class="token-heatmap-wrap"${chartView ? ' inert aria-hidden="true"' : ''}>
         <div
           class="token-heatmap compact"
           style="--token-cols:${heatmap.columnCount}; --token-rows:${heatmap.rowCount}; --token-gap:${heatmap.gap}px;"
@@ -1910,7 +1906,7 @@ function renderTokenActivity(tokenState) {
         >
           ${heatmap.days.map((day) => `
             <span
-              class="token-heatmap-cell${day.future ? ' future' : ''}${day.day === selectedDay.day ? ' selected' : ''}"
+              class="token-heatmap-cell${day.future ? ' future' : ''}${day.day === (selectedDay || today).day ? ' selected' : ''}"
               tabindex="0"
               role="button"
               data-level="${day.level}"
@@ -1942,30 +1938,32 @@ function renderTokenActivity(tokenState) {
         </div>
       </div>
   `;
+  const chartHtml = chartView
+    ? CARDS.chartHtml(view, {
+        lang,
+        skin: 'desktop',
+        selectedKey: range === 'week' ? selectedDay.day : selectedBucket?.key,
+        series,
+        columnAttrs: tokenColumnAttrs
+      })
+    : '';
 
+  const detailText = dayView
+    ? `${formatMonthDay(selectedDay.day)} · ${formatTokenCount(selectedDay.tokens)}`
+    : CARDS.summaryText(selectedBucket, lang);
   const markup = `
     <section class="token-card">
       <div class="token-stats">${statsHtml}</div>
-      <div class="token-range-stage${weekView ? ' is-week' : ''}${tokenRangeEnter ? ' range-enter' : ''}">
+      <div class="token-range-stage${chartView ? ' is-week' : ''}${tokenRangeEnter ? ' range-enter' : ''}">
         ${heatmapHtml}
-        ${weekView ? tokenWeekChartHtml(rangeDays, selectedDay) : ''}
+        ${chartHtml}
       </div>
       <details class="inline-details token-more" data-detail="token-metrics">
         <summary title="${escapeHtml(T('activityDetails'))}">
           <span class="token-detail"><strong>${escapeHtml(detailText)}</strong></span>
         </summary>
         <div class="disclosure-content">
-          <dl class="detail-metrics">
-            ${detailMetric(T('todayUsed'), T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}
-            ${detailMetric(T('windowUsed', { n: windowDays }), T('ioAmount', { v: formatTokenCount(totalIo, { withUnit: false }) }))}
-            ${detailMetric(T('todayUsed'), T('cacheHitRate', { v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}
-            ${detailMetric(T('windowUsed', { n: windowDays }), T('cacheHitRate', { v: formatCacheHitRate(totalCachedInput, totalInput) }))}
-            ${detailMetric(formatMonthDay(selectedDay.day), `${detailSessions} · ${detailCache}`)}
-          </dl>
-          ${projectBreakdownHtml(selectedDay)}
-          <p class="detail-note">${escapeHtml(costLine)}</p>
-          ${unpricedLine ? `<p class="detail-note">${escapeHtml(unpricedLine)}</p>` : ''}
-          <p class="detail-note">${escapeHtml(T('costHint', { date: formatMonthDay(activity.pricingAsOf || '') }))}</p>
+          ${dayView ? tokenDayDetailHtml(view, today, selectedDay, activity) : CARDS.bucketDetailHtml(view, selectedBucket, { lang, series })}
         </div>
       </details>
     </section>
@@ -1976,56 +1974,54 @@ function renderTokenActivity(tokenState) {
   }
 }
 
-function tokenWeekChartHtml(days, selectedDay) {
-  const series = TOKEN_WEEK.weekSeries(days);
-  const rows = days.map((day) => {
-    const segments = TOKEN_WEEK.weekSegments(day, series);
-    return { day, segments, total: segments.reduce((sum, segment) => sum + segment.value, 0) };
+// 7 天 / 30 天视图的「统计详情」：今天和整个范围的读写、命中率，所选那一天的会话数和项目拆分，加上费用。
+function tokenDayDetailHtml(view, today, selectedDay, activity) {
+  const totals = view.totals;
+  const windowDays = view.dayCount;
+  const detailSessions = T('sessionsCount', { n: Number(selectedDay.threads || 0) });
+  const detailCache = T('cacheHitRate', {
+    v: formatCacheHitRate(selectedDay.cachedInputTokens, selectedDay.inputTokens)
   });
-  const heights = TOKEN_WEEK.barHeights(rows);
-  const legend = [
-    ...series.named.map((name, index) => ({ slot: index + 1, label: name === '?' ? T('modelUnknown') : formatModelName(name) })),
-    ...(series.hasOther ? [{ slot: 'other', label: T('modelGroupOther') }] : [])
-  ];
+  const costLine = T('costLine', {
+    today: formatCostUsd(today.costUsd),
+    n: windowDays,
+    total: formatCostUsd(totals.costUsd)
+  });
+  const unpricedLine = totals.unpricedTokens > 0
+    ? T('costUnpriced', {
+        v: formatTokenCount(totals.unpricedTokens),
+        models: totals.unpricedModels.slice(0, 2).map((model) => (model === '?' ? T('modelUnknown') : formatModelName(model))).join(' / ')
+      })
+    : '';
   return `
-    <div class="token-week" role="group" aria-label="${escapeHtml(T('tokenWeekAria'))}">
-      <div class="token-week-legend">
-        ${legend.map((item) => `<span class="token-week-key" title="${escapeHtml(item.label)}"><i class="token-series-dot series-${item.slot}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span></span>`).join('')}
-      </div>
-      <div class="token-week-plot" style="--token-week-cols:${rows.length}">
-        ${rows.map(({ day, segments }, index) => {
-          const height = heights[index];
-          const models = (day.models || [])
-            .map((model) => ({
-              model: model?.model || '',
-              value: tokenModelValue(model),
-              slot: series.slots.get(String(model?.model || '')) || 'other'
-            }))
-            .filter((model) => model.model && model.value > 0);
-          const selected = day.day === selectedDay.day;
-          const label = `${day.day}${T('colonSep')}${T('usedAmount', { v: formatTokenCount(day.tokens) })}`;
-          return `
-          <span
-            class="token-week-col${selected ? ' selected' : ''}"
-            tabindex="0"
-            role="button"
-            aria-pressed="${selected}"
-            data-day="${escapeHtml(day.day)}"
-            data-tokens="${escapeHtml(T('usedAmount', { v: formatTokenCount(day.tokens) }))}"
-            data-cost="${escapeHtml(cellSecondaryText(day))}"
-            data-cache="${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(day.cachedInputTokens, day.inputTokens) }))}"
-            data-cache-tone="${cacheHitTone(day.cachedInputTokens, day.inputTokens)}"
-            data-models="${escapeHtml(JSON.stringify(models))}"
-            data-threads="${escapeHtml(cellMetaText(day))}"
-            aria-label="${escapeHtml(label)}"
-          >
-            <span class="token-week-track"><span class="token-week-bar" style="height:${height.toFixed(1)}%;--i:${index}">${segments.map((segment) => `<i class="token-week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
-            <span class="token-week-day">${escapeHtml(formatMonthDay(day.day))}</span>
-          </span>`;
-        }).join('')}
-      </div>
-    </div>
+    <dl class="detail-metrics">
+      ${detailMetric(T('todayUsed'), T('ioAmount', { v: formatTokenCount(today.ioTokens, { withUnit: false }) }))}
+      ${detailMetric(T('windowUsed', { n: windowDays }), T('ioAmount', { v: formatTokenCount(totals.ioTokens, { withUnit: false }) }))}
+      ${detailMetric(T('todayUsed'), T('cacheHitRate', { v: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}
+      ${detailMetric(T('windowUsed', { n: windowDays }), T('cacheHitRate', { v: formatCacheHitRate(totals.cachedInputTokens, totals.inputTokens) }))}
+      ${detailMetric(formatMonthDay(selectedDay.day), `${detailSessions} · ${detailCache}`)}
+    </dl>
+    ${projectBreakdownHtml(selectedDay)}
+    <p class="detail-note">${escapeHtml(costLine)}</p>
+    ${unpricedLine ? `<p class="detail-note">${escapeHtml(unpricedLine)}</p>` : ''}
+    <p class="detail-note">${escapeHtml(T('costHint', { date: formatMonthDay(activity.pricingAsOf || '') }))}</p>
   `;
+}
+
+// 柱子悬停提示用的数据：一天的柱子写会话数和型号，一周、一个月的柱子写其中几天有用量。
+function tokenColumnAttrs({ bucket, series }) {
+  const totals = bucket.totals;
+  const meta = bucket.kind === 'day'
+    ? cellMetaText({ threads: totals.threads, models: totals.models })
+    : CARDS.text(lang, 'activeDays', { n: totals.activeDays, total: totals.dayCount });
+  return [
+    `data-tokens="${escapeHtml(T('usedAmount', { v: formatTokenCount(totals.tokens) }))}"`,
+    `data-cost="${escapeHtml(cellSecondaryText(totals))}"`,
+    `data-cache="${escapeHtml(T('cacheHitRate', { v: formatCacheHitRate(totals.cachedInputTokens, totals.inputTokens) }))}"`,
+    `data-cache-tone="${cacheHitTone(totals.cachedInputTokens, totals.inputTokens)}"`,
+    `data-models="${escapeHtml(JSON.stringify(CARDS.tooltipModels(bucket, series)))}"`,
+    `data-threads="${escapeHtml(meta)}"`
+  ].join(' ');
 }
 
 // 单日详情里的项目拆分：横条长度是当天 token 占比，数值和费用写在右侧（文字不用序列色）。
@@ -3026,7 +3022,7 @@ function showChartTooltip(bar, event) {
   if (tooltipBar !== bar) {
     tooltipBar = bar;
     els.chartTooltip.innerHTML = `
-    <strong>${escapeHtml(bar.dataset.day || '-')}</strong>
+    <strong>${escapeHtml(bar.dataset.title || bar.dataset.day || '-')}</strong>
     <span>${escapeHtml(bar.dataset.tokens || '-')}</span>
     ${bar.dataset.cost ? `<span>${escapeHtml(bar.dataset.cost)}</span>` : ''}
     ${bar.dataset.cache ? `<span class="cache-hit-rate ${escapeHtml(bar.dataset.cacheTone || 'cache-hit-neutral')}">${escapeHtml(bar.dataset.cache)}</span>` : ''}
@@ -3202,10 +3198,11 @@ function formatCacheHitRate(cachedInputTokens, inputTokens) {
 function cacheHitTone(cachedInputTokens, inputTokens) {
   const rate = cacheHitPercent(cachedInputTokens, inputTokens);
   if (rate === null) return 'cache-hit-neutral';
-  // 按显示出来的那个数字（保留 1 位小数）判色，否则 98.97% 会显示成 99% 却是黄色。
+  // 按显示出来的那个数字（保留 1 位小数）判色，否则 96.97% 会显示成 97% 却是黄色。
+  // 分界 97 / 93（2.0.0 起，原来是 99 / 95）：上下文封顶和子代理让 Claude 的常态落在 97%–98%。
   const shown = Math.round(rate * 10) / 10;
-  if (shown >= 99) return 'cache-hit-good';
-  if (shown >= 95) return 'cache-hit-warning';
+  if (shown >= 97) return 'cache-hit-good';
+  if (shown >= 93) return 'cache-hit-warning';
   return 'cache-hit-critical';
 }
 

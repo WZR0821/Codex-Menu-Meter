@@ -261,7 +261,8 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
 /* ---- 额度卡 ---- */
 .quota-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
 .quota-grid > .empty,
-.quota-slim-rows { grid-column: 1 / -1; }
+.quota-slim-rows,
+.quota-grid > .quota-attribution { grid-column: 1 / -1; }
 .quota-card {
   --quota-accent: var(--accent);
   --quota-ink: var(--accent-text);
@@ -343,7 +344,13 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
   /* 比标题字高，用负边距让它不撑高标题行 */
   margin: -6px -4px -6px -4px;
   border-radius: 50%;
-  transition: background 120ms ease;
+  transition: background 120ms ease, opacity 160ms ease;
+}
+/* 2.0.0：有鼠标或触控板时和桌面一样，指针移到额度区才出现；手机上没有悬停，一直显示 */
+@media (hover: hover) and (pointer: fine) {
+  .quota-details-toggle { opacity: 0; }
+  #usageView:has(> .usage-head:hover, > .quota-grid:hover) .quota-details-toggle,
+  .quota-details-toggle:focus-visible { opacity: 1; }
 }
 /* 把可点区域撑到 44pt */
 .quota-details-toggle::before { position: absolute; inset: -9px; content: ""; }
@@ -373,6 +380,57 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
 }
 .quota-activity-row b { color: var(--label); font-size: 13px; font-weight: 600; }
 .quota-activity-row .cache-hit-rate { margin-top: 2px; }
+
+/* 2.0.0 额度去向：额度卡下面整宽的一块，跟着标题行的「使用明细」按钮一起展开；收起时不占位置（和桌面一致） */
+.quota-attribution:not([open]) { display: none; }
+.quota-attribution[open] {
+  margin-top: 0;
+  padding: var(--card-pad-y) var(--card-pad-x);
+  border-top: 0;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+}
+.quota-attribution > .disclosure-content { display: grid; gap: 8px; }
+.attribution-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.attribution-head > span { flex: none; color: var(--label); font-size: 13px; font-weight: 600; }
+.attribution-head em {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 16px;
+  vertical-align: 1px;
+}
+.attribution-head > b { min-width: 0; overflow: hidden; color: var(--label-2); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.attribution-rows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+/* 每行：目录名 · 占比条 · 约多少个百分点 · 折合费用；固定三行，不够的空行占位，展开后高度不随项目数变 */
+.attribution-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(48px, 30%) 46px 48px;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  color: var(--label-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.attribution-name { overflow: hidden; color: var(--label); text-overflow: ellipsis; white-space: nowrap; }
+.attribution-bar { height: 5px; overflow: hidden; background: var(--fill); border-radius: 999px; }
+/* 额度去向说的是一周额度，条用一周卡的蓝色 */
+.attribution-bar > i { display: block; height: 100%; background: var(--blue); border-radius: 999px; }
+.attribution-row > b { color: var(--label); font-weight: 600; text-align: right; }
+.attribution-row > small { color: var(--label-2); font-size: 12px; text-align: right; }
+.attribution-row.is-message { grid-template-columns: minmax(0, 1fr); }
+.attribution-row.is-message > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attribution-note { color: var(--label-3); font-size: 12px; line-height: 1.4; }
+@media (max-width: 350px) {
+  .attribution-row { grid-template-columns: minmax(0, 1fr) 40px 44px 44px; gap: 6px; }
+}
 
 /* 专项周限额（例如 Fable）：两张卡下面的一行，名称、重置时间、百分比在上，进度条在下 */
 .quota-slim-rows { overflow: hidden; background: var(--card); border-radius: var(--radius); box-shadow: var(--card-shadow); }
@@ -1213,7 +1271,17 @@ body.service-alert[data-view="usage"] footer { display: none; }
   font-weight: 500;
   white-space: nowrap;
 }
-/* 1.1.1：两个按钮等宽，选中底块是容器上的一块，切换时从一边滑到另一边；选中与否字重一样 */
+/* 1.1.1：按钮等宽，选中底块是容器上的一块，切换时滑到对应按钮下面；选中与否字重一样。
+   2.0.0 起四段（7 天 / 30 天 / 90 天 / 1 年），按钮两侧收窄一点 */
+.token-range .token-range-button { padding: 0 7px; }
+@media (max-width: 400px) {
+  /* 375 宽也要放得下「标题 · 更新时间 · 四段切换」 */
+  .token-range .token-range-button { padding: 0 6px; font-size: 11px; }
+}
+@media (max-width: 350px) {
+  /* 320 宽放不下更新时间；上面额度区的标题行已经写着同一次刷新的时间 */
+  .token-heading > #tokenUpdated { display: none; }
+}
 .token-range {
   position: relative;
   display: inline-grid;
@@ -1225,7 +1293,7 @@ body.service-alert[data-view="usage"] footer { display: none; }
   top: 2px;
   bottom: 2px;
   left: 2px;
-  width: calc((100% - 4px) / 2);
+  width: calc((100% - 4px) / 4);
   border-radius: 6px;
   background: var(--card);
   box-shadow: var(--thumb-shadow);
@@ -1233,6 +1301,8 @@ body.service-alert[data-view="usage"] footer { display: none; }
   content: "";
 }
 .token-range[data-range="month"]::before { transform: translateX(100%); }
+.token-range[data-range="quarter"]::before { transform: translateX(200%); }
+.token-range[data-range="year"]::before { transform: translateX(300%); }
 .token-range-button { position: relative; z-index: 1; }
 
 /* 两种视图叠在同一格：格子区始终参与排版（7 天时只是藏起来），7 天图撑满这一格，
@@ -1262,7 +1332,7 @@ body.service-alert[data-view="usage"] footer { display: none; }
   display: grid;
   flex: 1 1 0;
   min-height: 0;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--week-cols, 7), minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr);
   column-gap: 4px;
   /* 七根柱子往中间收一点；基线铺满整卡宽，紧贴柱子底部（日期 12px + 间隙 4px 之上） */
@@ -1312,6 +1382,17 @@ body.service-alert[data-view="usage"] footer { display: none; }
   font-variant-numeric: tabular-nums;
 }
 .week-col.active .week-day { color: var(--label); font-weight: 600; }
+/* 2.0.0：90 天（13 根，每根一周）和 1 年（12 根，每根一个月）柱子多，两侧和柱间都收窄；
+   刻度隔几根写一个，写出来的可以伸出本列、居中不截断（左右相邻的刻度都空着），选中的那根一定写出来（和桌面一致） */
+.week-plot.sparse { column-gap: 3px; padding: 0 10px; }
+.week-plot.sparse .week-day { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
+.week-day.is-blank { visibility: hidden; }
+
+/* 2.0.0：统计数字的标签后面跟一个和上一段同样长时间的对比（↑12%），只是信息，不用红绿 */
+.token-summary .token-stat-label { display: flex; align-items: baseline; gap: 5px; min-width: 0; white-space: nowrap; }
+.token-summary .token-stat-label > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.range-change { flex: none; color: var(--label-2); font-size: 12px; font-style: normal; font-weight: 500; font-variant-numeric: tabular-nums; }
+.range-change.flat { color: var(--label-3); }
 
 /* 1.1.1：切换 7 天 / 30 天时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入。
    只在点切换的那次渲染带 range-enter，后台刷新不重播；减少动态效果时由文件里的全局规则关掉。 */
@@ -1324,11 +1405,14 @@ body.service-alert[data-view="usage"] footer { display: none; }
 .token-stage.range-enter .week-legend { animation: token-range-fade 240ms ease both; }
 .token-stage.range-enter:not(.is-week) > .heatmap { animation: token-range-fade 260ms ease both; }
 
-.week-models { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
-.week-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
-.week-models span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.week-models em { color: var(--label-3); font-style: normal; }
-.week-models b { color: var(--label); font-weight: 600; }
+/* 某一天 / 某一段里的模型拆分，颜色和柱子一致（2.0.0 起和桌面同一份标记） */
+.range-models { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
+.disclosure-content > .range-models { margin-top: 10px; }
+.range-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
+.range-models span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.range-models em { color: var(--label-3); font-style: normal; font-variant-numeric: tabular-nums; }
+.range-models b { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
+.range-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-color); }
 
 @media (max-height: 600px) {
   /* 和 30 天格子原来在这一档的上边距一样 */

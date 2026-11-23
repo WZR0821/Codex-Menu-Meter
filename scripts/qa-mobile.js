@@ -235,6 +235,62 @@ app.whenReady().then(async () => {
   await capture('usage-week-compact', { singleScreen: true });
   await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="month"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 300));
+  // 2.0.0：90 天（按周）和一年（按月）两个视图，两个平台、三种尺寸都要一屏放完。
+  for (const [providerKey, prefix] of [['codex', 'usage'], ['claude', 'claude-usage']]) {
+    await window.webContents.executeJavaScript(`document.querySelector('[data-provider="${providerKey}"]').click()`);
+    for (const [width, height, suffix] of [[390, 844, ''], [375, 667, '-compact'], [320, 568, '-narrow']]) {
+      window.setSize(width, height);
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      for (const range of ['quarter', 'year']) {
+        await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${range}"]').click()`);
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        await capture(`${prefix}-${range}${suffix}`, { singleScreen: true });
+      }
+    }
+  }
+  // 90 天视图点一根柱子、展开详情：看那一周的模型构成；再展开额度明细，看额度去向。
+  window.setSize(390, 844);
+  await window.webContents.executeJavaScript(`document.querySelector('[data-provider="codex"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="quarter"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  const bucketDetail = await window.webContents.executeJavaScript(`(() => {
+    const cols = document.querySelectorAll('.week-col');
+    cols[cols.length - 3]?.click();
+    const more = document.querySelector('.token-more');
+    if (more) more.open = true;
+    return {
+      cols: cols.length,
+      selected: document.querySelector('.week-col.active')?.dataset.bucket || null,
+      summary: document.querySelector('#tokenCard .token-summary')?.textContent.replace(/\s+/g, ' ').trim() || null
+    };
+  })()`);
+  console.log(`usage-quarter-detail: ${JSON.stringify(bucketDetail)}`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-quarter-detail');
+  await window.webContents.executeJavaScript(`(() => {
+    const more = document.querySelector('.token-more');
+    if (more) more.open = false;
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const attribution = await window.webContents.executeJavaScript(`(() => {
+    window.scrollTo(0, 0);
+    document.getElementById('quotaDetailsToggle').click();
+    const block = document.querySelector('.quota-attribution');
+    return block ? {
+      open: block.open,
+      rows: [...block.querySelectorAll('.attribution-row')].map((row) => row.textContent.replace(/\s+/g, ' ').trim())
+    } : null;
+  })()`);
+  console.log(`usage-quota-open: ${JSON.stringify(attribution)}`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-quota-open');
+  await window.webContents.executeJavaScript(`(() => {
+    document.getElementById('quotaDetailsToggle').click();
+    document.querySelector('[data-token-range="month"]').click();
+    window.scrollTo(0, 0);
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 600));
   window.setSize(320, 568);
   await new Promise((resolve) => setTimeout(resolve, 450));
   await window.webContents.executeJavaScript(`document.querySelector('[data-view="radar"]').click()`);

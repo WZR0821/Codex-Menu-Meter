@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies (no Electron binary needed for tests)
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm run lint
+      - run: npm test
+
+  package-macos:
+    name: Package and smoke test (Apple Silicon)
+    # 和本机打包用的 Xcode 16 同一代工具链（Touch Bar 助手要链接 SDK 里的 DFRFoundation 桩）。
+    runs-on: macos-15
+    needs: test
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build native helpers
+        run: npm run build:native
+      - name: Package (arm64, ad-hoc signed app directory)
+        run: ./node_modules/.bin/electron-builder --mac --dir --arm64 --publish never --config.directories.output="$RUNNER_TEMP/cmm-build"
+      - name: Verify bundle
+        run: |
+          APP="$RUNNER_TEMP/cmm-build/mac-arm64/Codex Menu Meter.app"
+          xattr -cr "$APP"
+          codesign --verify --deep --strict "$APP"
+          test -f "$APP/Contents/Resources/app.asar"
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh "$RUNNER_TEMP/cmm-build/mac-arm64/Codex Menu Meter.app"

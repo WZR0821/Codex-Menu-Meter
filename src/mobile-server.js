@@ -21,6 +21,7 @@ const STATIC_FILES = new Map([
   ['/mobile/cloud-sync-crypto.js', 'cloud-sync-crypto.js'],
   ['/mobile/usage-pace.js', 'usage-pace.js'],
   ['/mobile/token-week.js', 'token-week.js'],
+  ['/mobile/cards.js', 'cards.js'],
   ['/mobile/mobile.js', 'mobile.js'],
   ['/mobile/manifest.webmanifest', 'manifest.webmanifest'],
   ['/mobile/icon.svg', 'icon.svg'],
@@ -126,6 +127,65 @@ function sanitizeUsageSlice(slice) {
   };
 }
 
+// 手机页的 90 天 / 1 年视图要更早的日汇总（2.0.0）：主进程最多给近一年里 30 天以前的部分（约 336 天）。
+// 只带画柱子和明细要用的字段，每天的模型最多 6 个，免得快照太大（云端上传上限 1 MB）。
+const HISTORY_PAYLOAD_DAYS = 340;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function sanitizeDayModels(models, limit) {
+  return Array.isArray(models) ? models.slice(0, limit).map((model) => ({
+    model: String(model?.model || ''),
+    value: safeNumber(model?.value ?? model?.tokens ?? model?.weighted) || 0
+  })).filter((model) => model.model) : [];
+}
+
+function sanitizeUnpriced(target, day) {
+  const unpricedTokens = safeNumber(day?.unpricedTokens) || 0;
+  if (unpricedTokens > 0) {
+    target.unpricedTokens = unpricedTokens;
+    target.unpricedModels = Array.isArray(day.unpricedModels) ? day.unpricedModels.slice(0, 4).map(String) : [];
+  }
+  return target;
+}
+
+function sanitizeActivityDay(day) {
+  return sanitizeUnpriced({
+    day: String(day.day || ''),
+    future: Boolean(day.future),
+    value: safeNumber(day.value) || 0,
+    tokens: safeNumber(day.tokens) || 0,
+    ioTokens: safeNumber(day.ioTokens) || 0,
+    inputTokens: safeNumber(day.inputTokens),
+    cachedInputTokens: safeNumber(day.cachedInputTokens),
+    threads: safeNumber(day.threads) || 0,
+    costUsd: safeNumber(day.costUsd) || 0,
+    models: sanitizeDayModels(day.models, 24)
+  }, day);
+}
+
+function sanitizeHistoryDay(day) {
+  return sanitizeUnpriced({
+    day: String(day.day),
+    tokens: safeNumber(day.tokens) || 0,
+    ioTokens: safeNumber(day.ioTokens) || 0,
+    inputTokens: safeNumber(day.inputTokens),
+    cachedInputTokens: safeNumber(day.cachedInputTokens),
+    costUsd: safeNumber(day.costUsd) || 0,
+    models: sanitizeDayModels(day.models, 6)
+  }, day);
+}
+
+function sanitizeActivityHistory(history) {
+  if (!history || typeof history !== 'object') return null;
+  return {
+    status: history.status === 'ready' ? 'ready' : 'pending',
+    coverageStart: ISO_DAY.test(String(history.coverageStart || '')) ? String(history.coverageStart) : null,
+    days: Array.isArray(history.days)
+      ? history.days.filter((day) => ISO_DAY.test(String(day?.day || ''))).slice(-HISTORY_PAYLOAD_DAYS).map(sanitizeHistoryDay)
+      : []
+  };
+}
+
 function sanitizeActivitySlice(slice) {
   const data = slice?.data;
   return {
@@ -136,32 +196,36 @@ function sanitizeActivitySlice(slice) {
       source: data.source ? String(data.source) : null,
       units: data.units ? String(data.units) : null,
       windowDays: safeNumber(data.windowDays),
+      pricingAsOf: ISO_DAY.test(String(data.pricingAsOf || '')) ? String(data.pricingAsOf) : null,
       windows: data.windows ? {
         fiveHour: sanitizeActivityWindow(data.windows.fiveHour),
         week: sanitizeActivityWindow(data.windows.week)
       } : null,
-      days: Array.isArray(data.days) ? data.days.slice(-30).map((day) => ({
-        day: String(day.day || ''),
-        future: Boolean(day.future),
-        value: safeNumber(day.value) || 0,
-        tokens: safeNumber(day.tokens) || 0,
-        ioTokens: safeNumber(day.ioTokens) || 0,
-        inputTokens: safeNumber(day.inputTokens),
-        cachedInputTokens: safeNumber(day.cachedInputTokens),
-        threads: safeNumber(day.threads) || 0,
-        costUsd: safeNumber(day.costUsd) || 0,
-        models: Array.isArray(day.models) ? day.models.slice(0, 24).map((model) => ({
-          model: String(model?.model || ''),
-          value: safeNumber(model?.value ?? model?.tokens ?? model?.weighted) || 0
-        })).filter((model) => model.model) : []
-      })) : []
+      days: Array.isArray(data.days) ? data.days.slice(-30).map(sanitizeActivityDay) : [],
+      history: sanitizeActivityHistory(data.history)
     } : null
+  };
+}
+
+// 额度去向（2.0.0）：周窗口里本机记录的等价费用和前两个项目（其余并成一行）。
+function sanitizeAttribution(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    costUsd: safeNumber(value.costUsd) || 0,
+    pricedTokens: safeNumber(value.pricedTokens) || 0,
+    unpricedTokens: safeNumber(value.unpricedTokens) || 0,
+    projects: Array.isArray(value.projects) ? value.projects.slice(0, 4).map((row) => ({
+      name: row?.name ? String(row.name).slice(0, 80) : null,
+      other: safeNumber(row?.other) || 0,
+      costUsd: safeNumber(row?.costUsd) || 0,
+      tokens: safeNumber(row?.tokens) || 0
+    })) : []
   };
 }
 
 function sanitizeActivityWindow(windowValue) {
   if (!windowValue || typeof windowValue !== 'object') return null;
-  return {
+  const sanitized = {
     startAt: safeNumber(windowValue.startAt),
     endAt: safeNumber(windowValue.endAt),
     basis: windowValue.basis === 'cycle' ? 'cycle' : 'rolling',
@@ -171,6 +235,9 @@ function sanitizeActivityWindow(windowValue) {
     cachedInputTokens: safeNumber(windowValue.cachedInputTokens),
     threads: safeNumber(windowValue.threads) || 0
   };
+  const attribution = sanitizeAttribution(windowValue.attribution);
+  if (attribution) sanitized.attribution = attribution;
+  return sanitized;
 }
 
 function sanitizeIqItem(item) {

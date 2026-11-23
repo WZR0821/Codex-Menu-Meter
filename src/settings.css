@@ -224,6 +224,16 @@ select {
   font-size: 11.5px;
 }
 
+.key-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.key-clear[hidden] {
+  display: none;
+}
+
 .key-input:focus {
   outline: none;
   border-color: rgba(255, 112, 132, 0.55);

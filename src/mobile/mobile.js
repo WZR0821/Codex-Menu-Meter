@@ -126,7 +126,7 @@ const TEXT = {
     totalWeek: '近 7 天',
     io: '读写 {value}',
     cacheHit: '缓存命中率 {value}',
-    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例；≥99% 绿色，95–99% 黄色，<95% 红色',
+    cacheHitHint: '缓存读取 Token 占总输入 Token 的比例；≥97% 绿色，93–97% 黄色，<93% 红色',
     windowUsage5h: '5h Token',
     windowUsageWeek: '周 Token',
     totalShort: '总 {value}',
@@ -322,7 +322,7 @@ const TEXT = {
     totalWeek: 'Last 7 days',
     io: 'I/O {value}',
     cacheHit: 'Cache hit {value}',
-    cacheHitHint: 'Cached input as a share of all input; green at 99% and above, yellow at 95–99%, red below 95%',
+    cacheHitHint: 'Cached input as a share of all input; green at 97% and above, yellow at 93–97%, red below 93%',
     windowUsage5h: '5h Token',
     windowUsageWeek: 'Week Token',
     totalShort: 'Total {value}',
@@ -517,7 +517,7 @@ const TEXT = {
     totalWeek: '直近 7 日',
     io: '読み書き {value}',
     cacheHit: 'キャッシュヒット率 {value}',
-    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合。99% 以上は緑、95–99% は黄、95% 未満は赤',
+    cacheHitHint: '全入力 Token に占めるキャッシュ読み取りの割合。97% 以上は緑、93–97% は黄、93% 未満は赤',
     windowUsage5h: '5h Token',
     windowUsageWeek: '週間 Token',
     totalShort: '合計 {value}',
@@ -660,14 +660,19 @@ const radarSortByProvider = {};
 const radarExpandedByProvider = {};
 const radarLatestByProvider = {};
 const selectedDayByProvider = {};
-// Token 活动看近 7 天还是近 30 天（1.1.0）。只记在这台手机的浏览器里，读不到就按 30 天。
+// 90 天 / 1 年视图里选中的那一根（key 是「起~止」），按平台、按范围分别记；没选过就默认最近一根。
+const selectedBucketByProvider = {};
+// Token 活动看近 7 天、30 天、90 天还是 1 年（1.1.0 起；2.0.0 加了后两种）。只记在这台手机的浏览器里，读不到就按 30 天。
 const TOKEN_RANGE_KEY = 'cmm-mobile-token-range';
 const TOKEN_WEEK = window.CMM_TOKEN_WEEK;
+// 柱状图、对比、分组明细和额度去向的渲染和桌面面板共用 cards.js（2.0.0）。
+const CARDS = window.CMM_CARDS;
 let tokenRange = readTokenRange();
-// 只在用户点切换的那一次渲染里为真：7 天柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
+// 只在用户点切换的那一次渲染里为真：柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
 let tokenRangeEnter = false;
-// 7 天图当前的模型分组，点某一天时用它给详情里的模型上色。
+// 柱状图当前的模型分组和那一份数据，点某一天时用它给详情里的模型上色。
 let currentWeekSeries = null;
+let currentTokenView = null;
 const sectionSignatures = new Map();
 const renderedMarkup = new WeakMap();
 const disclosureState = new Map();
@@ -1104,7 +1109,7 @@ function render() {
     renderSection('usage', [providerData.usage, providerData.activity?.data?.windows, minuteStamp()], () => renderUsage(providerData.usage, providerData.activity));
     renderServiceBanner(providerData.serviceStatus, provider === 'claude' ? 'Claude' : 'OpenAI');
     if (hasActivity) {
-      renderSection('activity', [providerData.activity, selectedDayByProvider[provider], isoDate(new Date()), tokenRange], () => renderActivity(providerData.activity));
+      renderSection('activity', [providerData.activity, selectedDayByProvider[provider], selectedBucketByProvider[provider]?.[tokenRange], isoDate(new Date()), tokenRange], () => renderActivity(providerData.activity));
     }
     renderSection('pace', [providerData.usage?.data, providerData.history?.day?.at(-1)?.t, minuteStamp()], () => renderPaceCard(providerData.usage?.data, providerData.history));
     fitPaceCard();
@@ -1179,7 +1184,13 @@ function renderUsage(usageSlice, activitySlice) {
       slimRows.push(quotaSlimRowTemplate(windowValue, name || T('labelWeek'), name && !compact ? T('labelWeek') : ''));
     }
   });
-  const markup = `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows${compact ? ' compact' : ''}">${slimRows.join('')}</div>` : ''}`;
+  // 额度去向（2.0.0）：一整块接在额度卡下面，跟着标题行的「使用明细」按钮一起展开（渲染在 cards.js，和桌面同一份）。
+  const attribution = isExtra
+    ? ''
+    : CARDS.attributionHtml(CARDS.attributionModel(usage.secondaryWindow, activityWindows.week), { lang });
+  const markup = cards.length || slimRows.length
+    ? `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows${compact ? ' compact' : ''}">${slimRows.join('')}</div>` : ''}${attribution}`
+    : '';
   updateHtml(els.quotaGrid, markup || empty(usageSlice?.error));
 }
 
@@ -1586,23 +1597,42 @@ function renderActivity(activitySlice) {
   els.tokenUpdated.textContent = formatUpdated(activitySlice?.fetchedAt);
   if (!activity) {
     els.tokenRange.hidden = true;
+    currentTokenView = null;
+    currentWeekSeries = null;
     updateHtml(els.tokenCard, empty(activitySlice?.error));
     return;
   }
   renderTokenRangeToggle();
-  const weekView = tokenRange === 'week';
+  // 合计、对比和分组都由共用模块按同一张「按天的表」算：近 30 天来自日志，更早的来自电脑上落盘的日汇总（2.0.0）。
+  const view = CARDS.buildView(tokenRange, activity);
+  const range = view.range;
+  const chartView = range !== 'month';
+  const dayView = range === 'week' || range === 'month';
   const days = normalizeDays(activity.days || []);
-  // 7 天视图只看最近 7 天：合计、读写、命中率和可选的日期都跟着收窄。
-  const rangeDays = weekView ? days.slice(-TOKEN_WEEK.WEEK_DAYS) : days;
+  // 7 天 / 30 天选的是某一天；90 天 / 1 年选的是某一段（一周或一个月）。
+  const rangeDays = range === 'week' ? days.slice(-TOKEN_WEEK.WEEK_DAYS) : days;
   const today = days.at(-1) || emptyDay(new Date());
-  const selectedDay = rangeDays.find((day) => day.day === selectedDayByProvider[provider]) || today;
-  const total = rangeDays.reduce((sum, day) => sum + day.tokens, 0);
-  const totalIo = rangeDays.reduce((sum, day) => sum + day.ioTokens, 0);
-  const totalInput = rangeDays.reduce((sum, day) => sum + Number(day.inputTokens || 0), 0);
-  const totalCachedInput = rangeDays.reduce((sum, day) => sum + Number(day.cachedInputTokens || 0), 0);
+  const selectedDay = dayView ? rangeDays.find((day) => day.day === selectedDayByProvider[provider]) || today : null;
+  const selectedBucket = dayView ? null : CARDS.selectedBucket(view, selectedBucketByProvider[provider]?.[range]);
+  const totals = view.totals;
   const max = Math.max(1, ...days.map((day) => day.tokens));
-  if (!weekView) currentWeekSeries = null;
-  // 30 天格子在 7 天视图里照样排出来、只是藏起来，7 天图叠在同一格里按它的高度排：切换时卡片尺寸不动。
+  currentTokenView = view;
+  currentWeekSeries = chartView ? CARDS.seriesFor(view) : null;
+  // 30 天格子在其余视图里照样排出来、只是藏起来，柱状图叠在同一格里按它的高度排：切换时卡片尺寸不动。
+  const totalLabel = T(range === 'week' ? 'totalWeek' : 'total');
+  const detailBody = dayView
+    ? `
+        <dl class="detail-metrics">
+          ${detailMetric(T('today'), T('io', { value: formatTokens(today.ioTokens, false) }))}
+          ${detailMetric(totalLabel, T('io', { value: formatTokens(totals.ioTokens, false) }))}
+          ${detailMetric(T('today'), T('cacheHit', { value: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}
+          ${detailMetric(totalLabel, T('cacheHit', { value: formatCacheHitRate(totals.cachedInputTokens, totals.inputTokens) }))}
+        </dl>
+        <div class="selected-day-detail" id="tokenDetail">${tokenDetailHtml(selectedDay)}</div>`
+    : CARDS.bucketDetailHtml(view, selectedBucket, { lang, series: currentWeekSeries });
+  const summaryText = dayView
+    ? `${formatDay(selectedDay.day)} · ${formatTokens(selectedDay.tokens)}`
+    : CARDS.summaryText(selectedBucket, lang);
 
   updateHtml(els.tokenCard, `
     <div class="token-summary">
@@ -1611,15 +1641,15 @@ function renderActivity(activitySlice) {
         <strong>${tokenValueHtml(today.tokens)}</strong>
       </div>
       <div>
-        <span>${escapeHtml(T(weekView ? 'weekUsed' : 'windowUsed'))}</span>
-        <strong>${tokenValueHtml(total)}</strong>
+        <span class="token-stat-label"><span>${escapeHtml(CARDS.statLabel(view, lang))}</span>${CARDS.changeHtml(view, lang)}</span>
+        <strong>${tokenValueHtml(totals.tokens)}</strong>
       </div>
     </div>
-    <div class="token-stage${weekView ? ' is-week' : ''}${tokenRangeEnter ? ' range-enter' : ''}">
-    <div class="heatmap"${weekView ? ' inert aria-hidden="true"' : ''}>
+    <div class="token-stage${chartView ? ' is-week' : ''}${tokenRangeEnter ? ' range-enter' : ''}">
+    <div class="heatmap"${chartView ? ' inert aria-hidden="true"' : ''}>
       ${days.map((day) => `
         <button
-          class="heat-cell${day.day === selectedDay.day ? ' active' : ''}"
+          class="heat-cell${day.day === (selectedDay || today).day ? ' active' : ''}"
           type="button"
           data-day="${escapeHtml(day.day)}"
           data-level="${heatLevel(day.tokens, max)}"
@@ -1627,18 +1657,16 @@ function renderActivity(activitySlice) {
         >${escapeHtml(day.day.slice(-2).replace(/^0/, ''))}</button>
       `).join('')}
     </div>
-    ${weekView ? weekChartHtml(rangeDays, selectedDay) : ''}
+    ${chartView ? CARDS.chartHtml(view, {
+      lang,
+      skin: 'mobile',
+      selectedKey: range === 'week' ? selectedDay.day : selectedBucket?.key,
+      series: currentWeekSeries
+    }) : ''}
     </div>
     <details class="inline-details token-more" data-detail="token-metrics">
-      <summary><span id="selectedDayLabel">${escapeHtml(`${formatDay(selectedDay.day)} · ${formatTokens(selectedDay.tokens)}`)}</span></summary>
-      <div class="disclosure-content">
-        <dl class="detail-metrics">
-          ${detailMetric(T('today'), T('io', { value: formatTokens(today.ioTokens, false) }))}
-          ${detailMetric(T(weekView ? 'totalWeek' : 'total'), T('io', { value: formatTokens(totalIo, false) }))}
-          ${detailMetric(T('today'), T('cacheHit', { value: formatCacheHitRate(today.cachedInputTokens, today.inputTokens) }))}
-          ${detailMetric(T(weekView ? 'totalWeek' : 'total'), T('cacheHit', { value: formatCacheHitRate(totalCachedInput, totalInput) }))}
-        </dl>
-        <div class="selected-day-detail" id="tokenDetail">${tokenDetailHtml(selectedDay)}</div>
+      <summary><span id="selectedDayLabel">${escapeHtml(summaryText)}</span></summary>
+      <div class="disclosure-content">${detailBody}
       </div>
     </details>
   `);
@@ -1646,7 +1674,7 @@ function renderActivity(activitySlice) {
 
 function readTokenRange() {
   try {
-    return localStorage.getItem(TOKEN_RANGE_KEY) === 'week' ? 'week' : 'month';
+    return CARDS.normalizeRange(localStorage.getItem(TOKEN_RANGE_KEY));
   } catch {
     return 'month';
   }
@@ -1655,85 +1683,19 @@ function readTokenRange() {
 function renderTokenRangeToggle() {
   els.tokenRange.hidden = false;
   els.tokenRange.setAttribute('aria-label', T('tokenRangeAria'));
-  // 选中底块是容器的伪元素，按 data-range 滑到对应按钮下面（1.1.1）
+  // 选中底块是容器的伪元素，按 data-range 滑到对应按钮下面（1.1.1；2.0.0 起四段，按钮和桌面同一份）
   els.tokenRange.dataset.range = tokenRange;
-  els.tokenRange.innerHTML = ['week', 'month'].map((range) => `
-    <button
-      class="token-range-button${range === tokenRange ? ' active' : ''}"
-      type="button"
-      data-token-range="${range}"
-      aria-pressed="${range === tokenRange}"
-    >${escapeHtml(T(range === 'week' ? 'tokenRangeWeek' : 'tokenRangeMonth'))}</button>
-  `).join('');
+  const markup = CARDS.toggleHtml(tokenRange, lang, 'token-range-button');
+  if (els.tokenRange.innerHTML !== markup) els.tokenRange.innerHTML = markup;
 }
 
-function weekModelLabel(name) {
-  return name === '?' ? T('modelUnknown') : TOKEN_WEEK.formatModelName(name) || T('modelUnknown');
-}
-
-function shortMonthDay(day) {
-  const [, month, date] = String(day).split('-');
-  return `${Number(month)}/${Number(date)}`;
-}
-
-// 近 7 天直方图：每天一根柱子，按模型分段上色（前三个模型各一色，其余灰色「其他」），和桌面面板同一套编号。
-// 点柱子选中那一天，下面的「统计详情」跟着换；柱子的颜色说明写在上方图例里。
-function weekChartHtml(days, selectedDay) {
-  const series = TOKEN_WEEK.weekSeries(days);
-  currentWeekSeries = series;
-  const rows = days.map((day) => {
-    const segments = TOKEN_WEEK.weekSegments(day, series);
-    return { day, segments, total: segments.reduce((sum, segment) => sum + segment.value, 0) };
-  });
-  const heights = TOKEN_WEEK.barHeights(rows);
-  const legend = [
-    ...series.named.map((name, index) => ({ slot: index + 1, label: weekModelLabel(name) })),
-    ...(series.hasOther ? [{ slot: 'other', label: T('modelGroupOther') }] : [])
-  ];
-  return `
-    <div class="week-chart" role="group" aria-label="${escapeHtml(T('tokenWeekAria'))}">
-      <div class="week-legend">
-        ${legend.map((item) => `<span class="week-key"><i class="series-dot series-${item.slot}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span></span>`).join('')}
-      </div>
-      <div class="week-plot">
-        ${rows.map(({ day, segments }, index) => {
-          const selected = day.day === selectedDay.day;
-          return `
-          <button
-            class="week-col${selected ? ' active' : ''}"
-            type="button"
-            data-day="${escapeHtml(day.day)}"
-            aria-pressed="${selected}"
-            aria-label="${escapeHtml(`${formatDay(day.day)} · ${formatTokens(day.tokens)}`)}"
-          >
-            <span class="week-track"><span class="week-bar" style="height:${heights[index].toFixed(1)}%;--i:${index}">${segments.map((segment) => `<i class="week-seg series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
-            <span class="week-day">${escapeHtml(shortMonthDay(day.day))}</span>
-          </button>`;
-        }).join('')}
-      </div>
-    </div>
-  `;
-}
-
-// 7 天视图下，所选那天的详情多列一份按模型的拆分（颜色和柱子一致，数字用正文色）。
-function weekModelsHtml(day) {
-  const series = currentWeekSeries;
-  if (!series || !(day.tokens > 0)) return '';
-  const segments = TOKEN_WEEK.weekSegments(day, series);
-  if (!segments.length) return '';
-  const names = new Map(series.named.map((name, index) => [index + 1, weekModelLabel(name)]));
-  return `
-    <ul class="week-models">
-      ${segments.map((segment) => {
-        const share = Math.round((segment.value / day.tokens) * 1000) / 10;
-        return `<li><i class="series-dot series-${segment.slot}" aria-hidden="true"></i><span>${escapeHtml(names.get(segment.slot) || T('modelGroupOther'))}</span><em>${escapeHtml(`${share}%`)}</em><b>${escapeHtml(formatTokens(segment.value))}</b></li>`;
-      }).join('')}
-    </ul>
-  `;
-}
-
+// 7 天视图下，所选那天的详情多列一份按模型的拆分（颜色和柱子一致，渲染在 cards.js，和桌面同一份）。
 function tokenDetailHtml(day) {
-  return tokenDetailTemplate(day) + (tokenRange === 'week' ? weekModelsHtml(day) : '');
+  const bucket = tokenRange === 'week' && currentTokenView
+    ? currentTokenView.buckets.find((item) => item.key === day.day)
+    : null;
+  const models = bucket ? CARDS.modelsHtml(bucket.totals, { lang, series: currentWeekSeries }) : '';
+  return tokenDetailTemplate(day) + models;
 }
 
 function normalizeDays(rawDays) {
@@ -2455,10 +2417,11 @@ function formatCacheHitRate(cachedInputTokens, inputTokens) {
 function cacheHitTone(cachedInputTokens, inputTokens) {
   const rate = cacheHitPercent(cachedInputTokens, inputTokens);
   if (rate === null) return 'cache-hit-neutral';
-  // 按显示出来的那个数字（保留 1 位小数）判色，否则 98.97% 会显示成 99% 却是黄色。
+  // 按显示出来的那个数字（保留 1 位小数）判色，否则 96.97% 会显示成 97% 却是黄色。
+  // 分界 97 / 93（2.0.0 起，原来是 99 / 95），和桌面面板一致。
   const shown = Math.round(rate * 10) / 10;
-  if (shown >= 99) return 'cache-hit-good';
-  if (shown >= 95) return 'cache-hit-warning';
+  if (shown >= 97) return 'cache-hit-good';
+  if (shown >= 93) return 'cache-hit-warning';
   return 'cache-hit-critical';
 }
 
@@ -2540,7 +2503,7 @@ els.latestModelsFilter.addEventListener('click', () => {
 els.tokenRange.addEventListener('click', (event) => {
   const button = event.target.closest('[data-token-range]');
   if (!button) return;
-  const next = button.dataset.tokenRange === 'week' ? 'week' : 'month';
+  const next = CARDS.normalizeRange(button.dataset.tokenRange);
   if (next === tokenRange) return;
   tokenRange = next;
   try {
@@ -2556,6 +2519,14 @@ els.tokenRange.addEventListener('click', (event) => {
 els.tokenCard.addEventListener('click', (event) => {
   const cell = event.target.closest('.heat-cell, .week-col');
   if (!cell || !currentState) return;
+  // 90 天 / 1 年的柱子是一段时间：记下选中哪一段，整块重画（明细换成那一段的）。
+  if (cell.dataset.bucket) {
+    const keys = selectedBucketByProvider[provider] || (selectedBucketByProvider[provider] = {});
+    if (keys[tokenRange] === cell.dataset.bucket) return;
+    keys[tokenRange] = cell.dataset.bucket;
+    render();
+    return;
+  }
   const activity = currentState.providers?.[provider]?.activity?.data;
   const day = normalizeDays(activity?.days || []).find((item) => item.day === cell.dataset.day);
   if (!day) return;

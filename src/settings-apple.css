@@ -262,6 +262,27 @@ body.settings-surface.light-theme.apple-theme .webhook-foot button {
 }
 body.settings-surface.light-theme.apple-theme .webhook-foot button:hover { background: rgba(118, 118, 128, 0.2); }
 body.settings-surface.light-theme.apple-theme .webhook-foot button:disabled { cursor: default; opacity: 0.45; }
+/* 2.0.0：开关下面跟一行说明（版本检查、价格表），和上面的开关算同一项，不画分隔线 */
+body.settings-surface.light-theme.apple-theme .update-foot {
+  margin-top: -6px;
+  padding-top: 0;
+  background-image: none;
+}
+body.settings-surface.light-theme.apple-theme .update-foot .webhook-foot { margin-top: 0; }
+body.settings-surface.light-theme.apple-theme .key-clear {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--a-fill);
+  color: var(--a-label);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+body.settings-surface.light-theme.apple-theme .key-clear:hover { background: rgba(118, 118, 128, 0.2); }
 
 /* ---- 0.11：深色外观 ----
    系统色变量在 apple.css 的深色段里已经换掉，这里只补上面写死了浅色的几处。

@@ -15,10 +15,30 @@ const { parseClaudeTimestamp, normalizeClaudeOfficialUsage, resolveClaudePlan } 
 const { buildActivityWindows } = require('./activity-windows');
 const pace = require('./mobile/usage-pace');
 const { normalizeWebhookUrl, buildWebhookRequest } = require('./push-webhook');
-const { PRICING_AS_OF, entryCostUsd } = require('./model-pricing');
+const {
+  entryCostUsd,
+  normalizeLiteLlmTable,
+  setDynamicPrices,
+  pricingInfo
+} = require('./model-pricing');
+const {
+  buildDayRecords,
+  createDayRecordBuilder,
+  mergeDayRecords,
+  normalizeStore: normalizeDailyStore,
+  pruneStore: pruneDailyStore,
+  serializeStore: serializeDailyStore,
+  summarizeDayRecord
+} = require('./daily-store');
 const { STATUS_PAGES, normalizeStatusSummary } = require('./service-status');
 const { ForegroundProviderTracker } = require('./foreground-provider');
-const { readTranscriptFile } = require('./transcript-reader');
+const {
+  readTranscriptFile,
+  readTranscriptOnce,
+  isCompressedTranscript,
+  exportCompressedCache,
+  importCompressedCache
+} = require('./transcript-reader');
 const { loadPanelBridge, createPanelPresenter } = require('./panel-window');
 const {
   createAccessToken,
@@ -161,7 +181,8 @@ const PANEL_HEIGHT = 640;
 const PANEL_CONTENT_MIN_HEIGHT = 300;
 const PANEL_CONTENT_MAX_HEIGHT = 780;
 // 切换平台时内容高度会短暂抖动（刷新态和稳定态差十几像素）。变高立刻生效免得内容被裁，
-// 变矮则要先稳住一段时间再收，避免一次切换里连着两次 setBounds 压在动画上造成卡顿。
+// 变矮则要先稳住一段时间再收，避免一次切换里连着两次 setBounds 压在动画上造成卡顿；
+// 不超过这么多的变矮直接不收（变高不受它限制）。
 const PANEL_HEIGHT_EPSILON = 6;
 const PANEL_HEIGHT_SHRINK_DELAY_MS = 80;
 const PANEL_HEIGHT_ANIMATION_MS = 180;
@@ -211,6 +232,10 @@ const defaultSettings = {
   notificationsEnabled: true,
   alertThresholds: '20,5',
   paceAlertsEnabled: true,
+  creditExpiryAlerts: true,
+  weeklyResetReminder: true,
+  updateCheckEnabled: true,
+  priceAutoUpdate: true,
   webhookUrl: '',
   appearance: 'light',
   hotkeyEnabled: true,
@@ -931,6 +956,10 @@ function applyAppearance() {
 async function saveSettings(nextSettings) {
   const previous = settings;
   settings = normalizeSettings({ ...settings, ...nextSettings });
+  // 设置页拿不到明文密钥，送回来的 providerSettings 里也没有；文件里的密钥字段只由 setExtraApiKey 改。
+  for (const id of API_KEY_PROVIDER_IDS) {
+    settings.providerSettings[id].apiKey = previous.providerSettings?.[id]?.apiKey || '';
+  }
   syncStateWithSettings();
   await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
   // 设置里有手机访问密钥和第三方 API Key，只给当前用户读写。
@@ -939,6 +968,10 @@ async function saveSettings(nextSettings) {
   if (previous.appearance !== settings.appearance) applyAppearance();
   if (previous.openAtLogin !== settings.openAtLogin) applySystemSettings();
   if (previous.hotkeyEnabled !== settings.hotkeyEnabled) applyPanelHotkey();
+  if (previous.priceAutoUpdate !== settings.priceAutoUpdate) applyPriceTableSetting();
+  if (previous.updateCheckEnabled !== settings.updateCheckEnabled && settings.updateCheckEnabled) {
+    checkForUpdate({ force: true }).catch(() => {});
+  }
   if (previous.mobileEnabled !== settings.mobileEnabled || previous.mobileListenScope !== settings.mobileListenScope) {
     await syncMobileServer({ restart: previous.mobileListenScope !== settings.mobileListenScope });
   }
@@ -960,8 +993,7 @@ async function saveSettings(nextSettings) {
   for (const id of OPTIONAL_PROVIDER_IDS) {
     const wasEnabled = Boolean(previous.providerSettings?.[id]?.enabled);
     const nowEnabled = Boolean(settings.providerSettings[id]?.enabled);
-    const keyChanged = (previous.providerSettings?.[id]?.apiKey || '') !== settings.providerSettings[id].apiKey;
-    if (nowEnabled && (!wasEnabled || keyChanged)) {
+    if (nowEnabled && !wasEnabled) {
       refreshProvider(id).catch(() => {});
     } else if (!nowEnabled && wasEnabled) {
       clearProviderState(id);
@@ -998,6 +1030,18 @@ function normalizeSettings(value) {
     paceAlertsEnabled: value?.paceAlertsEnabled === undefined
       ? defaultSettings.paceAlertsEnabled
       : Boolean(value.paceAlertsEnabled),
+    creditExpiryAlerts: value?.creditExpiryAlerts === undefined
+      ? defaultSettings.creditExpiryAlerts
+      : Boolean(value.creditExpiryAlerts),
+    weeklyResetReminder: value?.weeklyResetReminder === undefined
+      ? defaultSettings.weeklyResetReminder
+      : Boolean(value.weeklyResetReminder),
+    updateCheckEnabled: value?.updateCheckEnabled === undefined
+      ? defaultSettings.updateCheckEnabled
+      : Boolean(value.updateCheckEnabled),
+    priceAutoUpdate: value?.priceAutoUpdate === undefined
+      ? defaultSettings.priceAutoUpdate
+      : Boolean(value.priceAutoUpdate),
     webhookUrl: normalizeWebhookUrl(value?.webhookUrl),
     appearance: APPEARANCES.includes(value?.appearance) ? value.appearance : defaultSettings.appearance,
     hotkeyEnabled: value?.hotkeyEnabled === undefined
@@ -1058,6 +1102,13 @@ function getSettingsSnapshot() {
     : null;
   return {
     ...settings,
+    // 密钥只在主进程里用：设置页只知道存没存，不拿明文。
+    providerSettings: Object.fromEntries(Object.entries(settings.providerSettings || {}).map(([id, entry]) => [id, {
+      enabled: Boolean(entry?.enabled),
+      apiKeyStored: Boolean(extraKeyStore.get(id) || entry?.apiKey)
+    }])),
+    priceTable: priceTableSnapshot(),
+    update: updateSnapshot(),
     loginItemOpenAtLogin: app.getLoginItemSettings().openAtLogin,
     mobileRuntime: {
       ...mobileRuntime,
@@ -1798,7 +1849,7 @@ async function readTokenActivity() {
 
 async function readCodexLocalActivity() {
   const entries = await collectCodexEntries();
-  return buildLocalActivity(entries, 'codex_local', state.usage?.data);
+  return attachHistory('codex', buildLocalActivity(entries, 'codex_local', state.usage?.data), entries);
 }
 
 function normalizeRadar(raw) {
@@ -2271,7 +2322,16 @@ async function collectClaudeEntries({ force = false } = {}) {
 }
 
 async function collectClaudeEntriesNow() {
-  const files = await findClaudeTranscripts(CLAUDE_PROJECTS_DIR);
+  // mtime 早于统计窗口起点的日志不可能含窗口内的记录（记录先产生、后写盘），不必每次启动都整份重读。
+  const cutoffTs = activityWindowStartTs();
+  const files = [];
+  for (const file of await findTranscriptFiles(CLAUDE_PROJECTS_DIR)) {
+    try {
+      if ((await fs.stat(file)).mtimeMs >= cutoffTs) files.push(file);
+    } catch {
+      // 扫描和读取之间被删掉的文件直接跳过。
+    }
+  }
   const fileSet = new Set(files);
   for (const cachedFile of claudeTranscriptCache.keys()) {
     if (!fileSet.has(cachedFile)) claudeTranscriptCache.delete(cachedFile);
@@ -2291,7 +2351,8 @@ async function collectClaudeEntriesNow() {
   return entries;
 }
 
-async function findClaudeTranscripts(dir) {
+// compressed：连 Codex 压成 .jsonl.zst 的旧会话一起收（2.0.0 起；此前只收 .jsonl，近 30 天漏了八成多）。
+async function findTranscriptFiles(dir, { compressed = false } = {}) {
   const files = [];
   let dirents;
   try {
@@ -2302,12 +2363,30 @@ async function findClaudeTranscripts(dir) {
   for (const dirent of dirents) {
     const full = path.join(dir, dirent.name);
     if (dirent.isDirectory()) {
-      files.push(...await findClaudeTranscripts(full));
-    } else if (dirent.isFile() && dirent.name.endsWith('.jsonl')) {
+      files.push(...await findTranscriptFiles(full, { compressed }));
+    } else if (dirent.isFile() && (dirent.name.endsWith('.jsonl') || (compressed && dirent.name.endsWith('.jsonl.zst')))) {
       files.push(full);
     }
   }
   return files;
+}
+
+function transcriptBaseName(file) {
+  return path.basename(file).replace(/\.jsonl(\.zst)?$/, '');
+}
+
+// 同一个会话可能同时有明文和压缩档（刚压完、或 archived_sessions 里另有一份）：按去掉后缀的文件名只取一份，
+// 明文优先（它可能还在追加），同类里先列出的目录优先。
+async function listCodexTranscripts() {
+  const chosen = new Map();
+  for (const dir of CODEX_SESSIONS_DIRS) {
+    for (const file of await findTranscriptFiles(dir, { compressed: true })) {
+      const base = transcriptBaseName(file);
+      const previous = chosen.get(base);
+      if (!previous || (isCompressedTranscript(previous) && !isCompressedTranscript(file))) chosen.set(base, file);
+    }
+  }
+  return [...chosen.values()];
 }
 
 async function readClaudeTranscript(file) {
@@ -2342,16 +2421,8 @@ async function collectCodexEntries({ force = false } = {}) {
 
 async function collectCodexEntriesNow() {
   const cutoffTs = activityWindowStartTs();
-  const files = [];
-  const seenNames = new Set();
-  for (const dir of CODEX_SESSIONS_DIRS) {
-    for (const file of await findClaudeTranscripts(dir)) {
-      const name = path.basename(file);
-      if (seenNames.has(name)) continue;
-      seenNames.add(name);
-      files.push(file);
-    }
-  }
+  await loadCodexArchiveCache();
+  const files = await listCodexTranscripts();
 
   const fileSet = new Set(files);
   for (const cachedFile of codexTranscriptCache.keys()) {
@@ -2359,6 +2430,7 @@ async function collectCodexEntriesNow() {
   }
 
   const entries = [];
+  let archiveChanged = false;
   for (const file of files) {
     let stat;
     try {
@@ -2367,18 +2439,71 @@ async function collectCodexEntriesNow() {
       continue;
     }
     // mtime 早于统计窗口起点的文件不可能包含窗口内的事件，跳过以省掉大文件解析。
-    if (stat.mtimeMs < cutoffTs) continue;
+    if (stat.mtimeMs < cutoffTs) {
+      if (codexTranscriptCache.delete(file) && isCompressedTranscript(file)) archiveChanged = true;
+      continue;
+    }
     // 文件名只是兜底：解析器能从 session_meta 拿到真正的线程 id 时优先用它，
     // 否则 subagent 的独立 rollout 文件会被算成一个额外会话。
-    const fallbackSessionId = path.basename(file, '.jsonl');
+    const fallbackSessionId = transcriptBaseName(file);
+    const before = codexTranscriptCache.get(file);
     for (const entry of await readTranscriptFile(file, codexTranscriptCache, parseCodexRolloutLines, {
       retainFromTs: cutoffTs
     })) {
       if (!entry.sessionId) entry.sessionId = fallbackSessionId;
       entries.push(entry);
     }
+    if (isCompressedTranscript(file) && codexTranscriptCache.get(file) !== before) archiveChanged = true;
   }
+  if (archiveChanged || codexArchiveCacheStale) saveCodexArchiveCache(cutoffTs);
   return entries;
+}
+
+let atomicWriteSerial = 0;
+
+// 先写临时文件再改名：写到一半退出也不会留下半截 JSON。
+async function writeFileAtomic(file, contents) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  atomicWriteSerial += 1;
+  const temp = `${file}.${process.pid}-${atomicWriteSerial}.tmp`;
+  try {
+    await fs.writeFile(temp, contents, 'utf8');
+    await fs.rename(temp, file);
+  } catch (error) {
+    await fs.rm(temp, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+// 压缩档解压一次要几秒到几十秒（近 30 天约 0.5 GB），解析结果落盘，重启后按文件身份直接复用。
+const CODEX_ARCHIVE_CACHE_PATH = path.join(app.getPath('userData'), 'codex-archive-cache.json');
+const CODEX_ARCHIVE_CACHE_VERSION = 1;
+let codexArchiveCacheLoaded = false;
+let codexArchiveCacheStale = false;
+
+async function loadCodexArchiveCache() {
+  if (codexArchiveCacheLoaded) return;
+  codexArchiveCacheLoaded = true;
+  try {
+    const raw = JSON.parse(await fs.readFile(CODEX_ARCHIVE_CACHE_PATH, 'utf8'));
+    if (raw?.version !== CODEX_ARCHIVE_CACHE_VERSION) {
+      codexArchiveCacheStale = true;
+      return;
+    }
+    importCompressedCache(codexTranscriptCache, raw.files);
+  } catch {
+    // 第一次运行或缓存损坏：照常解压，读完再写。
+  }
+}
+
+function saveCodexArchiveCache(retainFromTs) {
+  codexArchiveCacheStale = false;
+  const payload = JSON.stringify({
+    version: CODEX_ARCHIVE_CACHE_VERSION,
+    savedAt: Date.now(),
+    files: exportCompressedCache(codexTranscriptCache, retainFromTs)
+  });
+  writeFileAtomic(CODEX_ARCHIVE_CACHE_PATH, payload).catch(() => {});
 }
 
 function invalidateCodexEntrySnapshot() {
@@ -2401,11 +2526,12 @@ function activityWindowStartTs() {
 async function readClaudeActivity() {
   const entries = await collectClaudeEntries();
   if (!entries.length) throw new Error(tr('errNoLocalClaude'));
-  return buildLocalActivity(entries, 'claude_local', state.claudeUsage?.data);
+  return attachHistory('claude', buildLocalActivity(entries, 'claude_local', state.claudeUsage?.data), entries);
 }
 
 function buildLocalActivity(entries, source, usage) {
   const cutoffTs = activityWindowStartTs();
+  const pricing = pricingInfo();
   const dayMap = new Map();
   const windowEntries = entries.filter((entry) => entry.ts >= cutoffTs);
   const projectOf = createProjectResolver(windowEntries.map((entry) => entry.cwd));
@@ -2493,14 +2619,328 @@ function buildLocalActivity(entries, source, usage) {
     source,
     units: 'tokens',
     windowDays: ACTIVITY_WINDOW_DAYS,
-    pricingAsOf: PRICING_AS_OF,
-    windows: buildActivityWindows(entries, usage),
+    pricingAsOf: pricing.asOf,
+    pricingSource: pricing.source,
+    windows: buildWindowsWithAttribution(entries, usage),
     days
   };
 }
 
 function roundCents(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+// 额度去向（2.0.0）：把周额度窗口内本机记录的等价费用按项目拆开。界面据此估算「1% ≈ 多少」「各项目占了几个点」。
+// 只有本机日志：网页、手机和别的电脑也在用同一份额度，所以界面上一律标「估算」。
+// 界面固定三行（前两个项目 + 其他），两个平台切换时这一块一样高。
+const ATTRIBUTION_PROJECTS = 2;
+
+function buildWindowsWithAttribution(entries, usage) {
+  const windows = buildActivityWindows(entries, usage);
+  if (windows.week) windows.week.attribution = attributeWindow(entries, windows.week);
+  return windows;
+}
+
+function attributeWindow(entries, windowSummary) {
+  const inWindow = (entries || []).filter((entry) => entry.ts >= windowSummary.startAt && entry.ts <= windowSummary.endAt);
+  const projectOf = createProjectResolver(inWindow.map((entry) => entry.cwd));
+  const projects = new Map();
+  let costUsd = 0;
+  let pricedTokens = 0;
+  let unpricedTokens = 0;
+  for (const entry of inWindow) {
+    const cost = entryCostUsd(entry);
+    if (cost === null) {
+      unpricedTokens += Number(entry.tokens) || 0;
+      continue;
+    }
+    costUsd += cost;
+    pricedTokens += Number(entry.tokens) || 0;
+    const project = projectOf(entry.cwd);
+    const item = projects.get(project.key) || { name: project.name, costUsd: 0, tokens: 0 };
+    item.costUsd += cost;
+    item.tokens += Number(entry.tokens) || 0;
+    projects.set(project.key, item);
+  }
+  const sorted = [...projects.values()].sort((a, b) => b.costUsd - a.costUsd);
+  const rows = sorted.slice(0, ATTRIBUTION_PROJECTS).map((item) => ({
+    name: item.name,
+    costUsd: Math.round(item.costUsd * 10_000) / 10_000,
+    tokens: item.tokens
+  }));
+  const rest = sorted.slice(ATTRIBUTION_PROJECTS);
+  if (rest.length) {
+    rows.push({
+      name: null,
+      other: rest.length,
+      costUsd: Math.round(rest.reduce((sum, item) => sum + item.costUsd, 0) * 10_000) / 10_000,
+      tokens: rest.reduce((sum, item) => sum + item.tokens, 0)
+    });
+  }
+  return {
+    costUsd: Math.round(costUsd * 10_000) / 10_000,
+    pricedTokens,
+    unpricedTokens,
+    projects: rows
+  };
+}
+
+// ---- 每日汇总落盘与历史回填（2.0.0） ----
+
+const DAILY_STORE_PATH = path.join(app.getPath('userData'), 'token-daily.json');
+// 界面最多看近一年：一年视图从 11 个月前的 1 号起，90 天视图和前 90 天对比要往前 180 天。
+const HISTORY_VIEW_DAYS = 366;
+// 回填（把窗口之前的全部日志过一遍）放在启动后一会儿、后台慢慢做，先让当前数据出来。
+const HISTORY_BACKFILL_DELAY_MS = 20_000;
+let dailyStore = null;
+let dailyStoreLoading = null;
+let dailyStoreSaveTimer = null;
+const historyBackfill = { active: false, running: null, queued: new Set() };
+
+async function ensureDailyStore() {
+  if (dailyStore) return dailyStore;
+  if (!dailyStoreLoading) {
+    dailyStoreLoading = (async () => {
+      let raw = null;
+      try {
+        raw = JSON.parse(await fs.readFile(DAILY_STORE_PATH, 'utf8'));
+      } catch {
+        // 第一次运行或文件损坏：从空开始，回填会补上。
+      }
+      dailyStore = pruneDailyStore(normalizeDailyStore(raw));
+      return dailyStore;
+    })();
+  }
+  return dailyStoreLoading;
+}
+
+function queueDailyStoreSave(delayMs = 30_000) {
+  if (dailyStoreSaveTimer) {
+    if (delayMs > 0) return;
+    clearTimeout(dailyStoreSaveTimer);
+  }
+  dailyStoreSaveTimer = setTimeout(() => {
+    dailyStoreSaveTimer = null;
+    if (!dailyStore) return;
+    writeFileAtomic(DAILY_STORE_PATH, serializeDailyStore(pruneDailyStore(dailyStore))).catch(() => {});
+  }, delayMs);
+}
+
+function flushDailyStoreSync() {
+  if (!dailyStoreSaveTimer || !dailyStore) return;
+  clearTimeout(dailyStoreSaveTimer);
+  dailyStoreSaveTimer = null;
+  try {
+    require('fs').writeFileSync(DAILY_STORE_PATH, serializeDailyStore(pruneDailyStore(dailyStore)), 'utf8');
+  } catch {
+    // 退出时写不进去就算了，下次启动会从日志重算窗口内的天。
+  }
+}
+
+// 统计窗口（30 天）内的天由日志现算，同时写进存储；窗口之前的天从存储里取，费用按当前价格表重算。
+async function attachHistory(provider, activity, entries) {
+  const store = await ensureDailyStore();
+  const providerStore = store.providers[provider];
+  const cutoffTs = activityWindowStartTs();
+  if (mergeDayRecords(providerStore, buildDayRecords(entries, { fromTs: cutoffTs }), { replace: providerStore.rebuild === true })) {
+    queueDailyStoreSave();
+  }
+  const cutoffDay = formatLocalIsoDate(new Date(cutoffTs));
+  const viewStart = new Date();
+  viewStart.setHours(0, 0, 0, 0);
+  viewStart.setDate(viewStart.getDate() - (HISTORY_VIEW_DAYS - 1));
+  const viewStartDay = formatLocalIsoDate(viewStart);
+  activity.history = {
+    status: providerStore.backfilled ? 'ready' : 'pending',
+    coverageStart: providerStore.coverageStart || activity.days[0]?.day || null,
+    days: Object.keys(providerStore.days)
+      .filter((day) => day >= viewStartDay && day < cutoffDay)
+      .sort()
+      .map((day) => summarizeDayRecord(day, providerStore.days[day]))
+  };
+  scheduleHistoryBackfill(provider);
+  return activity;
+}
+
+function scheduleHistoryBackfill(provider) {
+  const providerStore = dailyStore?.providers?.[provider];
+  if (!providerStore || providerStore.backfilled) return;
+  if (historyBackfill.queued.has(provider) || historyBackfill.running === provider) return;
+  historyBackfill.queued.add(provider);
+  setTimeout(() => {
+    runHistoryBackfills().catch(() => {});
+  }, HISTORY_BACKFILL_DELAY_MS).unref?.();
+}
+
+async function runHistoryBackfills() {
+  if (historyBackfill.active) return;
+  historyBackfill.active = true;
+  try {
+    while (historyBackfill.queued.size) {
+      const provider = historyBackfill.queued.values().next().value;
+      historyBackfill.queued.delete(provider);
+      historyBackfill.running = provider;
+      try {
+        await backfillProviderHistory(provider);
+      } catch {
+        // 回填失败不影响当前数据；下次启动再试。
+      }
+      historyBackfill.running = null;
+      // 回填完重建一次活动数据，界面马上看到更早的记录。
+      if (provider === 'claude') refreshClaudeActivity().catch(() => {});
+      else refreshTokenActivity().catch(() => {});
+    }
+  } finally {
+    historyBackfill.active = false;
+    historyBackfill.running = null;
+  }
+}
+
+// Codex 的 rollout 文件名带创建时间；创建在窗口起点之后的文件不会有更早的记录，回填时跳过。
+function codexRolloutStartTs(file) {
+  const match = /rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})/.exec(path.basename(file));
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second] = match.map(Number);
+  return new Date(year, month - 1, day, hour, minute, second).getTime();
+}
+
+async function backfillProviderHistory(provider) {
+  const store = await ensureDailyStore();
+  const providerStore = store.providers[provider];
+  if (providerStore.backfilled) return;
+  const cutoffTs = activityWindowStartTs();
+  const isClaude = provider === 'claude';
+  const files = isClaude ? await findTranscriptFiles(CLAUDE_PROJECTS_DIR) : await listCodexTranscripts();
+  const parser = isClaude ? parseClaudeTranscriptLines : parseCodexRolloutLines;
+  const builder = createDayRecordBuilder();
+  const seen = new Set();
+  for (const file of files) {
+    if (!isClaude) {
+      const startedAt = codexRolloutStartTs(file);
+      if (startedAt !== null && startedAt >= cutoffTs) continue;
+    }
+    const fallbackSessionId = transcriptBaseName(file);
+    for (const entry of await readTranscriptOnce(file, parser)) {
+      if (!(entry.ts < cutoffTs)) continue;
+      if (entry.id) {
+        if (seen.has(entry.id)) continue;
+        seen.add(entry.id);
+      }
+      if (!entry.sessionId) entry.sessionId = fallbackSessionId;
+      builder.add(entry);
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  mergeDayRecords(providerStore, builder.finish(), { replace: providerStore.rebuild === true });
+  providerStore.backfilled = true;
+  providerStore.rebuild = false;
+  queueDailyStoreSave(0);
+}
+
+// ---- 价格表自动更新（2.0.0，第 33 条） ----
+
+const PRICE_TABLE_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
+const PRICE_CACHE_PATH = path.join(app.getPath('userData'), 'model-prices.json');
+const PRICE_REFRESH_MS = 24 * 3600_000;
+const PRICE_RETRY_MS = 3 * 3600_000;
+let priceTable = { etag: null, fetchedAt: null, checkedAt: 0, error: null, entries: null };
+let priceTableTimer = null;
+
+async function loadCachedPriceTable() {
+  try {
+    const raw = JSON.parse(await fs.readFile(PRICE_CACHE_PATH, 'utf8'));
+    const table = normalizeLiteLlmTable(raw?.entries);
+    if (!table) return;
+    priceTable = {
+      etag: typeof raw.etag === 'string' ? raw.etag : null,
+      fetchedAt: Number(raw.fetchedAt) || null,
+      checkedAt: Number(raw.checkedAt) || 0,
+      error: null,
+      entries: table.entries
+    };
+    if (settings.priceAutoUpdate) setDynamicPrices({ models: table.models, fetchedAt: priceTable.fetchedAt });
+  } catch {
+    // 没有缓存：等第一次拉取，期间用内置表。
+  }
+}
+
+function savePriceTableCache() {
+  if (!priceTable.entries) return;
+  writeFileAtomic(PRICE_CACHE_PATH, JSON.stringify({
+    etag: priceTable.etag,
+    fetchedAt: priceTable.fetchedAt,
+    checkedAt: priceTable.checkedAt,
+    source: PRICE_TABLE_URL,
+    entries: priceTable.entries
+  })).catch(() => {});
+}
+
+// 每天最多拉一次（带 ETag，没变化时服务器回 304、不传正文）；失败时 3 小时后再试，期间沿用上次的或内置表。
+async function refreshPriceTable({ force = false } = {}) {
+  if (!settings.priceAutoUpdate) return;
+  const now = Date.now();
+  const waitMs = priceTable.error ? PRICE_RETRY_MS : PRICE_REFRESH_MS;
+  if (!force && now - priceTable.checkedAt < waitMs) return;
+  let etag = null;
+  try {
+    const raw = await fetchJson(PRICE_TABLE_URL, {
+      requestTimeoutMs: 30_000,
+      allowNotModified: Boolean(priceTable.entries && priceTable.etag),
+      headers: priceTable.entries && priceTable.etag ? { 'If-None-Match': priceTable.etag } : {},
+      onResponse: (response) => {
+        etag = response.headers.get('etag');
+      }
+    });
+    priceTable.checkedAt = Date.now();
+    priceTable.error = null;
+    if (raw === null) {
+      savePriceTableCache();
+      return;
+    }
+    const table = normalizeLiteLlmTable(raw);
+    if (!table) throw new Error(tr('errPriceTableInvalid'));
+    priceTable = { etag, fetchedAt: priceTable.checkedAt, checkedAt: priceTable.checkedAt, error: null, entries: table.entries };
+    setDynamicPrices({ models: table.models, fetchedAt: priceTable.fetchedAt });
+    savePriceTableCache();
+    rebuildActivityCosts();
+  } catch (error) {
+    priceTable.checkedAt = Date.now();
+    priceTable.error = error?.message === tr('errPriceTableInvalid') ? error.message : requestErrorMessage(error, 'LiteLLM');
+  } finally {
+    sendSettings();
+  }
+}
+
+// 价格变了：重建两边的活动数据，费用（包括存下来的旧日子）按新价重算。
+function rebuildActivityCosts() {
+  refreshTokenActivity().catch(() => {});
+  if (isProviderEnabled('claude', settings.providerSettings)) refreshClaudeActivity().catch(() => {});
+}
+
+function applyPriceTableSetting() {
+  if (settings.priceAutoUpdate) {
+    loadCachedPriceTable()
+      .then(() => {
+        rebuildActivityCosts();
+        return refreshPriceTable();
+      })
+      .catch(() => {});
+  } else {
+    setDynamicPrices(null);
+    rebuildActivityCosts();
+  }
+}
+
+function priceTableSnapshot() {
+  const info = pricingInfo();
+  return {
+    enabled: Boolean(settings.priceAutoUpdate),
+    source: info.source,
+    asOf: info.asOf,
+    models: info.models,
+    checkedAt: priceTable.checkedAt || null,
+    error: priceTable.error
+  };
 }
 
 // 每天最多列 5 个项目，其余并成「其他」。只给目录名，不给完整路径（手机端和云同步也会带上）。
@@ -2565,7 +3005,7 @@ function syncActivityWindows(provider) {
   if (!Array.isArray(entries) || !activity?.data) return;
   activity.data = {
     ...activity.data,
-    windows: buildActivityWindows(entries, usage)
+    windows: buildWindowsWithAttribution(entries, usage)
   };
 }
 
@@ -2775,7 +3215,7 @@ const usageHistory = Object.fromEntries(PROVIDER_IDS.map((id) => [id, []]));
 let usageHistorySaveTimer = null;
 let usageHistoryCompactedAt = 0;
 // 提醒状态落盘：重启后不会对同一个窗口重复提醒。provider → 窗口键 → 记录。
-let alertState = { windows: {}, credentials: {}, status: {} };
+let alertState = { windows: {}, credentials: {}, status: {}, credits: {}, update: {} };
 let alertStateSaveTimer = null;
 
 async function loadUsageHistory() {
@@ -2850,6 +3290,7 @@ function recordUsageSample(provider) {
   if (now - usageHistoryCompactedAt > 3600_000) compactUsageHistory(now);
   refreshUsageHistoryView(provider);
   checkUsageAlerts(provider, usage);
+  checkScheduleReminders(provider, usage);
   queueUsageHistorySave();
 }
 
@@ -2880,10 +3321,12 @@ async function loadAlertState() {
     alertState = {
       windows: raw?.windows && typeof raw.windows === 'object' ? raw.windows : {},
       credentials: raw?.credentials && typeof raw.credentials === 'object' ? raw.credentials : {},
-      status: raw?.status && typeof raw.status === 'object' ? raw.status : {}
+      status: raw?.status && typeof raw.status === 'object' ? raw.status : {},
+      credits: raw?.credits && typeof raw.credits === 'object' ? raw.credits : {},
+      update: raw?.update && typeof raw.update === 'object' ? raw.update : {}
     };
   } catch {
-    alertState = { windows: {}, credentials: {}, status: {} };
+    alertState = { windows: {}, credentials: {}, status: {}, credits: {}, update: {} };
   }
 }
 
@@ -2999,6 +3442,74 @@ function checkUsageAlerts(provider, usage) {
   queueAlertStateSave();
 }
 
+// 到点提醒（2.0.0，第 26 条）：重置卡快过期（提前 3 天、1 天各一次），周额度快重置而还剩不少（提前 12 小时一次）。
+const CREDIT_EXPIRY_LEADS_MS = [72 * 3600_000, 24 * 3600_000];
+const WEEKLY_RESET_LEAD_MS = 12 * 3600_000;
+const WEEKLY_RESET_MIN_REMAINING = 20;
+
+function checkScheduleReminders(provider, usage, now = Date.now()) {
+  if (provider !== 'codex' && provider !== 'claude') return;
+  if (!usage || !alertsActive()) return;
+  const name = PROVIDER_BY_ID[provider]?.label || provider;
+  let changed = false;
+
+  if (settings.creditExpiryAlerts) {
+    for (const credit of usage.resetCredits?.credits || []) {
+      // Codex 给 ISO 字符串，Claude 那边已经整理成毫秒数。
+      const expiresAt = typeof credit?.expiresAt === 'number' ? credit.expiresAt : Date.parse(credit?.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= now) continue;
+      // available 是现在就能用的；Claude 的 pending 是留着、到上限才能用的，过期了一样作废，也提醒。
+      if (credit.status && credit.status !== 'available' && credit.status !== 'pending') continue;
+      const key = `${provider}:${credit.expiresAt}:${credit.title || ''}`;
+      const record = alertState.credits[key] || (alertState.credits[key] = { expiresAt, fired: [] });
+      const due = CREDIT_EXPIRY_LEADS_MS.filter((lead) => expiresAt - now <= lead);
+      if (!due.length || due.every((lead) => record.fired.includes(lead))) continue;
+      record.fired = due;
+      changed = true;
+      notify(
+        tr('notifyCreditExpiryTitle', { name }),
+        tr('notifyCreditExpiryBody', {
+          title: credit.title || tr('resetCreditFallback'),
+          time: formatAlertTime(expiresAt),
+          left: formatAlertDuration(expiresAt - now)
+        })
+      );
+    }
+    for (const [key, record] of Object.entries(alertState.credits)) {
+      if (!(Number(record?.expiresAt) > now - 7 * 86_400_000)) {
+        delete alertState.credits[key];
+        changed = true;
+      }
+    }
+  }
+
+  if (settings.weeklyResetReminder) {
+    const week = usage.secondaryWindow;
+    const resetAt = Number(week?.resetAt);
+    const used = Number(week?.usedPercent);
+    const remaining = 100 - used;
+    if (
+      Number.isFinite(resetAt) && resetAt > now && resetAt - now <= WEEKLY_RESET_LEAD_MS
+      && Number.isFinite(used) && remaining >= WEEKLY_RESET_MIN_REMAINING
+    ) {
+      const tracker = alertTracker(provider, 'week');
+      if (!isSameAlertWindow(tracker.resetReminderFor, resetAt)) {
+        tracker.resetReminderFor = resetAt;
+        changed = true;
+        notify(
+          tr('notifyWeekResetTitle', { name }),
+          tr('notifyWeekResetBody', {
+            remaining: Math.round(remaining),
+            time: formatAlertTime(resetAt),
+            left: formatAlertDuration(resetAt - now)
+          })
+        );
+      }
+    }
+  }
+  if (changed) queueAlertStateSave();
+}
+
 // 凭据失效（Claude CLI 登录过期 / Codex 401）只提醒一次，恢复后清掉标记。
 function checkCredentialAlerts(provider, slice) {
   if (provider !== 'codex' && provider !== 'claude') return;
@@ -3043,7 +3554,7 @@ function formatAlertDuration(ms) {
 // 通知对象被回收后点击就没反应了，显示期间保留引用。
 const activeNotifications = new Set();
 
-function notify(title, body, { webhook = true } = {}) {
+function notify(title, body, { webhook = true, onClick = null } = {}) {
   try {
     if (Notification.isSupported()) {
       const notification = new Notification({ title, body, silent: false });
@@ -3051,7 +3562,8 @@ function notify(title, body, { webhook = true } = {}) {
       activeNotifications.add(notification);
       notification.on('click', () => {
         release();
-        revealPanel();
+        if (onClick) onClick();
+        else revealPanel();
       });
       notification.on('close', release);
       notification.on('failed', release);
@@ -3119,8 +3631,259 @@ function enabledExtraIds() {
   return EXTRA_PROVIDER_IDS.filter((id) => settings.providerSettings[id]?.enabled);
 }
 
+// ---- Kimi / GLM 的 API Key 存钥匙串（2.0.0，第 35 条） ----
+// 和云同步密钥一样经 /usr/bin/security 读写：条目的访问控制信任的是 security 本身，
+// 应用每次更新签名都会变，走这条路才不会每次升级都弹钥匙串授权框。
+const API_KEY_PROVIDER_IDS = OPTIONAL_PROVIDER_IDS.filter((id) => PROVIDER_BY_ID[id]?.apiKey);
+const API_KEY_KEYCHAIN_SERVICE = 'Codex Menu Meter API Key';
+const extraKeyStore = new Map();
+
+async function readExtraKeychain(id) {
+  try {
+    const { stdout } = await execFileAsync('/usr/bin/security', [
+      'find-generic-password', '-s', API_KEY_KEYCHAIN_SERVICE, '-a', id, '-w'
+    ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+async function writeExtraKeychain(id, key) {
+  await execFileAsync('/usr/bin/security', [
+    'add-generic-password', '-U',
+    '-s', API_KEY_KEYCHAIN_SERVICE,
+    '-a', id,
+    '-l', `${API_KEY_KEYCHAIN_SERVICE} (${PROVIDER_BY_ID[id]?.label || id})`,
+    '-w', key
+  ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+}
+
+async function deleteExtraKeychain(id) {
+  try {
+    await execFileAsync('/usr/bin/security', [
+      'delete-generic-password', '-s', API_KEY_KEYCHAIN_SERVICE, '-a', id
+    ], { timeout: 5000, maxBuffer: 1024 * 1024 });
+  } catch {
+    // 本来就没有。
+  }
+}
+
+async function writeSettingsFile() {
+  await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
+  await fs.writeFile(SETTINGS_PATH, `${JSON.stringify(settings, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await fs.chmod(SETTINGS_PATH, 0o600).catch(() => {});
+}
+
+// 启动时：旧版本存在设置文件里的明文密钥搬进钥匙串，搬成功才从文件里删；搬不动就先照旧用文件里的。
+async function loadExtraApiKeys() {
+  let migrated = false;
+  for (const id of API_KEY_PROVIDER_IDS) {
+    const legacy = settings.providerSettings[id]?.apiKey || '';
+    if (legacy) {
+      try {
+        await writeExtraKeychain(id, legacy);
+        extraKeyStore.set(id, legacy);
+        settings.providerSettings[id].apiKey = '';
+        migrated = true;
+      } catch {
+        extraKeyStore.set(id, legacy);
+      }
+      continue;
+    }
+    extraKeyStore.set(id, await readExtraKeychain(id));
+  }
+  if (migrated) await writeSettingsFile().catch(() => {});
+}
+
+async function setExtraApiKey(id, rawKey) {
+  if (!API_KEY_PROVIDER_IDS.includes(id)) return { ok: false, error: 'unknown provider', settings: getSettingsSnapshot() };
+  const key = typeof rawKey === 'string' ? rawKey.trim() : '';
+  try {
+    if (key) await writeExtraKeychain(id, key);
+    else await deleteExtraKeychain(id);
+  } catch {
+    return { ok: false, error: tr('errKeychainWrite'), settings: getSettingsSnapshot() };
+  }
+  extraKeyStore.set(id, key);
+  if (settings.providerSettings[id]?.apiKey) {
+    settings.providerSettings[id].apiKey = '';
+    await writeSettingsFile().catch(() => {});
+  }
+  if (isProviderEnabled(id, settings.providerSettings)) refreshProvider(id).catch(() => {});
+  sendSettings();
+  return { ok: true, settings: getSettingsSnapshot() };
+}
+
+// ---- 新版本提示（2.0.0，第 30 条）：查 GitHub Releases，只提示、不下载不安装 ----
+const UPDATE_RELEASES_URL = 'https://api.github.com/repos/WZR0821/Codex-Menu-Meter/releases/latest';
+const UPDATE_PAGE_PREFIX = 'https://github.com/WZR0821/Codex-Menu-Meter/';
+const UPDATE_CHECK_MS = 12 * 3600_000;
+const UPDATE_RETRY_MS = 3600_000;
+const STARTUP_CHECK_DELAY_MS = 45_000;
+const PERIODIC_CHECK_MS = 3600_000;
+const updateRuntime = { status: 'idle', error: null };
+
+function compareSemver(a, b) {
+  const pa = String(a || '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const pb = String(b || '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+  for (let i = 0; i < 3; i += 1) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0) ? 1 : -1;
+  }
+  return 0;
+}
+
+function normalizeRelease(raw) {
+  const tag = String(raw?.tag_name || '').trim();
+  const version = tag.replace(/^v/i, '');
+  if (!/^\d+\.\d+\.\d+$/.test(version) || raw?.draft || raw?.prerelease) return null;
+  const url = typeof raw.html_url === 'string' && raw.html_url.startsWith(UPDATE_PAGE_PREFIX)
+    ? raw.html_url
+    : `${UPDATE_PAGE_PREFIX}releases/latest`;
+  return { version, url, publishedAt: Date.parse(raw.published_at) || null };
+}
+
+function openReleasePage() {
+  const url = alertState.update?.latest?.url;
+  shell.openExternal(typeof url === 'string' && url.startsWith(UPDATE_PAGE_PREFIX) ? url : `${UPDATE_PAGE_PREFIX}releases/latest`);
+}
+
+async function checkForUpdate({ force = false } = {}) {
+  if (!settings.updateCheckEnabled || updateRuntime.status === 'checking') return;
+  const record = alertState.update || (alertState.update = {});
+  const now = Date.now();
+  const waitMs = updateRuntime.status === 'error' ? UPDATE_RETRY_MS : UPDATE_CHECK_MS;
+  if (!force && now - (Number(record.checkedAt) || 0) < waitMs) return;
+  updateRuntime.status = 'checking';
+  updateRuntime.error = null;
+  sendSettings();
+  let etag = null;
+  try {
+    const conditional = Boolean(record.etag && record.latest);
+    const raw = await fetchJson(UPDATE_RELEASES_URL, {
+      requestTimeoutMs: 15_000,
+      allowNotModified: conditional,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        ...(conditional ? { 'If-None-Match': record.etag } : {})
+      },
+      onResponse: (response) => {
+        etag = response.headers.get('etag');
+      }
+    });
+    if (raw !== null) {
+      const latest = normalizeRelease(raw);
+      if (!latest) throw new Error(tr('errInvalidJsonResponse'));
+      record.latest = latest;
+      record.etag = etag;
+    }
+    record.checkedAt = Date.now();
+    updateRuntime.status = 'ready';
+    const latest = record.latest;
+    if (
+      latest && compareSemver(latest.version, app.getVersion()) > 0
+      && record.notifiedVersion !== latest.version && settings.notificationsEnabled
+    ) {
+      record.notifiedVersion = latest.version;
+      notify(
+        tr('notifyUpdateTitle', { version: latest.version }),
+        tr('notifyUpdateBody', { current: app.getVersion() }),
+        { webhook: false, onClick: openReleasePage }
+      );
+    }
+  } catch (error) {
+    record.checkedAt = Date.now();
+    updateRuntime.status = 'error';
+    updateRuntime.error = requestErrorMessage(error, 'GitHub');
+  } finally {
+    queueAlertStateSave();
+    sendSettings();
+  }
+}
+
+function updateSnapshot() {
+  const record = alertState.update || {};
+  const latest = record.latest || null;
+  return {
+    enabled: Boolean(settings.updateCheckEnabled),
+    current: app.getVersion(),
+    status: updateRuntime.status,
+    error: updateRuntime.error,
+    checkedAt: Number(record.checkedAt) || null,
+    latest,
+    available: Boolean(latest && compareSemver(latest.version, app.getVersion()) > 0)
+  };
+}
+
+// ---- 一键复制诊断信息（2.0.0，第 31 条） ----
+// 只放版本、开关、各数据源的状态和报错、文件数量；不放 token 数字、费用、密钥、推送地址、手机访问密钥和云同步账号。
+const DIAGNOSTIC_SLICES = [
+  'usage', 'tokenActivity', 'radar', 'codexStatus',
+  'claudeUsage', 'claudeActivity', 'claudeRadar', 'claudeStatus',
+  'kimiUsage', 'glmUsage', 'qwenUsage'
+];
+
+function redactDiagnostic(value) {
+  const home = os.homedir();
+  return String(value ?? '')
+    .split(home).join('~')
+    .replace(/(token|key|secret|password|authorization)=([^&\s]+)/gi, '$1=…')
+    .replace(/\b(sk-[A-Za-z0-9_-]{6})[A-Za-z0-9_-]+/g, '$1…');
+}
+
+function diagnosticTime(ms) {
+  return Number.isFinite(Number(ms)) && Number(ms) > 0 ? new Date(Number(ms)).toISOString() : '-';
+}
+
+async function buildDiagnostics() {
+  const lines = [];
+  const push = (text) => lines.push(redactDiagnostic(text));
+  push(`Codex Menu Meter ${app.getVersion()} · ${process.arch} · ${app.isPackaged ? 'packaged' : 'dev'}`);
+  push(`Electron ${process.versions.electron} · Chromium ${process.versions.chrome} · Node ${process.versions.node}`);
+  push(`macOS ${typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : '?'} · Darwin ${os.release()}`);
+  push(`Generated ${new Date().toISOString()} · language ${settings.language} · appearance ${settings.appearance}`);
+  push(`Providers: ${state.enabledProviders.join(', ')} (showing ${state.provider})`);
+  push('');
+  push('Data sources:');
+  for (const key of DIAGNOSTIC_SLICES) {
+    const slice = state[key];
+    if (!slice || slice.status === 'idle') continue;
+    push(`  ${key}: ${slice.status} · fetched ${diagnosticTime(slice.fetchedAt)}${slice.error ? ` · ${slice.error}` : ''}`);
+  }
+  push('');
+  push('Local logs:');
+  try {
+    const claudeFiles = await findTranscriptFiles(CLAUDE_PROJECTS_DIR);
+    push(`  Claude transcripts: ${claudeFiles.length} files (${claudeTranscriptCache.size} cached)`);
+  } catch (error) {
+    push(`  Claude transcripts: ${error?.message || error}`);
+  }
+  try {
+    const codexFiles = await listCodexTranscripts();
+    const compressed = codexFiles.filter((file) => isCompressedTranscript(file)).length;
+    push(`  Codex rollouts: ${codexFiles.length} files, ${compressed} compressed (${codexTranscriptCache.size} cached)`);
+  } catch (error) {
+    push(`  Codex rollouts: ${error?.message || error}`);
+  }
+  const store = dailyStore;
+  for (const provider of ['codex', 'claude']) {
+    const providerStore = store?.providers?.[provider];
+    if (!providerStore) continue;
+    push(`  History ${provider}: ${Object.keys(providerStore.days).length} days from ${providerStore.coverageStart || '-'} · backfilled ${providerStore.backfilled ? 'yes' : 'no'}${historyBackfill.running === provider ? ' (running)' : ''}`);
+  }
+  push('');
+  const prices = priceTableSnapshot();
+  push(`Prices: ${prices.source} · ${prices.asOf} · ${prices.models} models · auto-update ${prices.enabled ? 'on' : 'off'} · checked ${diagnosticTime(prices.checkedAt)}${prices.error ? ` · ${prices.error}` : ''}`);
+  push(`Alerts: notifications ${settings.notificationsEnabled ? 'on' : 'off'} (system ${Notification.isSupported() ? 'supported' : 'unsupported'}) · thresholds ${settings.alertThresholds} · pace ${settings.paceAlertsEnabled ? 'on' : 'off'} · credit expiry ${settings.creditExpiryAlerts ? 'on' : 'off'} · weekly reset ${settings.weeklyResetReminder ? 'on' : 'off'} · webhook ${settings.webhookUrl ? 'set' : 'none'}`);
+  push(`Mobile: ${settings.mobileEnabled ? 'on' : 'off'} · scope ${settings.mobileListenScope} · server ${mobileRuntime.running ? 'running' : 'stopped'} · cloud sync ${settings.cloudSyncEnabled ? cloudSyncRuntime.status || 'on' : 'off'}`);
+  push(`API keys: ${API_KEY_PROVIDER_IDS.map((id) => `${id} ${extraKeyStore.get(id) ? 'keychain' : settings.providerSettings[id]?.apiKey ? 'file' : 'none'}`).join(' · ')}`);
+  const update = updateSnapshot();
+  push(`Update check: ${update.enabled ? 'on' : 'off'} · ${update.status} · latest ${update.latest?.version || '-'}${update.error ? ` · ${update.error}` : ''}`);
+  return lines.join('\n');
+}
+
 function extraApiKey(id) {
-  const configured = settings.providerSettings[id]?.apiKey;
+  const configured = extraKeyStore.get(id) || settings.providerSettings[id]?.apiKey;
   if (configured) return configured;
   for (const envKey of EXTRA_PROVIDER_META[id].envKeys) {
     if (process.env[envKey]) return process.env[envKey];
@@ -3777,8 +4540,10 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = 'light';
   await session.defaultSession.setProxy({ mode: 'system' });
   await loadSettings();
+  await loadExtraApiKeys();
   applyAppearance();
   await loadAlertState();
+  if (settings.priceAutoUpdate) await loadCachedPriceTable();
   await loadUsageHistory();
   await refreshModelCatalog();
   await loadRadarCache();
@@ -3832,10 +4597,21 @@ app.whenReady().then(async () => {
   }, EXTRA_USAGE_REFRESH_MS);
   powerMonitor.on('resume', () => scheduleWakeRefresh('resume'));
   powerMonitor.on('unlock-screen', () => scheduleWakeRefresh('unlock'));
+  // 价格表和新版本都是低频的联网检查：启动一会儿后各查一次，之后每小时看一眼是否到期（各自按上次检查时间判断）。
+  setTimeout(runPeriodicChecks, STARTUP_CHECK_DELAY_MS).unref?.();
+  priceTableTimer = setInterval(runPeriodicChecks, PERIODIC_CHECK_MS);
+  priceTableTimer.unref?.();
 });
+
+function runPeriodicChecks() {
+  refreshPriceTable().catch(() => {});
+  checkForUpdate().catch(() => {});
+}
 
 app.on('before-quit', () => {
   panelPresenter?.cancel();
+  flushDailyStoreSync();
+  if (priceTableTimer) clearInterval(priceTableTimer);
   if (modelCatalogTimer) clearInterval(modelCatalogTimer);
   if (sendStateTimer) clearTimeout(sendStateTimer);
   sendStateTimer = null;
@@ -3897,13 +4673,16 @@ ipcMain.on('panel:content-height', (event, height) => {
   if (!panel || panel.isDestroyed() || event.sender !== panel.webContents) return;
   const next = Math.round(Number(height));
   if (!Number.isFinite(next) || next <= 0) return;
-  if (Math.abs(next - panelContentHeight) <= PANEL_HEIGHT_EPSILON) return;
+  // 先撤掉还没执行的收缩：内容又长回来时，不能让旧的收缩把它裁掉。
   clearPanelHeightShrinkTimer();
+  // 变高一律立刻跟上（2.0.0：以前 6px 以内的变高也被略过，展开明细后内容溢出一点、冒出滚动条，整页变窄）。
   if (next > panelContentHeight) {
     panelContentHeight = next;
     applyPanelContentHeight();
     return;
   }
+  // 很小的变矮不收，免得来回抖；多出的几像素只是底部留白。
+  if (panelContentHeight - next <= PANEL_HEIGHT_EPSILON) return;
   panelHeightShrinkTimer = setTimeout(() => {
     panelHeightShrinkTimer = null;
     panelContentHeight = next;
@@ -3983,6 +4762,19 @@ ipcMain.handle('cloud-sync:reset', () => resetCloudSyncPairing());
 ipcMain.handle('app:open-radar', () => shell.openExternal(state.provider === 'claude' ? CLAUDE_RADAR_HOME : RADAR_HOME));
 ipcMain.handle('app:show-in-folder', () => shell.showItemInFolder(app.getPath('exe')));
 ipcMain.handle('app:quit', () => app.quit());
+ipcMain.handle('provider:set-key', (_event, id, key) => setExtraApiKey(id, key));
+ipcMain.handle('update:check', async () => {
+  await checkForUpdate({ force: true });
+  return getSettingsSnapshot();
+});
+ipcMain.handle('update:open', () => {
+  openReleasePage();
+  return true;
+});
+ipcMain.handle('diagnostics:copy', async () => {
+  clipboard.writeText(await buildDiagnostics());
+  return true;
+});
 ipcMain.handle('external:open', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) {
     shell.openExternal(url);

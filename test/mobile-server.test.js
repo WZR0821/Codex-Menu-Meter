@@ -133,6 +133,49 @@ test('mobile payload keeps reset credit details from both providers', () => {
   assert.equal(createMobilePayload(state).providers.claude.usage.data.resetCredits.unavailableReason, 'surface');
 });
 
+test('mobile payload carries stored daily summaries and weekly attribution for the long-range views (2.0.0)', () => {
+  const state = sampleState();
+  const data = state.tokenActivity.data;
+  data.pricingAsOf = '2026-11-20';
+  data.windows.week.attribution = {
+    costUsd: 12.5,
+    pricedTokens: 1000,
+    unpricedTokens: 0,
+    projects: [{ name: 'alpha', costUsd: 10, tokens: 800, secret: 'x' }, { name: null, other: 2, costUsd: 2.5, tokens: 200 }]
+  };
+  data.history = {
+    status: 'ready',
+    coverageStart: '2025-12-01',
+    days: Array.from({ length: 400 }, (_, index) => ({
+      day: `2026-01-${String((index % 28) + 1).padStart(2, '0')}`,
+      tokens: index,
+      ioTokens: 1,
+      inputTokens: 2,
+      cachedInputTokens: 1,
+      costUsd: 0.5,
+      threads: 3,
+      value: 99,
+      projects: [{ name: 'should-not-travel' }],
+      models: Array.from({ length: 9 }, (_, model) => ({ model: `m${model}`, value: model, costUsd: 1 }))
+    })).concat([{ day: 'not-a-day', tokens: 5 }])
+  };
+  const activity = createMobilePayload(state).providers.codex.activity.data;
+  assert.equal(activity.pricingAsOf, '2026-11-20');
+  assert.equal(activity.history.status, 'ready');
+  assert.equal(activity.history.coverageStart, '2025-12-01');
+  assert.equal(activity.history.days.length, 340);
+  const stored = activity.history.days.at(-1);
+  assert.equal(stored.tokens, 399);
+  assert.equal(stored.models.length, 6);
+  assert.equal(stored.projects, undefined);
+  assert.equal(stored.value, undefined);
+  assert.deepEqual(activity.windows.week.attribution.projects, [
+    { name: 'alpha', other: 0, costUsd: 10, tokens: 800 },
+    { name: null, other: 2, costUsd: 2.5, tokens: 200 }
+  ]);
+  assert.equal(activity.windows.fiveHour.attribution, undefined);
+});
+
 test('mobile payload carries compact history and the relevant status summary', () => {
   const state = sampleState();
   const day = Array.from({ length: 200 }, (_, index) => ({ t: 1_000 + index * 60_000, five: index / 3, week: 20.04, ex: { Fable: 41.26 } }));
@@ -232,6 +275,12 @@ test('mobile server requires the access token for state data', async (context) =
   assert.equal(weekScript.status, 200);
   assert.match(weekScript.headers.get('content-type'), /javascript/);
   assert.match(await weekScript.text(), /CMM_TOKEN_WEEK/);
+  // 2.0.0：卡片渲染（90 天 / 1 年、对比、额度去向）两端共用，排在 token-week.js 之后、mobile.js 之前。
+  assert.ok(pageText.indexOf('./cards.js') > pageText.indexOf('./token-week.js') && pageText.indexOf('./cards.js') < pageText.indexOf('./mobile.js'));
+  const cardsScript = await fetch(`${baseUrl}/mobile/cards.js`);
+  assert.equal(cardsScript.status, 200);
+  assert.match(cardsScript.headers.get('content-type'), /javascript/);
+  assert.match(await cardsScript.text(), /CMM_CARDS/);
 
   const installPage = await fetch(`${baseUrl}/mobile/?token=${token}`);
   assert.match(await installPage.text(), /manifest\.webmanifest\?token=/);
