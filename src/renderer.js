@@ -1,6 +1,6 @@
 const I18N = window.CMM_I18N;
 const PROVIDERS = window.CMM_PROVIDERS;
-// 7 天 / 90 天 / 1 年柱状图、对比、分组明细和额度去向的渲染在 src/mobile/cards.js，手机页共用同一份（2.0.0）。
+// 7 天柱状图、1 年折线、周报、对比、分组明细、单日的按小时分布和额度去向的渲染在 src/mobile/cards.js，手机页共用同一份（2.0.0）。
 const CARDS = window.CMM_CARDS;
 const EXTRA_PROVIDER_IDS = PROVIDERS.USAGE_ONLY_PROVIDER_IDS;
 const PROVIDER_LABELS = Object.fromEntries(PROVIDERS.PROVIDERS.map((provider) => [provider.id, provider.switchLabel]));
@@ -351,12 +351,12 @@ function selectTokenDay(cell) {
   queuePanelHeightReport({ hold: 180 });
 }
 
-// Token 活动的时间范围：30 天热力图（默认），7 天按天、90 天按周、1 年按月的分色直方图（2.0.0 加了后两种）。
+// Token 活动的时间范围：30 天热力图（默认）、7 天按天的分色柱状图、1 年按月的折线、上周的周报（2.0.0 加了后两种）。
 // 记在本机，下次打开沿用。
 const TOKEN_RANGE_STORAGE_KEY = 'cmm.tokenRange';
 let tokenRange = readTokenRange();
-// 90 天 / 1 年视图里选中的那一根（key 是「起~止」），按范围分别记；没选过就默认最近一根。
-const activeTokenBucket = { quarter: null, year: null };
+// 1 年视图里选中的那个月（key 是「起~止」）；没选过就默认本月。周报只有一段，不用记。
+const activeTokenBucket = { year: null };
 // 只在用户点切换的那一次渲染里为真：7 天柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
 let tokenRangeEnter = false;
 
@@ -1877,7 +1877,7 @@ function renderTokenActivity(tokenState) {
   const chartView = range !== 'month';
   const dayView = range === 'week' || range === 'month';
   const totals = view.totals;
-  // 7 天 / 30 天选的是某一天（从热力图的天里找，带项目拆分）；90 天 / 1 年选的是某一段（一周或一个月）。
+  // 7 天 / 30 天选的是某一天（从热力图的天里找，带项目拆分）；1 年选的是某个月；周报就是上周一到周日。
   const rangeDayKeys = new Set(range === 'week' ? view.buckets.map((bucket) => bucket.key) : heatmap.days.map((day) => day.day));
   const selectedDay = dayView
     ? heatmap.days.find((day) => day.day === activeTokenDay && rangeDayKeys.has(day.day)) || today
@@ -1950,7 +1950,7 @@ function renderTokenActivity(tokenState) {
 
   const detailText = dayView
     ? `${formatMonthDay(selectedDay.day)} · ${formatTokenCount(selectedDay.tokens)}`
-    : CARDS.summaryText(selectedBucket, lang);
+    : CARDS.summaryText(selectedBucket, lang, view);
   const markup = `
     <section class="token-card">
       <div class="token-stats">${statsHtml}</div>
@@ -1974,7 +1974,7 @@ function renderTokenActivity(tokenState) {
   }
 }
 
-// 7 天 / 30 天视图的「统计详情」：今天和整个范围的读写、命中率，所选那一天的会话数和项目拆分，加上费用。
+// 7 天 / 30 天视图的「统计详情」：今天和整个范围的读写、命中率，所选那一天的会话数、按小时分布和项目拆分，加上费用。
 function tokenDayDetailHtml(view, today, selectedDay, activity) {
   const totals = view.totals;
   const windowDays = view.dayCount;
@@ -2001,6 +2001,7 @@ function tokenDayDetailHtml(view, today, selectedDay, activity) {
       ${detailMetric(T('windowUsed', { n: windowDays }), T('cacheHitRate', { v: formatCacheHitRate(totals.cachedInputTokens, totals.inputTokens) }))}
       ${detailMetric(formatMonthDay(selectedDay.day), `${detailSessions} · ${detailCache}`)}
     </dl>
+    ${CARDS.hoursHtml(selectedDay, { lang, windows: activity.fiveHourWindows, fiveHourUnlimited: activity.fiveHourUnlimited })}
     ${projectBreakdownHtml(selectedDay)}
     <p class="detail-note">${escapeHtml(costLine)}</p>
     ${unpricedLine ? `<p class="detail-note">${escapeHtml(unpricedLine)}</p>` : ''}
@@ -2098,6 +2099,8 @@ function createTokenHeatmap(rawDays) {
       unpricedModels: Array.isArray(source.unpricedModels) ? source.unpricedModels : [],
       models: Array.isArray(source.models) ? source.models : [],
       projects: future || !Array.isArray(source.projects) ? [] : source.projects,
+      // 本地时间每小时的 token（2.0.0），单日明细画按小时分布
+      hours: future || !Array.isArray(source.hours) ? null : source.hours,
       future
     };
     if (isSameDay(date, todayDate)) today = item;

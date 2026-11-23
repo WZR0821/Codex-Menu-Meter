@@ -1272,7 +1272,7 @@ body.service-alert[data-view="usage"] footer { display: none; }
   white-space: nowrap;
 }
 /* 1.1.1：按钮等宽，选中底块是容器上的一块，切换时滑到对应按钮下面；选中与否字重一样。
-   2.0.0 起四段（7 天 / 30 天 / 90 天 / 1 年），按钮两侧收窄一点 */
+   2.0.0 起四段（7 天 / 30 天 / 1 年 / 周报），按钮两侧收窄一点 */
 .token-range .token-range-button { padding: 0 7px; }
 @media (max-width: 400px) {
   /* 375 宽也要放得下「标题 · 更新时间 · 四段切换」 */
@@ -1301,8 +1301,8 @@ body.service-alert[data-view="usage"] footer { display: none; }
   content: "";
 }
 .token-range[data-range="month"]::before { transform: translateX(100%); }
-.token-range[data-range="quarter"]::before { transform: translateX(200%); }
-.token-range[data-range="year"]::before { transform: translateX(300%); }
+.token-range[data-range="year"]::before { transform: translateX(200%); }
+.token-range[data-range="recap"]::before { transform: translateX(300%); }
 .token-range-button { position: relative; z-index: 1; }
 
 /* 两种视图叠在同一格：格子区始终参与排版（7 天时只是藏起来），7 天图撑满这一格，
@@ -1382,11 +1382,97 @@ body.service-alert[data-view="usage"] footer { display: none; }
   font-variant-numeric: tabular-nums;
 }
 .week-col.active .week-day { color: var(--label); font-weight: 600; }
-/* 2.0.0：90 天（13 根，每根一周）和 1 年（12 根，每根一个月）柱子多，两侧和柱间都收窄；
-   刻度隔几根写一个，写出来的可以伸出本列、居中不截断（左右相邻的刻度都空着），选中的那根一定写出来（和桌面一致） */
-.week-plot.sparse { column-gap: 3px; padding: 0 10px; }
-.week-plot.sparse .week-day { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
+/* 2.0.0：1 年折线（12 个月连成一条线，下面铺一层很淡的面积，平台主色，和 30 天格子同一色系；和桌面一致）。
+   列和 7 天柱状图同一套：每列是透明的点击区，横向不留空隙，第 i 个点正好在第 i 列正中；
+   月份刻度隔一个写一个，写出来的可以伸出本列、居中不截断（左右相邻的刻度都空着），选中的那个月一定写出来 */
+.week-plot.line-plot { position: relative; column-gap: 0; padding: 0 12px; }
+.line-plot .week-day { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
 .week-day.is-blank { visibility: hidden; }
+.line-caption { justify-content: space-between; }
+.line-peak { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* 折线铺满柱区（日期 12px + 间隙 4px 之上），左右让出和列一样的内边距；线宽不随拉伸变粗 */
+.line-svg {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  width: calc(100% - 24px);
+  height: calc(100% - 16px);
+  overflow: visible;
+  pointer-events: none;
+}
+.line-area { fill: rgba(var(--accent-rgb), 0.12); }
+.line-stroke {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.line-col { position: relative; }
+/* 选中的月份在线上标一个点（外面一圈卡片底色，压在线上也看得清），背后不铺底色 */
+.line-dot {
+  position: absolute;
+  bottom: var(--y, 0%);
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--card);
+  opacity: 0;
+  transform: translate(-50%, 50%);
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+.line-col.active .line-dot { opacity: 1; }
+.line-col.is-uncovered .line-dot { display: none; }
+
+/* 2.0.0：周报（上周一到周日）。五行小表，和 30 天格子叠在同一格、平分格子区的高度，切换时卡片尺寸不动；
+   日期写在下面「统计详情」那一行。模型前的圆点和 7 天柱子同色，文字一律用正文色（和桌面一致） */
+.token-recap { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.recap-rows {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  min-height: 0;
+  margin: 0;
+  font-size: 12px;
+}
+.recap-rows > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  border-top: 0.5px solid var(--separator);
+}
+.recap-rows > div:first-child { border-top: 0; }
+.recap-rows dt { flex: none; color: var(--label-2); }
+.recap-rows dd {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--label);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.recap-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.recap-item { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.recap-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.recap-item > em { flex: none; color: var(--label-3); font-style: normal; }
+.recap-item > .range-dot { flex: none; }
+.token-recap.is-message { align-items: center; justify-content: center; }
+.recap-message { margin: 0; color: var(--label-2); font-size: 12px; }
+@media (max-width: 350px), (max-height: 600px) {
+  /* 最矮的一档格子区只有 79px 左右，五行各 16px：字小一号，两项之间的空隙也收一点 */
+  .recap-rows { font-size: 11px; }
+  .recap-rows dd { gap: 8px; }
+}
 
 /* 2.0.0：统计数字的标签后面跟一个和上一段同样长时间的对比（↑12%），只是信息，不用红绿 */
 .token-summary .token-stat-label { display: flex; align-items: baseline; gap: 5px; min-width: 0; white-space: nowrap; }
@@ -1394,7 +1480,8 @@ body.service-alert[data-view="usage"] footer { display: none; }
 .range-change { flex: none; color: var(--label-2); font-size: 12px; font-style: normal; font-weight: 500; font-variant-numeric: tabular-nums; }
 .range-change.flat { color: var(--label-3); }
 
-/* 1.1.1：切换 7 天 / 30 天时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入。
+/* 1.1.1：切换范围时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入；
+   2.0.0 加了 1 年折线从左往右画出来（选中的点随后淡入）和周报淡入。
    只在点切换的那次渲染带 range-enter，后台刷新不重播；减少动态效果时由文件里的全局规则关掉。 */
 @keyframes week-bar-grow { from { transform: scaleY(0); } }
 @keyframes token-range-fade { from { opacity: 0; } }
@@ -1404,8 +1491,12 @@ body.service-alert[data-view="usage"] footer { display: none; }
 }
 .token-stage.range-enter .week-legend { animation: token-range-fade 240ms ease both; }
 .token-stage.range-enter:not(.is-week) > .heatmap { animation: token-range-fade 260ms ease both; }
+@keyframes token-line-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.token-stage.range-enter .line-svg { animation: token-line-reveal 620ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.token-stage.range-enter .line-col.active .line-dot { animation: token-range-fade 220ms ease 460ms both; }
+.token-stage.range-enter .token-recap { animation: token-range-fade 260ms ease both; }
 
-/* 某一天 / 某一段里的模型拆分，颜色和柱子一致（2.0.0 起和桌面同一份标记） */
+/* 某一天、某个月或上周的模型拆分，颜色和柱子一致（2.0.0 起和桌面同一份标记） */
 .range-models { display: grid; gap: 3px; margin: 2px 0 0; padding: 0; list-style: none; }
 .disclosure-content > .range-models { margin-top: 10px; }
 .range-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
@@ -1413,6 +1504,69 @@ body.service-alert[data-view="usage"] footer { display: none; }
 .range-models em { color: var(--label-3); font-style: normal; font-variant-numeric: tabular-nums; }
 .range-models b { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
 .range-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-color); }
+
+/* ---- 2.0.0：周报明细里的按项目拆分（和桌面单日明细同一份标记和样子） ---- */
+.project-breakdown { margin-top: 10px; }
+.project-title { margin: 0 0 5px; color: var(--label-2); font-size: 12px; }
+.project-breakdown ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.project-breakdown li {
+  display: grid;
+  grid-template-columns: minmax(0, 110px) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 18px;
+  font-size: 12px;
+}
+.project-name { overflow: hidden; color: var(--label); text-overflow: ellipsis; white-space: nowrap; }
+.project-bar { height: 4px; overflow: hidden; border-radius: 999px; background: var(--fill); }
+.project-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.project-value { color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- 2.0.0：单日详情里的按小时分布（第 28 条，和桌面一致） ----
+   24 根细柱是当天每小时的 token，最高的一小时用主色、其余浅一档；下面一条细轨上的灰段是这天的 5 小时窗口，
+   再用一行字写出起止和用到的百分比（GPT 不限 5 小时额度时写「不限」）。这一块两个平台一样高。 */
+.hours-strip { margin-top: 4px; line-height: normal; }
+.hours-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--label-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.hours-head > b { min-width: 0; overflow: hidden; color: var(--label); font-weight: 500; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.hours-plot {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  align-items: end;
+  column-gap: 2px;
+  height: 36px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--separator);
+}
+.hours-bar { display: block; min-height: 0; background: rgba(var(--accent-rgb), 0.42); }
+.hours-bar.is-peak { background: var(--accent); }
+.hours-windows-track { position: relative; height: 4px; margin-top: 4px; border-radius: 2px; background: var(--fill); }
+.hours-window { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--label-3); box-shadow: 0 0 0 1px var(--card); }
+.hours-axis { position: relative; height: 12px; margin-top: 2px; color: var(--label-3); font-size: 10px; line-height: 12px; font-variant-numeric: tabular-nums; }
+.hours-axis > span { position: absolute; top: 0; transform: translateX(-50%); }
+.hours-axis > span:nth-child(1) { left: 0; transform: none; }
+.hours-axis > span:nth-child(2) { left: 25%; }
+.hours-axis > span:nth-child(3) { left: 50%; }
+.hours-axis > span:nth-child(4) { left: 75%; }
+.hours-axis > span:nth-child(5) { right: 0; transform: none; }
+.hours-windows {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--label-2);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
 
 @media (max-height: 600px) {
   /* 和 30 天格子原来在这一档的上边距一样 */
@@ -1433,4 +1587,5 @@ body.service-alert[data-view="usage"] footer { display: none; }
     --series-other: #636366;
   }
   .token-range::before { background: var(--thumb); }
+  .line-area { fill: rgba(var(--accent-rgb), 0.16); }
 }

@@ -5,11 +5,12 @@
 //   node scripts/make-demo-state.js > "$TMPDIR/cmm-demo.json"
 //   ./node_modules/.bin/electron scripts/qa-render.js "$TMPDIR/cmm-demo.json" codex usage docs/screenshots/codex-usage.png
 // --today=YYYY-MM-DD 固定“今天”（核对生成结果时用；截图要用真实的今天，否则日历对不上）。
-// 两个种子是 2026-11-23 拍 README 截图时挑的，那天的环比比较温和（GPT 近 30 天 +21%，Claude 近 7 天 +5%、近 90 天 +21%）；
-// 换一天生成，数值和环比都会跟着变。
+// 两个种子是 2026-11-23 拍 README 截图时挑的，那天的环比比较温和（GPT 近 30 天约 +20%，Claude 近 7 天 +5% 到 +8%，随拍摄的钟点变）；
+// 换一天生成，数值和环比都会跟着变。每小时的用量、5 小时窗口和周报（2.0.0）由各天的记录推出来，不改动这些数。
 
 const fs = require('fs');
 const path = require('path');
+const { lastCompleteWeek } = require('../src/usage-recap');
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
@@ -182,6 +183,122 @@ function buildDay(profile, random, { date, age, todayFraction }) {
   return record;
 }
 
+// 一天里每小时的用量（2.0.0，单日明细的按小时分布）：上午和下午两个高峰、晚上少一些、凌晨几乎没有。
+// 用另一条随机序列（按种子和日期），不打乱上面各天的数值；今天只排到现在这个小时。
+const HOUR_SHAPE = [0.2, 0.05, 0, 0, 0, 0, 0, 0.1, 0.5, 1.1, 1.6, 1.4, 0.7, 0.9, 1.5, 1.7, 1.5, 1.1, 0.6, 0.5, 0.8, 0.9, 0.7, 0.4];
+
+function hoursOf(profile, record, { age, now }) {
+  const random = mulberry32(profile.seed * 7919 + age * 104729);
+  const lastHour = age === 0 ? new Date(now).getHours() : 23;
+  const weights = HOUR_SHAPE.map((shape, hour) => (hour > lastHour ? 0 : shape * (0.4 + random() * 1.2) * (random() < 0.18 ? 0 : 1)));
+  const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
+  const hours = weights.map((weight) => Math.round((record.tokens * weight) / total));
+  // 舍入的零头并进最忙的一小时，24 个数相加正好是当天总量
+  const peak = hours.indexOf(Math.max(...hours));
+  hours[peak] += record.tokens - hours.reduce((sum, value) => sum + value, 0);
+  return hours;
+}
+
+// 5 小时窗口（只有 Claude 有；GPT 不限 5 小时额度）：从每天第一次有用量的那个小时开窗，满 5 小时后
+// 下一次有用量时再开一个；百分比按窗口里的用量折算，最后一个是正在进行的那个。
+function fiveHourWindowsOf(profile, days, { now, current }) {
+  const capacity = profile.tokensPerDay[1] * 0.42;
+  const windows = [];
+  let open = null;
+  for (const day of days) {
+    if (!day.hours) continue;
+    const dayStart = new Date(`${day.day}T00:00:00`).getTime();
+    const random = mulberry32(profile.seed * 31 + dayStart / DAY_MS);
+    day.hours.forEach((tokens, hour) => {
+      if (!(tokens > 0)) return;
+      const at = dayStart + hour * HOUR_MS;
+      if (!open || at >= open.endAt) {
+        const startAt = at + Math.floor(random() * 40) * 60_000;
+        open = { startAt, endAt: startAt + 5 * HOUR_MS, tokens: 0 };
+        windows.push(open);
+      }
+      open.tokens += tokens;
+    });
+  }
+  const past = windows
+    .filter((item) => item.endAt <= current.startAt)
+    .map((item) => ({ startAt: item.startAt, endAt: item.endAt, peak: Math.max(3, Math.min(100, Math.round((item.tokens / capacity) * 100))) }));
+  return [...past, { startAt: current.startAt, endAt: current.endAt, peak: current.peak }].filter((item) => item.startAt < now);
+}
+
+// 周报（2.0.0）：上一个完整的自然周，按天的记录加起来，和 src/usage-recap.js 的结果同一个形状。
+function topRows(map, limit, makeRow) {
+  const sorted = [...map.values()].sort((left, right) => right.tokens - left.tokens);
+  const rows = sorted.slice(0, limit).map(makeRow);
+  const rest = sorted.slice(limit);
+  if (rest.length) {
+    rows.push({
+      ...makeRow({ name: null, model: null, tokens: 0, costUsd: 0, sessions: 0 }),
+      other: rest.length,
+      tokens: rest.reduce((sum, item) => sum + item.tokens, 0),
+      costUsd: roundCents(rest.reduce((sum, item) => sum + item.costUsd, 0))
+    });
+  }
+  return rows;
+}
+
+function weeklyReportOf(days, { now, samples }) {
+  const { startAt, endAt, previousStartAt } = lastCompleteWeek(now);
+  const inRange = (from, to) => days.filter((day) => {
+    const at = new Date(`${day.day}T00:00:00`).getTime();
+    return at >= from && at < to;
+  });
+  const week = inRange(startAt, endAt);
+  const hours = new Array(24).fill(0);
+  const models = new Map();
+  const projects = new Map();
+  let busiestDay = null;
+  for (const day of week) {
+    if (!busiestDay || day.tokens > busiestDay.tokens) busiestDay = { day: day.day, tokens: day.tokens };
+    (day.hours || []).forEach((value, hour) => { hours[hour] += value; });
+    for (const model of day.models) {
+      const item = models.get(model.model) || { model: model.model, tokens: 0, costUsd: 0 };
+      item.tokens += model.value;
+      item.costUsd += model.costUsd;
+      models.set(model.model, item);
+    }
+    for (const project of day.projects) {
+      const item = projects.get(project.name) || { name: project.name, tokens: 0, costUsd: 0, sessions: 0 };
+      item.tokens += project.tokens;
+      item.costUsd += project.costUsd;
+      item.sessions += project.sessions;
+      projects.set(project.name, item);
+    }
+  }
+  const sum = (key) => week.reduce((total, day) => total + day[key], 0);
+  const peakHour = Math.max(...hours);
+  let quotaLow = null;
+  for (const sample of samples) {
+    if (sample.t >= startAt && sample.t < endAt && Number.isFinite(sample.week) && (!quotaLow || sample.week > quotaLow.usedPercent)) {
+      quotaLow = { usedPercent: sample.week, at: sample.t };
+    }
+  }
+  return {
+    start: isoDay(new Date(startAt)),
+    end: isoDay(new Date(endAt - 1)),
+    previousStart: isoDay(new Date(previousStartAt)),
+    tokens: sum('tokens'),
+    ioTokens: sum('ioTokens'),
+    inputTokens: sum('inputTokens'),
+    cachedInputTokens: sum('cachedInputTokens'),
+    costUsd: roundCents(sum('costUsd')),
+    unpricedTokens: 0,
+    sessions: sum('threads'),
+    activeDays: week.filter((day) => day.tokens > 0).length,
+    busiestDay,
+    busiestHour: peakHour > 0 ? { hour: hours.indexOf(peakHour), tokens: peakHour } : null,
+    models: topRows(models, 3, (item) => ({ model: item.model, tokens: item.tokens, costUsd: roundCents(item.costUsd) })),
+    projects: topRows(projects, 3, (item) => ({ name: item.name, tokens: item.tokens, costUsd: roundCents(item.costUsd), sessions: item.sessions })),
+    previousTokens: inRange(previousStartAt, startAt).reduce((total, day) => total + day.tokens, 0),
+    quotaLow
+  };
+}
+
 function generateDays(profile, { today, now }) {
   const random = mulberry32(profile.seed);
   const todayFraction = Math.min(1, Math.max(0.2, (now - today.getTime()) / DAY_MS));
@@ -196,7 +313,10 @@ function generateDays(profile, { today, now }) {
     // 最近两周的工作日都有用量：截图里的 7 天柱状图和环比不会因为随机空几天显得奇怪。
     const recentWorkday = age < 14 && !weekend;
     const active = age === 0 || recentWorkday || (!vacation && activeRoll < (weekend ? 0.42 : 0.86));
-    if (active) days.push(record);
+    if (active) {
+      if (age < WINDOW_DAYS) record.hours = hoursOf(profile, record, { age, now });
+      days.push(record);
+    }
   }
   return days;
 }
@@ -238,7 +358,7 @@ function attribution({ summary, projects, costUsd }) {
   return { costUsd: round4(costUsd), pricedTokens: summary.tokens, unpricedTokens: 0, projects: rows };
 }
 
-function activitySlice(provider, { today, now, fiveHour, week }) {
+function activitySlice(provider, { today, now, fiveHour, week, samples, currentFive = null }) {
   const profile = PROFILES[provider];
   const all = generateDays(profile, { today, now });
   const cutoffDay = isoDay(addDays(today, -(WINDOW_DAYS - 1)));
@@ -262,7 +382,10 @@ function activitySlice(provider, { today, now, fiveHour, week }) {
         status: 'ready',
         coverageStart: isoDay(addDays(today, -400)),
         days: history
-      }
+      },
+      weeklyReport: weeklyReportOf(days, { now, samples }),
+      fiveHourWindows: currentFive ? fiveHourWindowsOf(profile, days, { now, current: currentFive }) : [],
+      fiveHourUnlimited: !currentFive
     },
     error: null,
     errorCode: null,
@@ -328,15 +451,17 @@ function main() {
   const claudeWeekResetAt = now + Math.round(2.4 * DAY_MS);
   const usage = (data) => ({ status: 'ok', fetchedAt: now - 2 * 60_000, error: null, errorCode: null, staleAfterMs: null, retryAt: null, data });
 
+  const usageHistory = {
+    ...base.usageHistory,
+    codex: quotaSamples(now, { weekResetAt: codexWeekResetAt, weekUsed: 37, previousWeekUsed: 74 }),
+    claude: quotaSamples(now, { weekResetAt: claudeWeekResetAt, weekUsed: 56, previousWeekUsed: 81, fiveResetAt: claudeFiveResetAt, fiveUsed: 18 })
+  };
+
   const state = {
     provider: 'codex',
     language: 'zh-CN',
     enabledProviders: ['codex', 'claude', 'kimi', 'glm', 'qwen'],
-    usageHistory: {
-      ...base.usageHistory,
-      codex: quotaSamples(now, { weekResetAt: codexWeekResetAt, weekUsed: 37, previousWeekUsed: 74 }),
-      claude: quotaSamples(now, { weekResetAt: claudeWeekResetAt, weekUsed: 56, previousWeekUsed: 81, fiveResetAt: claudeFiveResetAt, fiveUsed: 18 })
-    },
+    usageHistory,
     usage: usage({
       planType: 'plus',
       limitReached: false,
@@ -354,7 +479,8 @@ function main() {
       today,
       now,
       fiveHour: { startAt: now - 5 * HOUR_MS, basis: 'rolling' },
-      week: { startAt: codexWeekResetAt - 7 * DAY_MS, basis: 'cycle' }
+      week: { startAt: codexWeekResetAt - 7 * DAY_MS, basis: 'cycle' },
+      samples: usageHistory.codex
     }),
     claudeUsage: usage({
       planType: 'Max 5x',
@@ -368,7 +494,9 @@ function main() {
       today,
       now,
       fiveHour: { startAt: claudeFiveResetAt - 5 * HOUR_MS, basis: 'cycle' },
-      week: { startAt: claudeWeekResetAt - 7 * DAY_MS, basis: 'cycle' }
+      week: { startAt: claudeWeekResetAt - 7 * DAY_MS, basis: 'cycle' },
+      samples: usageHistory.claude,
+      currentFive: { startAt: claudeFiveResetAt - 5 * HOUR_MS, endAt: claudeFiveResetAt, peak: 18 }
     }),
     codexStatus: status('codex', now),
     claudeStatus: status('claude', now),

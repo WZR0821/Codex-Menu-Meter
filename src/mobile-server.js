@@ -127,7 +127,7 @@ function sanitizeUsageSlice(slice) {
   };
 }
 
-// 手机页的 90 天 / 1 年视图要更早的日汇总（2.0.0）：主进程最多给近一年里 30 天以前的部分（约 336 天）。
+// 手机页的 1 年视图要更早的日汇总（2.0.0）：主进程最多给近一年里 30 天以前的部分（约 336 天）。
 // 只带画柱子和明细要用的字段，每天的模型最多 6 个，免得快照太大（云端上传上限 1 MB）。
 const HISTORY_PAYLOAD_DAYS = 340;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -159,8 +159,66 @@ function sanitizeActivityDay(day) {
     cachedInputTokens: safeNumber(day.cachedInputTokens),
     threads: safeNumber(day.threads) || 0,
     costUsd: safeNumber(day.costUsd) || 0,
-    models: sanitizeDayModels(day.models, 24)
+    models: sanitizeDayModels(day.models, 24),
+    ...sanitizeHours(day.hours)
   }, day);
+}
+
+// 单日明细的按小时分布（2.0.0，第 28 条）：24 个数，不是正好 24 个就不带。
+function sanitizeHours(hours) {
+  if (!Array.isArray(hours) || hours.length !== 24) return {};
+  return { hours: hours.map((value) => Math.max(0, safeNumber(value) || 0)) };
+}
+
+// 单日明细里的 5 小时窗口（第 28 条）：起止时间和窗口里用到的最高百分比，近 30 天最多几百个。
+const FIVE_HOUR_WINDOWS_LIMIT = 240;
+
+function sanitizeFiveHourWindows(list) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(-FIVE_HOUR_WINDOWS_LIMIT)
+    .map((item) => ({ startAt: safeNumber(item?.startAt), endAt: safeNumber(item?.endAt), peak: safeNumber(item?.peak) }))
+    .filter((item) => item.startAt !== null && item.endAt !== null && item.peak !== null && item.endAt > item.startAt);
+}
+
+// 周报（第 27 条）：上周一到周日的合计、最忙的一天和时段、前三个模型和项目（其余并成一行）、周额度最低点。
+function sanitizeReportRow(row, nameKey) {
+  return {
+    [nameKey]: row?.[nameKey] ? String(row[nameKey]).slice(0, 80) : null,
+    other: safeNumber(row?.other) || 0,
+    tokens: safeNumber(row?.tokens) || 0,
+    costUsd: safeNumber(row?.costUsd),
+    ...(nameKey === 'name' ? { sessions: safeNumber(row?.sessions) || 0 } : {})
+  };
+}
+
+function sanitizeWeeklyReport(report) {
+  if (!report || typeof report !== 'object' || !ISO_DAY.test(String(report.start || '')) || !ISO_DAY.test(String(report.end || ''))) return null;
+  const busiestDay = report.busiestDay && ISO_DAY.test(String(report.busiestDay.day || ''))
+    ? { day: String(report.busiestDay.day), tokens: safeNumber(report.busiestDay.tokens) || 0 }
+    : null;
+  const hour = safeNumber(report.busiestHour?.hour);
+  const quotaUsed = safeNumber(report.quotaLow?.usedPercent);
+  return {
+    start: String(report.start),
+    end: String(report.end),
+    previousStart: ISO_DAY.test(String(report.previousStart || '')) ? String(report.previousStart) : null,
+    tokens: safeNumber(report.tokens) || 0,
+    ioTokens: safeNumber(report.ioTokens) || 0,
+    inputTokens: safeNumber(report.inputTokens),
+    cachedInputTokens: safeNumber(report.cachedInputTokens),
+    costUsd: safeNumber(report.costUsd) || 0,
+    unpricedTokens: safeNumber(report.unpricedTokens) || 0,
+    sessions: safeNumber(report.sessions) || 0,
+    activeDays: safeNumber(report.activeDays) || 0,
+    busiestDay,
+    busiestHour: Number.isInteger(hour) && hour >= 0 && hour < 24 ? { hour, tokens: safeNumber(report.busiestHour.tokens) || 0 } : null,
+    models: Array.isArray(report.models) ? report.models.slice(0, 4).map((row) => sanitizeReportRow(row, 'model')) : [],
+    projects: Array.isArray(report.projects) ? report.projects.slice(0, 4).map((row) => sanitizeReportRow(row, 'name')) : [],
+    previousTokens: safeNumber(report.previousTokens),
+    quotaLow: quotaUsed !== null && safeNumber(report.quotaLow?.at) !== null
+      ? { usedPercent: Math.max(0, Math.min(100, quotaUsed)), at: safeNumber(report.quotaLow.at) }
+      : null
+  };
 }
 
 function sanitizeHistoryDay(day) {
@@ -202,7 +260,10 @@ function sanitizeActivitySlice(slice) {
         week: sanitizeActivityWindow(data.windows.week)
       } : null,
       days: Array.isArray(data.days) ? data.days.slice(-30).map(sanitizeActivityDay) : [],
-      history: sanitizeActivityHistory(data.history)
+      history: sanitizeActivityHistory(data.history),
+      weeklyReport: sanitizeWeeklyReport(data.weeklyReport),
+      fiveHourWindows: sanitizeFiveHourWindows(data.fiveHourWindows),
+      fiveHourUnlimited: Boolean(data.fiveHourUnlimited)
     } : null
   };
 }

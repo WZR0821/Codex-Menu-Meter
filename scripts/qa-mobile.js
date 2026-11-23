@@ -235,24 +235,24 @@ app.whenReady().then(async () => {
   await capture('usage-week-compact', { singleScreen: true });
   await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="month"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 300));
-  // 2.0.0：90 天（按周）和一年（按月）两个视图，两个平台、三种尺寸都要一屏放完。
+  // 2.0.0：1 年折线和上周的周报两个视图，两个平台、三种尺寸都要一屏放完。
   for (const [providerKey, prefix] of [['codex', 'usage'], ['claude', 'claude-usage']]) {
     await window.webContents.executeJavaScript(`document.querySelector('[data-provider="${providerKey}"]').click()`);
     for (const [width, height, suffix] of [[390, 844, ''], [375, 667, '-compact'], [320, 568, '-narrow']]) {
       window.setSize(width, height);
       await new Promise((resolve) => setTimeout(resolve, 450));
-      for (const range of ['quarter', 'year']) {
+      for (const range of ['year', 'recap']) {
         await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="${range}"]').click()`);
         await new Promise((resolve) => setTimeout(resolve, 900));
         await capture(`${prefix}-${range}${suffix}`, { singleScreen: true });
       }
     }
   }
-  // 90 天视图点一根柱子、展开详情：看那一周的模型构成；再展开额度明细，看额度去向。
+  // 1 年视图点倒数第三个月、展开详情：看那个月的模型构成；周报展开详情看项目拆分；再展开额度明细，看额度去向。
   window.setSize(390, 844);
   await window.webContents.executeJavaScript(`document.querySelector('[data-provider="codex"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 450));
-  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="quarter"]').click()`);
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="year"]').click()`);
   await new Promise((resolve) => setTimeout(resolve, 900));
   const bucketDetail = await window.webContents.executeJavaScript(`(() => {
     const cols = document.querySelectorAll('.week-col');
@@ -265,9 +265,65 @@ app.whenReady().then(async () => {
       summary: document.querySelector('#tokenCard .token-summary')?.textContent.replace(/\s+/g, ' ').trim() || null
     };
   })()`);
-  console.log(`usage-quarter-detail: ${JSON.stringify(bucketDetail)}`);
+  console.log(`usage-year-detail: ${JSON.stringify(bucketDetail)}`);
   await new Promise((resolve) => setTimeout(resolve, 300));
-  await capture('usage-quarter-detail');
+  await capture('usage-year-detail');
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="recap"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 900));
+  const recapDetail = await window.webContents.executeJavaScript(`(() => {
+    const more = document.querySelector('.token-more');
+    if (more) more.open = true;
+    return {
+      rows: document.querySelectorAll('.recap-rows > div').length,
+      summary: document.querySelector('#selectedDayLabel')?.textContent || null,
+      projects: document.querySelectorAll('.project-breakdown li').length
+    };
+  })()`);
+  console.log(`usage-recap-detail: ${JSON.stringify(recapDetail)}`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-recap-detail');
+  // 30 天视图展开某一天的详情：按小时分布和 5 小时窗口（GPT 不限，写「不限」）
+  await window.webContents.executeJavaScript(`document.querySelector('[data-token-range="month"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  const hoursDetail = await window.webContents.executeJavaScript(`(() => {
+    const more = document.querySelector('.token-more');
+    if (more) more.open = true;
+    return {
+      bars: document.querySelectorAll('.hours-bar').length,
+      windows: document.querySelector('.hours-windows')?.textContent || null
+    };
+  })()`);
+  console.log(`usage-hours-detail: ${JSON.stringify(hoursDetail)}`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('usage-hours-detail');
+  // Claude 选今天：有 5 小时窗口，看细轨和那一行字；看完切回 GPT
+  await window.webContents.executeJavaScript(`document.querySelector('[data-provider="claude"]').click()`);
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  const claudeHours = await window.webContents.executeJavaScript(`(() => {
+    const cells = document.querySelectorAll('.heat-cell');
+    cells[cells.length - 1]?.click();
+    const more = document.querySelector('.token-more');
+    if (more) more.open = true;
+    const strip = document.querySelector('.hours-strip');
+    strip?.scrollIntoView({ block: 'end' });
+    return {
+      bars: document.querySelectorAll('.hours-bar').length,
+      marks: document.querySelectorAll('.hours-window').length,
+      head: document.querySelector('.hours-head')?.textContent || null,
+      windows: document.querySelector('.hours-windows')?.textContent || null,
+      height: strip ? Math.round(strip.getBoundingClientRect().height) : null
+    };
+  })()`);
+  console.log(`claude-usage-hours-detail: ${JSON.stringify(claudeHours)}`);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await capture('claude-usage-hours-detail');
+  await window.webContents.executeJavaScript(`(() => {
+    const more = document.querySelector('.token-more');
+    if (more) more.open = false;
+    window.scrollTo(0, 0);
+    document.querySelector('[data-provider="codex"]').click();
+  })()`);
+  await new Promise((resolve) => setTimeout(resolve, 450));
   await window.webContents.executeJavaScript(`(() => {
     const more = document.querySelector('.token-more');
     if (more) more.open = false;

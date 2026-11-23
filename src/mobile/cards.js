@@ -1,5 +1,5 @@
-// 两端共用的卡片渲染（2.0.0）：Token 活动的 7 天 / 90 天 / 1 年柱状图、和上一段的对比、
-// 分组明细（读写、命中率、活跃天数、按模型、费用），以及额度卡下面的「额度去向」。
+// 两端共用的卡片渲染（2.0.0）：Token 活动的 7 天柱状图、1 年折线、上周的周报、和上一段的对比、
+// 分组明细（读写、命中率、活跃天数、按模型、费用）、单日明细里的按小时分布，以及额度卡下面的「额度去向」。
 // 桌面面板（src/renderer.js）和手机页（src/mobile/mobile.js）都调这一份；这些新卡片的文案也在这里，
 // 三种语言各一份，两边看到的字和数一样。两边只是类名不同（skin），结构和计算完全一样。
 // 测试在 test/cards.test.js。
@@ -13,14 +13,16 @@
   'use strict';
 
   const LOCALES = ['zh-CN', 'en-US', 'ja-JP'];
-  const RANGES = ['week', 'month', 'quarter', 'year'];
+  // 「周报」占了原来 90 天的位置（2.0.0 发布前用户说 90 天不需要），切换按钮仍是四段，卡片尺寸不变。
+  const RANGES = ['week', 'month', 'year', 'recap'];
   const DEFAULT_RANGE = 'month';
-  // 7 天、30 天、90 天按天数；1 年是 12 个自然月（本月算到今天）。
-  const RANGE_DAYS = { week: 7, month: 30, quarter: 90 };
-  const QUARTER_BUCKET_DAYS = 7;
+  // 7 天、30 天按天数；1 年是 12 个自然月（本月算到今天）；周报是上一个完整的自然周（主进程算好，见 src/usage-recap.js）。
+  const RANGE_DAYS = { week: 7, month: 30 };
   const YEAR_MONTHS = 12;
-  // 柱子多时只隔几根标一个日期（从最右一根往左数），其余留空，免得字挤在一起。
-  const LABEL_EVERY = { week: 1, quarter: 3, year: 2 };
+  // 1 年折线的月份刻度隔一个写一个（从最右往左数），选中的月份一定写出来。
+  const YEAR_LABEL_EVERY = 2;
+  // 1 年折线的最高点画在这个高度（百分比），上面留出圆点的位置。
+  const LINE_TOP = 84;
   // 额度去向：已用不到 1% 时换算出的「1% ≈」误差太大，不给数字。
   const ATTRIBUTION_MIN_USED = 1;
   // 固定三行（前两个项目 + 其他），不够的留空行：GPT 和 Claude 切换时这一块一样高。
@@ -29,8 +31,8 @@
   const TEXT = {
     rangeWeek: ['7 天', '7d', '7日'],
     rangeMonth: ['30 天', '30d', '30日'],
-    rangeQuarter: ['90 天', '90d', '90日'],
     rangeYear: ['1 年', '1y', '1年'],
+    rangeRecap: ['周报', 'Weekly', '週報'],
     usedDays: ['近 {n} 天已使用', '{n}-day used', '直近{n}日の使用量'],
     usedYear: ['近 12 个月已使用', '12-month used', '直近12か月の使用量'],
     nameDays: ['近 {n} 天', 'Last {n} days', '直近{n}日'],
@@ -40,8 +42,43 @@
     changeSame: ['和前 {n} 天差不多', 'About the same as the previous {n} days', '前の{n}日とほぼ同じ'],
     changeFlat: ['持平', 'flat', '横ばい'],
     chartAriaWeek: ['近 7 天每日用量，按模型分色', 'Daily usage for the last 7 days, colored by model', '直近7日の日別使用量（モデル別に色分け）'],
-    chartAriaQuarter: ['近 90 天每周用量，按模型分色', 'Weekly usage for the last 90 days, colored by model', '直近90日の週別使用量（モデル別に色分け）'],
-    chartAriaYear: ['近 12 个月每月用量，按模型分色', 'Monthly usage for the last 12 months, colored by model', '直近12か月の月別使用量（モデル別に色分け）'],
+    chartAriaYear: ['近 12 个月每月用量', 'Monthly usage for the last 12 months', '直近12か月の月別使用量'],
+    lineCaption: ['每月用量', 'Monthly usage', '月別の使用量'],
+    linePeak: ['最高 {month} · {v}', 'Peak {month} · {v}', '最多 {month} · {v}'],
+    usedRecap: ['上周已使用', 'Used last week', '先週の使用量'],
+    nameRecap: ['上周', 'Last week', '先週'],
+    changeMoreWeek: ['比前一周多 {v}', '{v} more than the week before', '前の週より {v} 多い'],
+    changeLessWeek: ['比前一周少 {v}', '{v} less than the week before', '前の週より {v} 少ない'],
+    changeSameWeek: ['和前一周差不多', 'About the same as the week before', '前の週とほぼ同じ'],
+    recapAria: ['上周回顾（周一至周日）', 'Last week in review (Mon–Sun)', '先週のふりかえり（月〜日）'],
+    recapBusiest: ['最忙的一天', 'Busiest day', '最も使った日'],
+    recapModels: ['最常用模型', 'Top models', '主なモデル'],
+    recapProjects: ['最常用项目', 'Top projects', '主なプロジェクト'],
+    recapQuota: ['周额度最低', 'Weekly quota low', '週間枠の最低'],
+    recapQuotaValue: ['剩 {v} · {when}', '{v} left · {when}', '残り {v} · {when}'],
+    recapQuotaNone: ['这一周没有额度采样', 'No quota samples that week', 'この週の枠のサンプルなし'],
+    recapCost: ['折算费用', 'Est. cost', '換算コスト'],
+    recapCostValue: ['≈ {usd} · {sessions} 个会话 · {n}/7 天', '≈ {usd} · {sessions} sessions · {n}/7 days', '≈ {usd} · {sessions} セッション · {n}/7日'],
+    recapMissing: ['下一次刷新后显示周报', 'The weekly report shows up after the next refresh', '次の更新後に週報を表示します'],
+    recapPeakHour: ['高峰时段', 'Peak hour', 'ピーク時間帯'],
+    recapSessions: ['{n} 个会话 · {days}/7 天有用量', '{n} sessions · active {days} of 7 days', '{n} セッション · 7日中{days}日利用'],
+    recapCostLine: ['折算 API 成本：上周 ≈ {usd}', 'Est. API cost: last week ≈ {usd}', 'API 換算コスト：先週 ≈ {usd}'],
+    recapUnpriced: ['另有 {v} 来自未定价型号，未计入费用', '{v} from unpriced models not included', '料金未公開のモデルの {v} は含みません'],
+    recapNote: [
+      '统计本机日志里上周一到周日的用量；额度最低点只算应用开着时的采样',
+      'Monday to Sunday from local logs on this Mac; the quota low only counts samples taken while the app was running',
+      'この Mac のログで先週の月〜日を集計。週間枠の最低値はアプリ起動中のサンプルのみ'
+    ],
+    recapProjectsTitle: ['上周各项目', 'Projects last week', '先週のプロジェクト'],
+    hoursTitle: ['按小时', 'By hour', '時間帯別'],
+    hoursPeak: ['高峰 {range} · {v}', 'Peak {range} · {v}', 'ピーク {range} · {v}'],
+    hoursEmpty: ['这天没有用量', 'No usage this day', 'この日は使用なし'],
+    hoursAria: ['{day} 每小时用量', 'Usage by hour on {day}', '{day} の時間帯別の使用量'],
+    fiveWindowOne: ['5 小时窗口 {from}–{to} · 用到 {v}', '5-hour window {from}–{to} · peaked at {v}', '5時間枠 {from}–{to} · 最大 {v}'],
+    fiveWindowsMany: ['5 小时窗口 {n} 个 · 最高 {v}（{from}–{to}）', '{n} five-hour windows · peak {v} ({from}–{to})', '5時間枠 {n} 件 · 最大 {v}（{from}–{to}）'],
+    fiveWindowItem: ['{from}–{to} 用到 {v}', '{from}–{to} peaked at {v}', '{from}–{to} 最大 {v}'],
+    fiveWindowsNone: ['这天没有 5 小时窗口的记录', 'No 5-hour windows recorded this day', 'この日の 5 時間枠の記録なし'],
+    fiveUnlimited: ['5 小时额度不限', 'No 5-hour limit', '5 時間枠は無制限'],
     modelOther: ['其他', 'Other', 'その他'],
     modelUnknown: ['未知型号', 'unknown model', '不明なモデル'],
     usedAmount: ['已使用 {v}', 'Used {v}', '使用済み {v}'],
@@ -75,7 +112,7 @@
     attrAria: ['本周各项目约占的周额度', 'Estimated share of the weekly quota by project', '今週の週間枠に占めるプロジェクト別の推定割合']
   };
 
-  const RANGE_LABEL_KEYS = { week: 'rangeWeek', month: 'rangeMonth', quarter: 'rangeQuarter', year: 'rangeYear' };
+  const RANGE_LABEL_KEYS = { week: 'rangeWeek', month: 'rangeMonth', year: 'rangeYear', recap: 'rangeRecap' };
 
   // 两端的柱状图结构一样、类名不同：桌面沿用 1.1.0 的 token-week-*，手机沿用 week-*。
   const SKINS = {
@@ -230,6 +267,25 @@
     return new Intl.DateTimeFormat(locale(lang), { year: 'numeric', month: 'short' }).format(parseDay(day));
   }
 
+  function weekdayShort(lang, date) {
+    return new Intl.DateTimeFormat(locale(lang), { weekday: 'short' }).format(date);
+  }
+
+  // 周三 11/19、Wed 11/19、水 11/19
+  function weekdayDay(lang, day) {
+    return `${weekdayShort(lang, parseDay(day))} ${shortDay(day)}`;
+  }
+
+  function timeShort(lang, ts) {
+    return new Intl.DateTimeFormat(locale(lang), { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ts));
+  }
+
+  // 14:00–15:00（最后一个小时写到 24:00）
+  function hourRange(hour) {
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${pad(hour)}:00–${pad(hour + 1)}:00`;
+  }
+
   // ---- 数据：把近 30 天（按日志现算）和更早的日汇总（落盘的）拼成一张按天的表 ----
 
   function normalizeRange(value) {
@@ -345,18 +401,26 @@
     };
   }
 
+  function coverageOf(activity) {
+    const history = activity?.history && typeof activity.history === 'object' ? activity.history : null;
+    const firstLiveDay = (activity?.days || []).map((day) => day?.day).filter(isIsoDay).sort()[0] || null;
+    return {
+      history,
+      coverageStart: isIsoDay(history?.coverageStart) ? history.coverageStart : firstLiveDay,
+      historyStatus: history ? (history.status === 'ready' ? 'ready' : 'pending') : null
+    };
+  }
+
   // 一个时间范围的全部数字：柱子（分组）、合计、和上一段的对比、记录从哪天开始有。
-  // 30 天视图没有柱子（两端各画自己的热力图），其余三种的分组：
-  // 7 天 = 每天一根；90 天 = 从今天往回每 7 天一根，共 13 根（最早那根 6 天，合起来正好 90 天）；
-  // 1 年 = 12 个自然月，本月只算到今天。对比只在上一段完全有记录时给：本地记录最早一天不晚于上一段开头，
+  // 30 天视图没有柱子（两端各画自己的热力图）；7 天 = 每天一根柱子；1 年 = 12 个自然月连成的折线，本月只算到今天；
+  // 周报另算（buildRecapView）。对比只在上一段完全有记录时给：本地记录最早一天不晚于上一段开头，
   // 且上一段确实有用量；1 年视图不对比。
   function buildView(range, activity, { now = new Date() } = {}) {
     const key = normalizeRange(range);
+    if (key === 'recap') return buildRecapView(activity, { now });
     const days = collectDays(activity);
     const today = startOfDay(now);
-    const history = activity?.history && typeof activity.history === 'object' ? activity.history : null;
-    const firstLiveDay = (activity?.days || []).map((day) => day?.day).filter(isIsoDay).sort()[0] || null;
-    const coverageStart = isIsoDay(history?.coverageStart) ? history.coverageStart : firstLiveDay;
+    const { coverageStart, historyStatus } = coverageOf(activity);
     const buckets = [];
     let rangeStart;
     let previous = null;
@@ -375,11 +439,6 @@
         for (let index = 0; index < length; index += 1) {
           const date = addDays(rangeStart, index);
           buckets.push(makeBucket(days, date, date, 'day'));
-        }
-      } else if (key === 'quarter') {
-        for (let end = today; end >= rangeStart; end = addDays(end, -QUARTER_BUCKET_DAYS)) {
-          const start = addDays(end, -(QUARTER_BUCKET_DAYS - 1));
-          buckets.unshift(makeBucket(days, start < rangeStart ? rangeStart : start, end, 'week'));
         }
       }
     }
@@ -400,9 +459,96 @@
       change,
       buckets,
       coverageStart,
-      historyStatus: history ? (history.status === 'ready' ? 'ready' : 'pending') : null,
+      historyStatus,
       pricingAsOf: isIsoDay(activity?.pricingAsOf) ? activity.pricingAsOf : null,
       todayTotals: sumRange(days, today, today)
+    };
+  }
+
+  // ---- 周报（2.0.0，第 27 条）：主进程按本机日志算好上周一到周日（src/usage-recap.js），这里只整理和排版 ----
+
+  function nullableNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function normalizeReport(raw) {
+    if (!raw || typeof raw !== 'object' || !isIsoDay(raw.start) || !isIsoDay(raw.end)) return null;
+    const rows = (list, nameKey) => (Array.isArray(list) ? list : [])
+      .filter((row) => row && typeof row === 'object')
+      .map((row) => ({
+        [nameKey]: row[nameKey] ? String(row[nameKey]) : null,
+        other: num(row.other),
+        tokens: num(row.tokens),
+        costUsd: nullableNumber(row.costUsd),
+        sessions: num(row.sessions)
+      }));
+    const hour = Number(raw.busiestHour?.hour);
+    const used = nullableNumber(raw.quotaLow?.usedPercent);
+    const lowAt = nullableNumber(raw.quotaLow?.at);
+    return {
+      start: raw.start,
+      end: raw.end,
+      previousStart: isIsoDay(raw.previousStart) ? raw.previousStart : null,
+      tokens: num(raw.tokens),
+      ioTokens: num(raw.ioTokens),
+      inputTokens: nullableCount(raw.inputTokens),
+      cachedInputTokens: nullableCount(raw.cachedInputTokens),
+      costUsd: num(raw.costUsd),
+      unpricedTokens: num(raw.unpricedTokens),
+      sessions: num(raw.sessions),
+      activeDays: num(raw.activeDays),
+      busiestDay: raw.busiestDay && isIsoDay(raw.busiestDay.day) && num(raw.busiestDay.tokens) > 0
+        ? { day: raw.busiestDay.day, tokens: num(raw.busiestDay.tokens) }
+        : null,
+      busiestHour: Number.isInteger(hour) && hour >= 0 && hour < 24 ? { hour, tokens: num(raw.busiestHour.tokens) } : null,
+      models: rows(raw.models, 'model'),
+      projects: rows(raw.projects, 'name'),
+      previousTokens: num(raw.previousTokens),
+      quotaLow: used !== null && lowAt !== null ? { usedPercent: clamp(used, 0, 100), at: lowAt } : null
+    };
+  }
+
+  // 和 buildView 同样的形状，统计行（「上周已使用」和环比）、明细、配色都按它走；周报没有柱子。
+  function buildRecapView(activity, { now = new Date() } = {}) {
+    const today = startOfDay(now);
+    const days = collectDays(activity);
+    const { coverageStart, historyStatus } = coverageOf(activity);
+    const report = normalizeReport(activity?.weeklyReport);
+    const totals = sumRange(days, today, addDays(today, -1));
+    if (report) {
+      Object.assign(totals, {
+        tokens: report.tokens,
+        ioTokens: report.ioTokens,
+        inputTokens: report.inputTokens,
+        cachedInputTokens: report.cachedInputTokens,
+        costUsd: report.costUsd,
+        unpricedTokens: report.unpricedTokens,
+        threads: report.sessions,
+        activeDays: report.activeDays,
+        dayCount: 7,
+        // 「其他 N 个」那一行没有型号名，配色时并进灰色的「其他」
+        models: report.models.map((row) => ({ model: row.model || '', value: row.tokens, costUsd: row.costUsd }))
+      });
+    }
+    let change = null;
+    if (report && report.previousTokens > 0 && report.previousStart && coverageStart && coverageStart <= report.previousStart) {
+      change = { ratio: report.tokens / report.previousTokens - 1, days: 7, kind: 'week', previousTokens: report.previousTokens };
+    }
+    return {
+      range: 'recap',
+      today: isoDate(today),
+      rangeStart: report ? report.start : isoDate(today),
+      dayCount: 7,
+      totals,
+      change,
+      buckets: [],
+      coverageStart,
+      historyStatus,
+      pricingAsOf: isIsoDay(activity?.pricingAsOf) ? activity.pricingAsOf : null,
+      todayTotals: sumRange(days, today, today),
+      report
     };
   }
 
@@ -417,11 +563,15 @@
   }
 
   function statLabel(view, lang) {
-    return view.range === 'year' ? text(lang, 'usedYear') : text(lang, 'usedDays', { n: RANGE_DAYS[view.range] });
+    if (view.range === 'year') return text(lang, 'usedYear');
+    if (view.range === 'recap') return text(lang, 'usedRecap');
+    return text(lang, 'usedDays', { n: RANGE_DAYS[view.range] });
   }
 
   function rangeName(view, lang) {
-    return view.range === 'year' ? text(lang, 'nameYear') : text(lang, 'nameDays', { n: RANGE_DAYS[view.range] });
+    if (view.range === 'year') return text(lang, 'nameYear');
+    if (view.range === 'recap') return text(lang, 'nameRecap');
+    return text(lang, 'nameDays', { n: RANGE_DAYS[view.range] });
   }
 
   function bucketTitle(bucket, lang) {
@@ -435,7 +585,13 @@
     return bucket.kind === 'month' ? monthShort(lang, bucket.start) : shortDay(bucket.start);
   }
 
-  function summaryText(bucket, lang) {
+  // 「统计详情」那一栏的标题：所选的那一段；周报写「上周 11/16–11/22 · 总量」。
+  function summaryText(bucket, lang, view = null) {
+    if (view?.range === 'recap') {
+      const report = view.report;
+      if (!report) return text(lang, 'nameRecap');
+      return `${text(lang, 'nameRecap')} ${shortDay(report.start)}–${shortDay(report.end)} · ${formatTokens(lang, report.tokens)}`;
+    }
     return `${bucketTitle(bucket, lang)} · ${formatTokens(lang, bucket?.totals?.tokens || 0)}`;
   }
 
@@ -450,12 +606,14 @@
     const percent = Math.round(Math.abs(change.ratio) * 100);
     const direction = percent === 0 ? 'flat' : change.ratio > 0 ? 'up' : 'down';
     const shown = percent > 999 ? '999%+' : `${percent}%`;
+    // 周报和「前一周」比，其余和「前 N 天」比
+    const suffix = change.kind === 'week' ? 'Week' : '';
     return {
       direction,
       short: direction === 'flat' ? text(lang, 'changeFlat') : `${direction === 'up' ? '↑' : '↓'}${shown}`,
       title: direction === 'flat'
-        ? text(lang, 'changeSame', { n: change.days })
-        : text(lang, direction === 'up' ? 'changeMore' : 'changeLess', { n: change.days, v: shown })
+        ? text(lang, `changeSame${suffix}`, { n: change.days })
+        : text(lang, `${direction === 'up' ? 'changeMore' : 'changeLess'}${suffix}`, { n: change.days, v: shown })
     };
   }
 
@@ -478,7 +636,9 @@
   }
 
   // 配色按整个范围的合计排名一次性分号（前三个模型各一色，其余灰色「其他」），图例、柱子、明细同一套。
+  // 周报没有柱子，按上周的合计分号。
   function seriesFor(view) {
+    if (view?.range === 'recap') return TOKEN_WEEK.weekSeries([{ tokens: view.totals.tokens, models: view.totals.models }]);
     return TOKEN_WEEK.weekSeries(view.buckets.map(pseudoDay));
   }
 
@@ -493,15 +653,12 @@
     return visible;
   }
 
-  function chartAriaKey(range) {
-    if (range === 'quarter') return 'chartAriaQuarter';
-    if (range === 'year') return 'chartAriaYear';
-    return 'chartAriaWeek';
-  }
-
   // columnAttrs(row) 给每根柱子补额外的属性（桌面用它挂悬停提示的数据），返回已转义好的属性串。
+  // 7 天画柱状图，1 年画折线（lineChartHtml），周报是一块文字（recapHtml）；30 天由两端各自画格子。
   function chartHtml(view, { lang, skin = 'desktop', selectedKey = null, series = null, columnAttrs = null } = {}) {
+    if (view?.range === 'recap') return recapHtml(view, { lang, series });
     if (!view?.buckets?.length) return '';
+    if (view.range === 'year') return lineChartHtml(view, { lang, skin, selectedKey, series, columnAttrs });
     const names = SKINS[skin] || SKINS.desktop;
     const colors = series || seriesFor(view);
     const rows = view.buckets.map((bucket) => {
@@ -511,19 +668,17 @@
     const heights = TOKEN_WEEK.barHeights(rows);
     const found = rows.findIndex((row) => row.bucket.key === selectedKey);
     const selectedIndex = found >= 0 ? found : rows.length - 1;
-    const every = LABEL_EVERY[view.range] || 1;
-    const visible = labelVisibility(rows.length, every, selectedIndex);
     const legend = [
       ...colors.named.map((name, index) => ({ slot: index + 1, label: modelLabel(name, lang) })),
       ...(colors.hasOther ? [{ slot: 'other', label: text(lang, 'modelOther') }] : [])
     ];
     const interactive = names.tag === 'button' ? 'type="button"' : 'tabindex="0" role="button"';
     return `
-    <div class="${names.root}" role="group" aria-label="${escapeHtml(text(lang, chartAriaKey(view.range)))}">
+    <div class="${names.root}" role="group" aria-label="${escapeHtml(text(lang, 'chartAriaWeek'))}">
       <div class="${names.legend}">
         ${legend.map((item) => `<span class="${names.key}" title="${escapeHtml(item.label)}"><i class="${names.dot} series-${item.slot}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span></span>`).join('')}
       </div>
-      <div class="${names.plot}${every > 1 ? ' sparse' : ''}" style="${names.colsVar}:${rows.length}">
+      <div class="${names.plot}" style="${names.colsVar}:${rows.length}">
         ${rows.map((row, index) => {
           const { bucket, segments } = row;
           const selected = index === selectedIndex;
@@ -534,10 +689,221 @@
           return `
           <${names.tag} class="${names.col}${selected ? ` ${names.selected}` : ''}" ${interactive} aria-pressed="${selected}" ${dataKey} data-title="${escapeHtml(title)}" aria-label="${escapeHtml(aria)}"${extra}>
             <span class="${names.track}"><span class="${names.bar}" style="height:${heights[index].toFixed(1)}%;--i:${index}">${segments.map((segment) => `<i class="${names.seg} series-${segment.slot}" style="flex-grow:${segment.value}"></i>`).join('')}</span></span>
+            <span class="${names.label}">${escapeHtml(bucketAxisLabel(bucket, lang))}</span>
+          </${names.tag}>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  }
+
+  // 1 年视图（2.0.0 发布前按用户要求换掉了柱状图）：12 个月的合计连成一条 2px 折线，下面铺一层很淡的面积，
+  // 颜色是平台主色，和 30 天格子同一个色系；一眼看出一年里用量怎么涨落，和 7 天的柱子、30 天的格子都不一样。
+  // 每个月一列透明的点击区（和柱状图的列同一套类名和数据属性），悬停出提示、点击选中；
+  // 悬停的月份画一条竖线，选中和悬停的月份在线上标一个圆点，背后不铺底色。本地记录开始之前的月份不画线。
+  function lineChartHtml(view, { lang, skin = 'desktop', selectedKey = null, series = null, columnAttrs = null } = {}) {
+    const names = SKINS[skin] || SKINS.desktop;
+    const colors = series || seriesFor(view);
+    const rows = view.buckets;
+    const max = Math.max(0, ...rows.map((bucket) => bucket.totals.tokens));
+    const heights = rows.map((bucket) => (max > 0 ? (bucket.totals.tokens / max) * LINE_TOP : 0));
+    const covered = rows.map((bucket) => !view.coverageStart || bucket.end >= view.coverageStart);
+    const first = covered.indexOf(true);
+    const step = 1000 / rows.length;
+    const points = rows.map((_, index) => ({ x: (index + 0.5) * step, y: 100 - heights[index] }));
+    const drawn = first >= 0 ? points.slice(first) : [];
+    const line = drawn.map((point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(2)}`).join(' ');
+    const area = drawn.length > 1 ? `${line} L${drawn.at(-1).x.toFixed(1)} 100 L${drawn[0].x.toFixed(1)} 100 Z` : '';
+    const found = rows.findIndex((bucket) => bucket.key === selectedKey);
+    const selectedIndex = found >= 0 ? found : rows.length - 1;
+    const visible = labelVisibility(rows.length, YEAR_LABEL_EVERY, selectedIndex);
+    let peakIndex = -1;
+    rows.forEach((bucket, index) => {
+      if (max > 0 && bucket.totals.tokens === max) peakIndex = index;
+    });
+    const peak = peakIndex >= 0 ? text(lang, 'linePeak', { month: monthShort(lang, rows[peakIndex].start), v: formatTokens(lang, max) }) : '';
+    const interactive = names.tag === 'button' ? 'type="button"' : 'tabindex="0" role="button"';
+    return `
+    <div class="${names.root} is-line" role="group" aria-label="${escapeHtml(text(lang, 'chartAriaYear'))}">
+      <div class="${names.legend} line-caption">
+        <span>${escapeHtml(text(lang, 'lineCaption'))}</span>
+        ${peak ? `<span class="line-peak">${escapeHtml(peak)}</span>` : ''}
+      </div>
+      <div class="${names.plot} line-plot" style="${names.colsVar}:${rows.length}">
+        <svg class="line-svg" viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          ${area ? `<path class="line-area" d="${area}"></path>` : ''}
+          ${drawn.length > 1 ? `<path class="line-stroke" d="${line}"></path>` : ''}
+        </svg>
+        ${rows.map((bucket, index) => {
+          const selected = index === selectedIndex;
+          const title = bucketTitle(bucket, lang);
+          const aria = `${title} · ${formatTokens(lang, bucket.totals.tokens)}`;
+          const extra = typeof columnAttrs === 'function' ? ` ${columnAttrs({ bucket, series: colors, index })}` : '';
+          return `
+          <${names.tag} class="${names.col} line-col${selected ? ` ${names.selected}` : ''}${covered[index] ? '' : ' is-uncovered'}" ${interactive} aria-pressed="${selected}" data-bucket="${escapeHtml(bucket.key)}" data-title="${escapeHtml(title)}" aria-label="${escapeHtml(aria)}" style="--y:${heights[index].toFixed(1)}%"${extra}>
+            <span class="${names.track}"><i class="line-dot" aria-hidden="true"></i></span>
             <span class="${names.label}${visible[index] ? '' : ' is-blank'}">${escapeHtml(bucketAxisLabel(bucket, lang))}</span>
           </${names.tag}>`;
         }).join('')}
       </div>
+    </div>
+  `;
+  }
+
+  // 周报的模型和项目只在这一块里写前两个（其余看「统计详情」），占比按上周的总量算。
+  function shareText(tokens, total) {
+    return total > 0 ? `${Math.round((tokens / total) * 100)}%` : '0%';
+  }
+
+  function recapModelsHtml(report, colors, lang) {
+    const named = report.models.filter((row) => row.model && row.tokens > 0).slice(0, 2);
+    if (!named.length) return '<span class="recap-text">—</span>';
+    return named.map((row) => {
+      const slot = colors.slots.get(row.model) || 'other';
+      return `<span class="recap-item"><i class="range-dot series-${slot}" aria-hidden="true"></i><span>${escapeHtml(modelLabel(row.model, lang))}</span> <em>${escapeHtml(shareText(row.tokens, report.tokens))}</em></span>`;
+    }).join('');
+  }
+
+  function recapProjectsHtml(report, lang) {
+    const named = report.projects.filter((row) => !(row.other > 0) && row.tokens > 0).slice(0, 2);
+    if (!named.length) return '<span class="recap-text">—</span>';
+    return named.map((row) => `<span class="recap-item"><span>${escapeHtml(row.name || text(lang, 'attrUnknown'))}</span> <em>${escapeHtml(shareText(row.tokens, report.tokens))}</em></span>`).join('');
+  }
+
+  function quotaWhen(lang, ts) {
+    return `${weekdayShort(lang, new Date(ts))} ${timeShort(lang, ts)}`;
+  }
+
+  // 周报（第 27 条）：上周一到周日。总量和环比在上面的统计行里，这一块写最忙的一天、用得最多的模型和项目、
+  // 周额度最低剩多少、折算费用。和 7 天柱状图、30 天格子叠在同一格里，切换时卡片尺寸不动。
+  function recapHtml(view, { lang, series = null } = {}) {
+    const report = view.report;
+    if (!report) {
+      return `<div class="token-recap is-message" role="group" aria-label="${escapeHtml(text(lang, 'recapAria'))}"><p class="recap-message">${escapeHtml(text(lang, 'recapMissing'))}</p></div>`;
+    }
+    const colors = series || seriesFor(view);
+    const quota = report.quotaLow
+      ? text(lang, 'recapQuotaValue', { v: `${Math.max(0, Math.round(100 - report.quotaLow.usedPercent))}%`, when: quotaWhen(lang, report.quotaLow.at) })
+      : text(lang, 'recapQuotaNone');
+    const plain = (value) => `<span class="recap-text">${escapeHtml(value)}</span>`;
+    const rows = [
+      [text(lang, 'recapBusiest'), plain(report.busiestDay ? `${weekdayDay(lang, report.busiestDay.day)} · ${formatTokens(lang, report.busiestDay.tokens)}` : '—')],
+      [text(lang, 'recapModels'), recapModelsHtml(report, colors, lang)],
+      [text(lang, 'recapProjects'), recapProjectsHtml(report, lang)],
+      [text(lang, 'recapQuota'), plain(quota)],
+      [text(lang, 'recapCost'), plain(text(lang, 'recapCostValue', { usd: formatUsd(report.costUsd), sessions: report.sessions, n: report.activeDays }))]
+    ];
+    // 日期写在下面「统计详情」那一行（上周 11/16–11/22 · 总量），这里五行平分格子区的高度，最矮的手机也放得下。
+    const aria = `${text(lang, 'recapAria')} · ${shortDay(report.start)}–${shortDay(report.end)}`;
+    return `
+    <div class="token-recap" role="group" aria-label="${escapeHtml(aria)}">
+      <dl class="recap-rows">
+        ${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${value}</dd></div>`).join('')}
+      </dl>
+    </div>
+  `;
+  }
+
+  // 一段时间里各项目的用量：横条长度按用量最多的项目折算，右边写 token 和费用（桌面单日明细也是这个样子）。
+  function projectListHtml(projects, { lang, title } = {}) {
+    const rows = (Array.isArray(projects) ? projects : []).filter((row) => row && num(row.tokens) > 0);
+    if (!rows.length) return '';
+    const max = Math.max(1, ...rows.map((row) => num(row.tokens)));
+    return `
+    <div class="project-breakdown">
+      <p class="project-title">${escapeHtml(title)}</p>
+      <ul>
+        ${rows.map((row) => {
+          const label = row.other > 0 ? text(lang, 'attrOther', { n: row.other }) : (row.name || text(lang, 'attrUnknown'));
+          const width = Math.max(2, (num(row.tokens) / max) * 100).toFixed(1);
+          const cost = row.costUsd === null || row.costUsd === undefined ? '' : ` · ${formatUsd(row.costUsd)}`;
+          return `<li title="${escapeHtml(label)}"><span class="project-name">${escapeHtml(label)}</span><span class="project-bar"><i style="width:${width}%"></i></span><span class="project-value">${escapeHtml(`${formatTokens(lang, row.tokens, false)}${cost}`)}</span></li>`;
+        }).join('')}
+      </ul>
+    </div>
+  `;
+  }
+
+  // 周报的「统计详情」：读写、命中率、高峰时段、会话和活跃天数，按模型和按项目的拆分，以及费用和口径说明。
+  function recapDetailHtml(view, { lang, series = null } = {}) {
+    const report = view.report;
+    if (!report) return `<p class="detail-note">${escapeHtml(text(lang, 'recapMissing'))}</p>`;
+    const name = text(lang, 'nameRecap');
+    const notes = [
+      text(lang, 'recapCostLine', { usd: formatUsd(report.costUsd) }),
+      report.unpricedTokens > 0 ? text(lang, 'recapUnpriced', { v: formatTokens(lang, report.unpricedTokens) }) : '',
+      text(lang, 'recapNote'),
+      view.pricingAsOf ? text(lang, 'costHint', { date: shortDay(view.pricingAsOf) }) : ''
+    ].filter(Boolean);
+    return `
+      <dl class="detail-metrics">
+        ${metricHtml(name, text(lang, 'ioAmount', { v: formatTokens(lang, report.ioTokens, false) }))}
+        ${metricHtml(name, text(lang, 'cacheHit', { v: formatCacheHit(lang, report.cachedInputTokens, report.inputTokens) }))}
+        ${metricHtml(text(lang, 'recapPeakHour'), report.busiestHour ? hourRange(report.busiestHour.hour) : '—')}
+        ${metricHtml(name, text(lang, 'recapSessions', { n: report.sessions, days: report.activeDays }))}
+      </dl>
+      ${modelsHtml(view.totals, { lang, series: series || seriesFor(view) })}
+      ${projectListHtml(report.projects, { lang, title: text(lang, 'recapProjectsTitle') })}
+      ${notes.map((note) => `<p class="detail-note">${escapeHtml(note)}</p>`).join('')}
+    `;
+  }
+
+  // ---- 单日明细：按小时分布（2.0.0，第 28 条） ----
+
+  // 一天 24 根细柱，最高的一小时用主色、其余用浅一档；下面一条细轨标出这天的 5 小时窗口（悬停看起止和百分比），
+  // 再用一行字写出窗口个数和用得最多的那个（只有一个时写它的起止和百分比）。GPT 不限 5 小时额度时这一行写「不限」，
+  // 没有采样的日子写「没有记录」，两个平台这一块一样高。day.hours 是本地时间每小时的 token 数（主进程按会话记录算）。
+  function hoursHtml(day, { lang, windows = [], fiveHourUnlimited = false } = {}) {
+    if (!isIsoDay(day?.day)) return '';
+    // 主进程只发有用量的天；没用的那天也照样画（全空），两个平台、每一天这一块都一样高。
+    // 有用量却没有 hours 的是旧版数据，不画。
+    let hours = Array.isArray(day.hours) && day.hours.length === 24 ? day.hours.map(num) : null;
+    if (!hours && !(num(day.tokens) > 0)) hours = new Array(24).fill(0);
+    if (!hours) return '';
+    const max = Math.max(0, ...hours);
+    const peakHour = max > 0 ? hours.indexOf(max) : -1;
+    const start = parseDay(day.day).getTime();
+    const end = addDays(parseDay(day.day), 1).getTime();
+    const span = end - start;
+    const dayWindows = (Array.isArray(windows) ? windows : [])
+      .filter((item) => Number(item?.endAt) > start && Number(item?.startAt) < end && Number(item?.endAt) > Number(item?.startAt))
+      .sort((left, right) => left.startAt - right.startAt);
+    const bars = hours.map((value, hour) => {
+      const height = value > 0 ? Math.max(6, (value / max) * 100) : 0;
+      return `<i class="hours-bar${hour === peakHour ? ' is-peak' : ''}" style="height:${height.toFixed(1)}%"></i>`;
+    }).join('');
+    const describe = (item) => text(lang, 'fiveWindowItem', {
+      from: timeShort(lang, item.startAt),
+      to: timeShort(lang, item.endAt),
+      v: `${Math.round(Number(item.peak) || 0)}%`
+    });
+    const marks = dayWindows.map((item) => {
+      const from = Math.max(start, Number(item.startAt));
+      const to = Math.min(end, Number(item.endAt));
+      return `<i class="hours-window" title="${escapeHtml(describe(item))}" style="left:${(((from - start) / span) * 100).toFixed(2)}%;width:${Math.max(0.8, ((to - from) / span) * 100).toFixed(2)}%"></i>`;
+    }).join('');
+    const head = peakHour >= 0
+      ? text(lang, 'hoursPeak', { range: hourRange(peakHour), v: formatTokens(lang, max) })
+      : text(lang, 'hoursEmpty');
+    let windowText = text(lang, 'fiveWindowsNone');
+    let windowTitle = windowText;
+    if (fiveHourUnlimited) {
+      windowText = text(lang, 'fiveUnlimited');
+      windowTitle = windowText;
+    } else if (dayWindows.length) {
+      // 用得最多的那个窗口；一样多时取早的
+      const top = dayWindows.reduce((best, item) => (Number(item.peak) > Number(best.peak) ? item : best), dayWindows[0]);
+      const params = { n: dayWindows.length, from: timeShort(lang, top.startAt), to: timeShort(lang, top.endAt), v: `${Math.round(Number(top.peak) || 0)}%` };
+      windowText = text(lang, dayWindows.length > 1 ? 'fiveWindowsMany' : 'fiveWindowOne', params);
+      windowTitle = dayWindows.map(describe).join(' · ');
+    }
+    return `
+    <div class="hours-strip">
+      <div class="hours-head"><span>${escapeHtml(text(lang, 'hoursTitle'))}</span><b>${escapeHtml(head)}</b></div>
+      <div class="hours-plot" role="img" aria-label="${escapeHtml(`${text(lang, 'hoursAria', { day: shortDay(day.day) })} · ${head}`)}">${bars}</div>
+      <div class="hours-windows-track" aria-hidden="true">${marks}</div>
+      <div class="hours-axis" aria-hidden="true"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
+      <p class="hours-windows" title="${escapeHtml(windowTitle)}">${escapeHtml(windowText)}</p>
     </div>
   `;
   }
@@ -587,9 +953,10 @@
     return `<div><dt>${escapeHtml(label)}</dt><dd>${tone ? `<span class="cache-hit-rate ${tone}">${escapeHtml(value)}</span>` : escapeHtml(value)}</dd></div>`;
   }
 
-  // 90 天 / 1 年视图下「统计详情」展开后的内容：所选那一段和整个范围的读写、命中率，所选那一段的活跃天数、
-  // 按模型拆分和费用。这些天的日汇总里没有项目拆分，所以不列项目。
+  // 1 年视图下「统计详情」展开后的内容：所选那个月和整个范围的读写、命中率，所选那个月的活跃天数、
+  // 按模型拆分和费用。这些天的日汇总里没有项目拆分，所以不列项目。周报的明细另见 recapDetailHtml。
   function bucketDetailHtml(view, bucket, { lang, series = null } = {}) {
+    if (view?.range === 'recap') return recapDetailHtml(view, { lang, series });
     if (!bucket) return '';
     const name = bucketTitle(bucket, lang);
     const whole = rangeName(view, lang);
@@ -719,6 +1086,8 @@
     collectDays,
     sumRange,
     buildView,
+    buildRecapView,
+    normalizeReport,
     selectedBucket,
     rangeLabel,
     statLabel,
@@ -731,6 +1100,12 @@
     seriesFor,
     labelVisibility,
     chartHtml,
+    lineChartHtml,
+    recapHtml,
+    recapDetailHtml,
+    projectListHtml,
+    hoursHtml,
+    hourRange,
     tooltipModels,
     modelsHtml,
     historyNote,

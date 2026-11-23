@@ -22,6 +22,40 @@ function day(offsetDays, tokens, extra = {}) {
   };
 }
 
+const HOUR = 3_600_000;
+
+function sampleReport(extra = {}) {
+  return {
+    start: '2026-11-16',
+    end: '2026-11-22',
+    previousStart: '2026-11-09',
+    tokens: 3000,
+    ioTokens: 300,
+    inputTokens: 2800,
+    cachedInputTokens: 2700,
+    costUsd: 12.5,
+    unpricedTokens: 40,
+    sessions: 6,
+    activeDays: 4,
+    busiestDay: { day: '2026-11-19', tokens: 1500 },
+    busiestHour: { hour: 14, tokens: 900 },
+    models: [
+      { model: 'claude-opus-5-5', tokens: 2000, costUsd: 10 },
+      { model: 'claude-fable-5-2', tokens: 600, costUsd: 2 },
+      { model: 'claude-sonnet-5-5', tokens: 300, costUsd: 0.5 },
+      { model: null, other: 2, tokens: 100, costUsd: null }
+    ],
+    projects: [
+      { name: 'alpha', tokens: 1800, costUsd: 8, sessions: 3 },
+      { name: 'beta', tokens: 900, costUsd: 3, sessions: 2 },
+      { name: null, other: 3, tokens: 300, costUsd: 1.5, sessions: 1 }
+    ],
+    previousTokens: 2000,
+    quotaLow: { usedPercent: 87.6, at: new Date(2026, 10, 21, 21, 10).getTime() },
+    ...extra
+  };
+}
+
 test('7-day view has one bucket per day ending today, and compares with the 7 days before', () => {
   const days = [];
   for (let offset = -29; offset <= 0; offset += 1) days.push(day(offset, 1000));
@@ -38,16 +72,10 @@ test('7-day view has one bucket per day ending today, and compares with the 7 da
   assert.equal(CARDS.changeInfo(view, 'zh-CN').direction, 'flat');
 });
 
-test('90-day view groups 13 seven-day blocks ending today; the oldest block has 6 days', () => {
-  const view = CARDS.buildView('quarter', { days: [day(0, 10)] }, { now: NOW });
-  assert.equal(view.buckets.length, 13);
-  assert.equal(view.buckets.at(-1).end, iso(0));
-  assert.equal(view.buckets.at(-1).start, iso(-6));
-  assert.equal(view.buckets[0].start, iso(-89));
-  assert.equal(view.buckets[0].totals.dayCount, 6);
-  assert.equal(view.buckets.reduce((sum, bucket) => sum + bucket.totals.dayCount, 0), 90);
-  assert.equal(view.dayCount, 90);
-  assert.equal(view.rangeStart, iso(-89));
+test('the 90-day view is gone: a stored "quarter" choice falls back to 30 days', () => {
+  assert.equal(CARDS.normalizeRange('quarter'), 'month');
+  assert.deepEqual(CARDS.RANGES, ['week', 'month', 'year', 'recap']);
+  assert.equal(CARDS.buildView('quarter', { days: [day(0, 10)] }, { now: NOW }).range, 'month');
 });
 
 test('1-year view is 12 calendar months, the current one counted up to today', () => {
@@ -70,8 +98,8 @@ test('history days (stored summaries) fill in before the 30-day live window; liv
       days: [day(-40, 100), day(-100, 300), { ...day(0, 1) }]
     }
   };
-  const quarter = CARDS.buildView('quarter', activity, { now: NOW });
-  assert.equal(quarter.totals.tokens, 600, '-40 and today (live 500, not the stored 1); -100 is outside 90 days');
+  const month = CARDS.buildView('month', activity, { now: NOW });
+  assert.equal(month.totals.tokens, 500, 'today counts the live 500, not the stored 1; -40 is outside 30 days');
   const year = CARDS.buildView('year', activity, { now: NOW });
   assert.equal(year.totals.tokens, 900);
   assert.equal(year.historyStatus, 'ready');
@@ -121,11 +149,34 @@ test('both skins render the same chart structure with their own class names', ()
   // 图例：三个模型各一色。
   assert.match(desktop, /GPT-6\.1 Sol/);
   assert.match(mobile, /Opus 5\.5/);
-  const quarter = CARDS.buildView('quarter', { days }, { now: NOW });
-  const quarterHtml = CARDS.chartHtml(quarter, { lang: 'en-US', skin: 'mobile' });
-  assert.match(quarterHtml, /week-plot sparse" style="--week-cols:13"/);
-  assert.match(quarterHtml, /data-bucket="2026-11-17~2026-11-23"/);
-  assert.equal((quarterHtml.match(/is-blank/g) || []).length, 8);
+  assert.doesNotMatch(desktop, /is-blank|sparse/, 'every day of the week gets its label');
+});
+
+test('the 1-year view is a line: one point per month, nothing drawn before local records start', () => {
+  const days = [day(0, 3000), day(-1, 1000)];
+  // 记录从 3 月 10 日开始：12 月、1 月、2 月不画线；5 月最多
+  const activity = { days, history: { status: 'ready', coverageStart: '2026-03-10', days: [day(-200, 5000)] } };
+  const view = CARDS.buildView('year', activity, { now: NOW });
+  const mobile = CARDS.chartHtml(view, { lang: 'en-US', skin: 'mobile' });
+  assert.match(mobile, /class="week-chart is-line"/);
+  assert.match(mobile, /class="week-plot line-plot" style="--week-cols:12"/);
+  assert.equal((mobile.match(/class="week-col line-col/g) || []).length, 12);
+  assert.equal((mobile.match(/is-uncovered/g) || []).length, 3);
+  assert.match(mobile, /<path class="line-stroke" d="M291\.7 /, 'the line starts in the first covered month (March)');
+  assert.match(mobile, /<path class="line-area" d="M291\.7 [^"]+ L958\.3 100 L291\.7 100 Z"/);
+  assert.match(mobile, /<button class="week-col line-col active" type="button" aria-pressed="true" data-bucket="2026-11-01~2026-11-23"/);
+  assert.equal((mobile.match(/is-blank/g) || []).length, 6, 'every other month is labelled, counting from this month');
+  assert.match(mobile, /Peak May · 5,000 tokens/);
+  assert.doesNotMatch(mobile, /week-bar|week-seg/, 'no bars in the year view');
+  // 最高的月份画在 84% 高，不贴着顶
+  assert.match(mobile, /data-bucket="2026-05-01~2026-05-31"[^>]*style="--y:84\.0%"/);
+
+  let calls = 0;
+  const desktop = CARDS.chartHtml(view, { lang: 'zh-CN', skin: 'desktop', selectedKey: '2026-05-01~2026-05-31', columnAttrs: () => { calls += 1; return 'data-extra="1"'; } });
+  assert.match(desktop, /class="token-week is-line"/);
+  assert.match(desktop, /token-week-col line-col selected" tabindex="0" role="button" aria-pressed="true" data-bucket="2026-05-01~2026-05-31"/);
+  assert.equal(calls, 12);
+  assert.match(desktop, /最高 5月 · 5,000 token/);
 });
 
 test('bucket details list both the bucket and the whole range, with notes', () => {
@@ -134,19 +185,126 @@ test('bucket details list both the bucket and the whole range, with notes', () =
     days: [day(0, 4000), day(-2, 2000, { unpricedTokens: 50, unpricedModels: ['gpt-x'] })],
     history: { status: 'pending', coverageStart: iso(-29), days: [] }
   };
-  const view = CARDS.buildView('quarter', activity, { now: NOW });
+  const view = CARDS.buildView('year', activity, { now: NOW });
   const bucket = CARDS.selectedBucket(view, null);
-  assert.equal(bucket.key, `${iso(-6)}~${iso(0)}`);
+  assert.equal(bucket.key, '2026-11-01~2026-11-23');
   assert.equal(bucket.totals.activeDays, 2);
   const html = CARDS.bucketDetailHtml(view, bucket, { lang: 'zh-CN' });
-  assert.match(html, /11\/17–11\/23/);
-  assert.match(html, /近 90 天/);
-  assert.match(html, /2\/7 天有用量/);
+  assert.match(html, /2026年11月/);
+  assert.match(html, /近 12 个月/);
+  assert.match(html, /2\/23 天有用量/);
   assert.match(html, /正在整理更早的本地记录/);
   assert.match(html, /未定价型号/);
   assert.match(html, /11\/20 的公开牌价/);
   assert.match(html, /range-models/);
-  assert.equal(CARDS.summaryText(bucket, 'zh-CN'), '11/17–11/23 · 6,000 token');
+  assert.equal(CARDS.summaryText(bucket, 'zh-CN'), '2026年11月 · 6,000 token');
+});
+
+test('the weekly report shows last Monday to Sunday from the main process and compares with the week before', () => {
+  const activity = {
+    pricingAsOf: '2026-11-20',
+    days: [day(0, 10)],
+    history: { status: 'ready', coverageStart: iso(-60), days: [] },
+    weeklyReport: sampleReport()
+  };
+  const view = CARDS.buildView('recap', activity, { now: NOW });
+  assert.equal(view.range, 'recap');
+  assert.equal(view.totals.tokens, 3000);
+  assert.equal(view.todayTotals.tokens, 10);
+  assert.deepEqual(view.buckets, []);
+  assert.equal(view.change.kind, 'week');
+  assert.equal(CARDS.changeInfo(view, 'zh-CN').title, '比前一周多 50%');
+  assert.equal(CARDS.changeInfo(view, 'en-US').title, '50% more than the week before');
+  assert.equal(CARDS.statLabel(view, 'zh-CN'), '上周已使用');
+  assert.equal(CARDS.summaryText(null, 'zh-CN', view), '上周 11/16–11/22 · 3,000 token');
+
+  const html = CARDS.chartHtml(view, { lang: 'zh-CN', skin: 'mobile' });
+  assert.match(html, /class="token-recap" role="group" aria-label="上周回顾（周一至周日） · 11\/16–11\/22"/);
+  assert.equal((html.match(/<div><dt>/g) || []).length, 5);
+  assert.match(html, /最忙的一天<\/dt><dd><span class="recap-text">周四 11\/19 · 1,500 token/);
+  assert.match(html, /range-dot series-1" aria-hidden="true"><\/i><span>Opus 5\.5<\/span> <em>67%/);
+  assert.match(html, /<span>Fable 5\.2<\/span> <em>20%/);
+  assert.match(html, /<span>alpha<\/span> <em>60%<\/em><\/span><span class="recap-item"><span>beta<\/span> <em>30%/);
+  assert.match(html, /剩 12% · 周六 21:10/);
+  assert.match(html, /≈ \$12\.5 · 6 个会话 · 4\/7 天/);
+  assert.equal(CARDS.chartHtml(view, { lang: 'zh-CN', skin: 'desktop' }), html, 'both skins share one recap');
+
+  const detail = CARDS.bucketDetailHtml(view, null, { lang: 'zh-CN' });
+  assert.match(detail, /读写 300/);
+  assert.match(detail, /缓存命中率 96\.4%/);
+  assert.match(detail, /高峰时段<\/dt><dd>14:00–15:00/);
+  assert.match(detail, /6 个会话 · 4\/7 天有用量/);
+  assert.match(detail, /range-models/);
+  assert.match(detail, /class="project-breakdown"[^]*上周各项目[^]*alpha[^]*其他 3 个/);
+  assert.match(detail, /折算 API 成本：上周 ≈ \$12\.5</);
+  assert.match(detail, /另有 40 token 来自未定价型号/);
+  assert.match(detail, /11\/20 的公开牌价/);
+
+  // 本地记录没盖到前一周：不比
+  const short = CARDS.buildView('recap', { ...activity, history: { status: 'ready', coverageStart: iso(-10), days: [] } }, { now: NOW });
+  assert.equal(short.change, null);
+});
+
+test('the weekly report waits for the first refresh, and an empty week still lists its rows', () => {
+  const missing = CARDS.buildView('recap', { days: [day(0, 10)] }, { now: NOW });
+  assert.equal(missing.report, null);
+  assert.equal(missing.totals.tokens, 0);
+  assert.equal(CARDS.summaryText(null, 'zh-CN', missing), '上周');
+  assert.match(CARDS.chartHtml(missing, { lang: 'zh-CN' }), /token-recap is-message[^]*下一次刷新后显示周报/);
+  assert.match(CARDS.bucketDetailHtml(missing, null, { lang: 'en-US' }), /The weekly report shows up after the next refresh/);
+
+  const quiet = CARDS.buildView('recap', {
+    days: [],
+    weeklyReport: sampleReport({ tokens: 0, ioTokens: 0, costUsd: 0, unpricedTokens: 0, sessions: 0, activeDays: 0, busiestDay: null, busiestHour: null, models: [], projects: [], previousTokens: 0, quotaLow: null })
+  }, { now: NOW });
+  const html = CARDS.chartHtml(quiet, { lang: 'en-US' });
+  assert.equal((html.match(/<div><dt>/g) || []).length, 5);
+  assert.equal((html.match(/<span class="recap-text">—<\/span>/g) || []).length, 3);
+  assert.match(html, /No quota samples that week/);
+  assert.match(html, /≈ \$0\.00 · 0 sessions · 0\/7 days/);
+  assert.equal(quiet.change, null);
+});
+
+test('the day detail shows usage by hour and the five-hour windows that touched that day', () => {
+  const hours = Array(24).fill(0);
+  hours[9] = 100;
+  hours[14] = 400;
+  hours[15] = 50;
+  const item = { day: '2026-11-22', hours };
+  const start = new Date(2026, 10, 22).getTime();
+  const windows = [
+    { startAt: start + 10 * HOUR, endAt: start + 15 * HOUR, peak: 78 },
+    // 跨过零点的窗口：只画这天里的那一段
+    { startAt: start - 2 * HOUR, endAt: start + 3 * HOUR, peak: 20 },
+    // 第二天的窗口：不算
+    { startAt: start + 30 * HOUR, endAt: start + 35 * HOUR, peak: 50 }
+  ];
+  const html = CARDS.hoursHtml(item, { lang: 'zh-CN', windows });
+  assert.equal((html.match(/class="hours-bar/g) || []).length, 24);
+  assert.equal((html.match(/is-peak/g) || []).length, 1);
+  assert.match(html, /hours-bar is-peak" style="height:100\.0%"/);
+  assert.match(html, /高峰 14:00–15:00 · 400 token/);
+  assert.equal((html.match(/class="hours-window"/g) || []).length, 2);
+  assert.match(html, /left:0\.00%;width:12\.50%/);
+  assert.match(html, /left:41\.67%;width:20\.83%/);
+  assert.match(html, /class="hours-windows" title="22:00–03:00 用到 20% · 10:00–15:00 用到 78%">5 小时窗口 2 个 · 最高 78%（10:00–15:00）</);
+  assert.match(html, /class="hours-window" title="10:00–15:00 用到 78%"/);
+  assert.match(CARDS.hoursHtml(item, { lang: 'en-US', windows: windows.slice(0, 1) }), />5-hour window 10:00–15:00 · peaked at 78%</);
+
+  // GPT 不限 5 小时额度：写「不限」，这一行照样占着，两个平台一样高
+  const unlimited = CARDS.hoursHtml(item, { lang: 'en-US', windows: [], fiveHourUnlimited: true });
+  assert.match(unlimited, /class="hours-windows"[^>]*>No 5-hour limit</);
+  assert.equal((unlimited.match(/class="hours-window"/g) || []).length, 0);
+
+  const many = Array.from({ length: 5 }, (_, index) => ({ startAt: start + index * 4 * HOUR, endAt: start + (index * 4 + 5) * HOUR, peak: index === 1 ? 60 : 10 }));
+  assert.match(CARDS.hoursHtml(item, { lang: 'ja-JP', windows: many }), />5時間枠 5 件 · 最大 60%（04:00–09:00）</);
+
+  const quiet = CARDS.hoursHtml({ day: '2026-11-21', hours: Array(24).fill(0) }, { lang: 'zh-CN' });
+  assert.match(quiet, /按小时<\/span><b>这天没有用量/);
+  assert.match(quiet, /这天没有 5 小时窗口的记录/);
+  assert.match(CARDS.hoursHtml({ day: '2026-11-20', tokens: 0 }, { lang: 'zh-CN' }), /这天没有用量/, 'a day with no records still gets the strip');
+  assert.equal(CARDS.hoursHtml({ day: '2026-11-21', tokens: 5 }, { lang: 'zh-CN' }), '', 'older payloads without hours draw nothing');
+  assert.equal(CARDS.hourRange(23), '23:00–24:00');
 });
 
 test('attribution converts the weekly used percent into per-project points', () => {
@@ -196,12 +354,14 @@ test('attribution keeps three rows: older payloads with more projects fold into 
 });
 
 test('range toggle has four equal buttons and unknown ranges fall back to 30 days', () => {
-  const html = CARDS.toggleHtml('quarter', 'ja-JP', 'trend-range-button');
+  const html = CARDS.toggleHtml('recap', 'ja-JP', 'trend-range-button');
   assert.equal((html.match(/<button/g) || []).length, 4);
-  assert.match(html, /class="trend-range-button active" data-token-range="quarter" aria-pressed="true">90日/);
+  assert.match(html, /data-token-range="week"[^>]*>7日<\/button>[^]*data-token-range="month"[^>]*>30日<\/button>[^]*data-token-range="year"[^>]*>1年<\/button>/);
+  assert.match(html, /class="trend-range-button active" data-token-range="recap" aria-pressed="true">週報/);
   assert.equal(CARDS.normalizeRange('decade'), 'month');
   assert.equal(CARDS.statLabel(CARDS.buildView('year', {}, { now: NOW }), 'en-US'), '12-month used');
-  assert.equal(CARDS.statLabel(CARDS.buildView('quarter', {}, { now: NOW }), 'zh-CN'), '近 90 天已使用');
+  assert.equal(CARDS.statLabel(CARDS.buildView('recap', {}, { now: NOW }), 'zh-CN'), '上周已使用');
+  assert.equal(CARDS.rangeLabel('recap', 'en-US'), 'Weekly');
 });
 
 test('formatting matches the panel: tokens, dollars, cache hit and points', () => {

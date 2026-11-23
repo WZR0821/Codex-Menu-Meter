@@ -40,7 +40,7 @@ app.whenReady().then(async () => {
   ipcMain.on('panel:content-height', (_event, height) => {
     const next = Math.round(Number(height));
     if (!Number.isFinite(next) || next <= 0) return;
-    reportedHeight = Math.min(780, Math.max(300, next));
+    reportedHeight = Math.min(840, Math.max(300, next));
     if (window && !window.isDestroyed()) window.setSize(406, reportedHeight);
   });
 
@@ -90,8 +90,8 @@ app.whenReady().then(async () => {
     })()`);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  // CMM_QA_TOKEN_RANGE=week|month|quarter|year：截图前把 Token 活动切到对应范围（按钮点击，和用户操作一样）。
-  const tokenRange = ['week', 'month', 'quarter', 'year'].includes(process.env.CMM_QA_TOKEN_RANGE) ? process.env.CMM_QA_TOKEN_RANGE : '';
+  // CMM_QA_TOKEN_RANGE=week|month|year|recap：截图前把 Token 活动切到对应范围（按钮点击，和用户操作一样）。
+  const tokenRange = ['week', 'month', 'year', 'recap'].includes(process.env.CMM_QA_TOKEN_RANGE) ? process.env.CMM_QA_TOKEN_RANGE : '';
   if (tokenRange && tab !== 'radar') {
     if (keepMotion) {
       // 本机记着上次的范围，目标范围可能已经选中；先切到另一边，保证这次点击是一次真的切换、会播入场动效。
@@ -106,6 +106,11 @@ app.whenReady().then(async () => {
   // CMM_QA_OPEN_QUOTA=1：截图前点额度标题行上的明细按钮，5 小时卡和一周卡一起展开。
   if (process.env.CMM_QA_OPEN_QUOTA === '1' && tab !== 'radar') {
     await window.webContents.executeJavaScript(`document.getElementById('quotaDetailsToggle')?.click()`);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  // CMM_QA_OPEN_TOKEN=1：截图前展开 Token 活动的「统计详情」（单日的按小时分布、1 年某个月、周报的明细，2.0.0）。
+  if (process.env.CMM_QA_OPEN_TOKEN === '1' && tab !== 'radar') {
+    await window.webContents.executeJavaScript(`document.querySelector('.tab-panel.active .token-more > summary')?.click()`);
     await new Promise((resolve) => setTimeout(resolve, 400));
   }
   if (trendRange && tab !== 'radar') {
@@ -150,7 +155,8 @@ app.whenReady().then(async () => {
       const active = document.querySelector('.tab-panel.active');
       return { scroll: active.scrollHeight, client: active.clientHeight };
     })()`);
-    if (overflow.scroll > overflow.client + 1) {
+    // CMM_QA_ALLOW_SCROLL=1：展开好几块明细时内容会超过面板上限，只截图、不报错。
+    if (overflow.scroll > overflow.client + 1 && process.env.CMM_QA_ALLOW_SCROLL !== '1') {
       throw new Error(`usage panel requires scrolling: ${JSON.stringify(overflow)}`);
     }
     const trend = await window.webContents.executeJavaScript(`(() => ({
@@ -192,9 +198,9 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
   }
-  // CMM_QA_TOKEN_HOVER=0–12：柱状图视图（7 天 / 90 天 / 1 年）下把指针放到第几根柱子上，截悬停提示。
+  // CMM_QA_TOKEN_HOVER=0–11：7 天柱状图 / 1 年折线下把指针放到第几列上，截悬停提示。
   const tokenHover = Number(process.env.CMM_QA_TOKEN_HOVER);
-  if (tokenRange && tokenRange !== 'month' && process.env.CMM_QA_TOKEN_HOVER !== undefined && Number.isInteger(tokenHover)) {
+  if ((tokenRange === 'week' || tokenRange === 'year') && process.env.CMM_QA_TOKEN_HOVER !== undefined && Number.isInteger(tokenHover)) {
     const point = await window.webContents.executeJavaScript(`(() => {
       const col = document.querySelectorAll('.token-week-col')[${tokenHover}];
       const rect = col?.querySelector('.token-week-track')?.getBoundingClientRect();

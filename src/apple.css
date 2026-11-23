@@ -851,6 +851,52 @@ body.apple-theme .project-value {
   white-space: nowrap;
 }
 
+/* ---- 2.0.0：单日详情里的按小时分布（第 28 条） ----
+   24 根细柱是当天每小时的 token，最高的一小时用主色、其余浅一档；下面一条细轨上的灰段是这天的 5 小时窗口，
+   再用一行字写出起止和用到的百分比（GPT 不限 5 小时额度时写「不限」）。这一块两个平台一样高。 */
+body.apple-theme .hours-strip { margin-top: 10px; }
+body.apple-theme .hours-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--a-label-2);
+}
+body.apple-theme .hours-head > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--a-label); font-variant-numeric: tabular-nums; }
+body.apple-theme .hours-plot {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  align-items: end;
+  column-gap: 2px;
+  height: 34px;
+  margin-top: 5px;
+  border-bottom: 1px solid var(--a-separator);
+}
+body.apple-theme .hours-bar { display: block; min-height: 0; background: rgba(var(--accent-rgb), 0.42); }
+body.apple-theme .hours-bar.is-peak { background: var(--accent); }
+body.apple-theme .hours-windows-track { position: relative; height: 4px; margin-top: 4px; border-radius: 2px; background: var(--a-fill); }
+body.apple-theme .hours-window { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: var(--a-label-3); box-shadow: 0 0 0 1px var(--a-card); }
+body.apple-theme .hours-axis { position: relative; height: 12px; margin-top: 2px; font-size: 10px; line-height: 12px; color: var(--a-label-3); font-variant-numeric: tabular-nums; }
+body.apple-theme .hours-axis > span { position: absolute; top: 0; transform: translateX(-50%); }
+body.apple-theme .hours-axis > span:nth-child(1) { left: 0; transform: none; }
+body.apple-theme .hours-axis > span:nth-child(2) { left: 25%; }
+body.apple-theme .hours-axis > span:nth-child(3) { left: 50%; }
+body.apple-theme .hours-axis > span:nth-child(4) { left: 75%; }
+body.apple-theme .hours-axis > span:nth-child(5) { right: 0; transform: none; }
+body.apple-theme .hours-windows {
+  margin: 3px 0 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--a-label-2);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- 0.11：额度曲线（24 小时 / 7 天、匀速参考线、专项周限额序列、十字线提示） ----
    序列配色（浅色）：5 小时 = 平台主色，周额度 = 蓝，专项周限额（Fable 等）= 洋红。
    已用 dataviz 校验脚本检查：三色两两在色盲模拟下 ΔE ≥ 15，正常视觉 ≥ 17。 */
@@ -1134,7 +1180,7 @@ body.apple-theme .token-range .trend-range-button { line-height: 16px; }
 /* 选中与否字重一样，切换时按钮宽度不跳 */
 body.apple-theme .token-range .trend-range-button,
 body.apple-theme .token-range .trend-range-button.active { font-weight: 500; }
-/* 1.1.1：按钮等宽，选中底块是容器上的一块，切换时滑到对应按钮下面（2.0.0 起四段：7 天 / 30 天 / 90 天 / 1 年） */
+/* 1.1.1：按钮等宽，选中底块是容器上的一块，切换时滑到对应按钮下面（2.0.0 起四段：7 天 / 30 天 / 1 年 / 周报） */
 body.apple-theme .token-range .trend-range-button { padding: 0 6px; }
 body.apple-theme .token-range {
   position: relative;
@@ -1155,8 +1201,8 @@ body.apple-theme .token-range::before {
   content: "";
 }
 body.apple-theme .token-range[data-range="month"]::before { transform: translateX(100%); }
-body.apple-theme .token-range[data-range="quarter"]::before { transform: translateX(200%); }
-body.apple-theme .token-range[data-range="year"]::before { transform: translateX(300%); }
+body.apple-theme .token-range[data-range="year"]::before { transform: translateX(200%); }
+body.apple-theme .token-range[data-range="recap"]::before { transform: translateX(300%); }
 html[data-appearance="dark"] body.apple-theme .token-range::before { background: var(--a-thumb); }
 body.apple-theme .token-range .trend-range-button { position: relative; z-index: 1; transition: color 200ms ease; }
 body.apple-theme .token-range .trend-range-button.active,
@@ -1259,11 +1305,106 @@ body.apple-theme .token-week-day {
   font-variant-numeric: tabular-nums;
 }
 body.apple-theme .token-week-col.selected .token-week-day { color: var(--a-label); font-weight: 600; }
-/* 2.0.0：90 天（13 根，每根一周）和 1 年（12 根，每根一个月）柱子多，两侧和柱间都收窄；
-   刻度隔几根写一个，写出来的可以伸出本列、居中不截断（左右相邻的刻度都空着），选中的那根一定写出来 */
-body.apple-theme .token-week-plot.sparse { column-gap: 3px; padding: 0 10px; }
-body.apple-theme .token-week-plot.sparse .token-week-day { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
+/* 2.0.0：1 年折线（12 个月连成一条线，下面铺一层很淡的面积，平台主色，和 30 天格子同一色系）。
+   列和 7 天柱状图同一套：每列是透明的点击区，横向不留空隙，第 i 个点正好在第 i 列正中；
+   月份刻度隔一个写一个，写出来的可以伸出本列、居中不截断（左右相邻的刻度都空着），选中的那个月一定写出来 */
+body.apple-theme .token-week-plot.line-plot { position: relative; column-gap: 0; padding: 0 12px; }
+body.apple-theme .line-plot .token-week-day { display: flex; justify-content: center; overflow: visible; text-overflow: clip; }
 body.apple-theme .token-week-day.is-blank { visibility: hidden; }
+body.apple-theme .line-caption { justify-content: space-between; }
+body.apple-theme .line-peak { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* 折线铺满柱区（日期 12px + 间隙 4px 之上），左右让出和列一样的内边距；线宽不随拉伸变粗 */
+body.apple-theme .line-svg {
+  position: absolute;
+  top: 0;
+  left: 12px;
+  width: calc(100% - 24px);
+  height: calc(100% - 16px);
+  overflow: visible;
+  pointer-events: none;
+}
+body.apple-theme .line-area { fill: rgba(var(--accent-rgb), 0.12); }
+html[data-appearance="dark"] body.apple-theme .line-area { fill: rgba(var(--accent-rgb), 0.16); }
+body.apple-theme .line-stroke {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+body.apple-theme .line-col { position: relative; }
+/* 悬停只画一条竖线、背后不铺底色；选中和悬停的月份在线上标一个点（外面一圈卡片底色，压在线上也看得清） */
+body.apple-theme .line-col:hover .token-week-track { background: none; }
+body.apple-theme .line-col .token-week-track::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--a-label-3);
+  opacity: 0;
+  content: "";
+}
+body.apple-theme .line-col:hover .token-week-track::before { opacity: 0.6; }
+body.apple-theme .line-dot {
+  position: absolute;
+  bottom: var(--y, 0%);
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--a-card);
+  opacity: 0;
+  transform: translate(-50%, 50%);
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+body.apple-theme .line-col:is(:hover, .selected) .line-dot { opacity: 1; }
+body.apple-theme .line-col.is-uncovered .line-dot { display: none; }
+
+/* 2.0.0：周报（上周一到周日）。五行小表，和 30 天格子叠在同一格、平分格子区的高度，切换时卡片尺寸不动；
+   日期写在下面「统计详情」那一行。模型前的圆点和 7 天柱子同色，文字一律用正文色 */
+body.apple-theme .token-recap { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+body.apple-theme .recap-rows {
+  display: grid;
+  flex: 1 1 0;
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  min-height: 0;
+  margin: 0;
+  font-size: 12px;
+}
+body.apple-theme .recap-rows > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  border-top: 0.5px solid var(--a-separator);
+}
+body.apple-theme .recap-rows > div:first-child { border-top: 0; }
+body.apple-theme .recap-rows dt { flex: none; color: var(--a-label-2); }
+body.apple-theme .recap-rows dd {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--a-label);
+  font-variant-numeric: tabular-nums;
+}
+body.apple-theme .recap-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.apple-theme .recap-item { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+body.apple-theme .recap-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.apple-theme .recap-item > em { flex: none; font-style: normal; color: var(--a-label-3); }
+body.apple-theme .recap-item > .range-dot { flex: none; }
+body.apple-theme .token-recap.is-message { align-items: center; justify-content: center; }
+body.apple-theme .recap-message { margin: 0; font-size: 12px; color: var(--a-label-2); }
 
 /* 2.0.0：统计数字的标签后面跟一个和上一段同样长时间的对比（↑12%），只是信息，不用红绿 */
 body.apple-theme .token-stat-label { display: flex; align-items: baseline; gap: 5px; min-width: 0; white-space: nowrap; }
@@ -1271,7 +1412,7 @@ body.apple-theme .token-stat-label > span { display: block; min-width: 0; overfl
 body.apple-theme .range-change { flex: none; font-style: normal; font-size: 11px; font-weight: 500; color: var(--a-label-2); font-variant-numeric: tabular-nums; }
 body.apple-theme .range-change.flat { color: var(--a-label-3); }
 
-/* 一段时间里的模型拆分（90 天 / 1 年的某一根），颜色和柱子一致 */
+/* 一段时间里的模型拆分（1 年的某个月、周报），颜色和柱子一致 */
 body.apple-theme .range-models { display: grid; gap: 3px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--a-label-2); }
 body.apple-theme .range-models li { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; }
 body.apple-theme .range-models span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1279,7 +1420,8 @@ body.apple-theme .range-models em { font-style: normal; color: var(--a-label-3);
 body.apple-theme .range-models b { font-weight: 600; color: var(--a-label); font-variant-numeric: tabular-nums; }
 body.apple-theme .range-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--series-color); }
 
-/* 1.1.1：切换 7 天 / 30 天时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入。
+/* 1.1.1：切换范围时的入场动效——柱子从基线依次长出来，图例和 30 天格子淡入；
+   2.0.0 加了 1 年折线从左往右画出来（选中的点随后淡入）和周报淡入。
    只在点切换的那次渲染带 range-enter，后台刷新不重播；系统要求减少动态效果时不播。 */
 @keyframes token-bar-grow { from { transform: scaleY(0); } }
 @keyframes token-range-fade { from { opacity: 0; } }
@@ -1289,9 +1431,16 @@ body.apple-theme .token-range-stage.range-enter .token-week-bar {
 }
 body.apple-theme .token-range-stage.range-enter .token-week-legend { animation: token-range-fade 240ms ease both; }
 body.apple-theme .token-range-stage.range-enter:not(.is-week) > .token-heatmap-wrap { animation: token-range-fade 260ms ease both; }
+@keyframes token-line-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+body.apple-theme .token-range-stage.range-enter .line-svg { animation: token-line-reveal 620ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+body.apple-theme .token-range-stage.range-enter .line-col.selected .line-dot { animation: token-range-fade 220ms ease 460ms both; }
+body.apple-theme .token-range-stage.range-enter .token-recap { animation: token-range-fade 260ms ease both; }
 @media (prefers-reduced-motion: reduce) {
   body.apple-theme .token-range-stage.range-enter .token-week-bar,
   body.apple-theme .token-range-stage.range-enter .token-week-legend,
+  body.apple-theme .token-range-stage.range-enter .line-svg,
+  body.apple-theme .token-range-stage.range-enter .line-col.selected .line-dot,
+  body.apple-theme .token-range-stage.range-enter .token-recap,
   body.apple-theme .token-range-stage.range-enter > .token-heatmap-wrap { animation: none; }
   body.apple-theme .token-range::before { transition: none; }
 }

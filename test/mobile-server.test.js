@@ -176,6 +176,50 @@ test('mobile payload carries stored daily summaries and weekly attribution for t
   assert.equal(activity.windows.fiveHour.attribution, undefined);
 });
 
+test('mobile payload carries hours, five-hour windows and the weekly report for the day detail and 周报 (2.0.0)', () => {
+  const state = sampleState();
+  const data = state.tokenActivity.data;
+  data.days[0].hours = Array.from({ length: 24 }, (_, hour) => (hour === 14 ? 90 : hour === 3 ? -5 : 1));
+  data.days.push({ day: '2026-07-22', tokens: 5, hours: [1, 2, 3] });
+  data.fiveHourWindows = [
+    { startAt: 1000, endAt: 2000, peak: 40, secret: 'x' },
+    { startAt: 3000, endAt: 2000, peak: 10 },
+    { startAt: 'soon', endAt: 4000, peak: 5 }
+  ];
+  data.fiveHourUnlimited = true;
+  data.weeklyReport = {
+    start: '2026-07-13',
+    end: '2026-07-19',
+    previousStart: '2026-07-06',
+    tokens: 900,
+    busiestDay: { day: '2026-07-15', tokens: 500 },
+    busiestHour: { hour: 25, tokens: 1 },
+    models: Array.from({ length: 6 }, (_, index) => ({ model: `m${index}`, tokens: 10, costUsd: 1, token: 'must-not-leak' })),
+    projects: [{ name: 'p'.repeat(200), tokens: 800, costUsd: 2, sessions: 3, cwd: '/Users/someone/secret' }],
+    previousTokens: 300,
+    quotaLow: { usedPercent: 140, at: 5000 }
+  };
+  const activity = createMobilePayload(state).providers.codex.activity.data;
+  assert.equal(activity.days[0].hours.length, 24);
+  assert.equal(activity.days[0].hours[14], 90);
+  assert.equal(activity.days[0].hours[3], 0, 'negative counts are clamped');
+  assert.equal(activity.days[1].hours, undefined, 'a malformed hours list is dropped');
+  assert.deepEqual(activity.fiveHourWindows, [{ startAt: 1000, endAt: 2000, peak: 40 }]);
+  assert.equal(activity.fiveHourUnlimited, true);
+  const report = activity.weeklyReport;
+  assert.equal(report.start, '2026-07-13');
+  assert.equal(report.busiestHour, null);
+  assert.equal(report.models.length, 4);
+  assert.equal(report.models[0].token, undefined);
+  assert.equal(report.projects[0].name.length, 80);
+  assert.equal(report.projects[0].cwd, undefined);
+  assert.deepEqual(report.quotaLow, { usedPercent: 100, at: 5000 });
+  assert.equal(JSON.stringify(activity).includes('must-not-leak'), false);
+
+  data.weeklyReport = { start: 'last week' };
+  assert.equal(createMobilePayload(state).providers.codex.activity.data.weeklyReport, null);
+});
+
 test('mobile payload carries compact history and the relevant status summary', () => {
   const state = sampleState();
   const day = Array.from({ length: 200 }, (_, index) => ({ t: 1_000 + index * 60_000, five: index / 3, week: 20.04, ex: { Fable: 41.26 } }));
@@ -275,7 +319,7 @@ test('mobile server requires the access token for state data', async (context) =
   assert.equal(weekScript.status, 200);
   assert.match(weekScript.headers.get('content-type'), /javascript/);
   assert.match(await weekScript.text(), /CMM_TOKEN_WEEK/);
-  // 2.0.0：卡片渲染（90 天 / 1 年、对比、额度去向）两端共用，排在 token-week.js 之后、mobile.js 之前。
+  // 2.0.0：卡片渲染（1 年折线、周报、对比、按小时分布、额度去向）两端共用，排在 token-week.js 之后、mobile.js 之前。
   assert.ok(pageText.indexOf('./cards.js') > pageText.indexOf('./token-week.js') && pageText.indexOf('./cards.js') < pageText.indexOf('./mobile.js'));
   const cardsScript = await fetch(`${baseUrl}/mobile/cards.js`);
   assert.equal(cardsScript.status, 200);

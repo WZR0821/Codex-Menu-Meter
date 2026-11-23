@@ -660,12 +660,12 @@ const radarSortByProvider = {};
 const radarExpandedByProvider = {};
 const radarLatestByProvider = {};
 const selectedDayByProvider = {};
-// 90 天 / 1 年视图里选中的那一根（key 是「起~止」），按平台、按范围分别记；没选过就默认最近一根。
+// 1 年视图里选中的那个月（key 是「起~止」），按平台、按范围分别记；没选过就默认本月。
 const selectedBucketByProvider = {};
-// Token 活动看近 7 天、30 天、90 天还是 1 年（1.1.0 起；2.0.0 加了后两种）。只记在这台手机的浏览器里，读不到就按 30 天。
+// Token 活动看近 7 天、30 天、1 年还是上周的周报（1.1.0 起；2.0.0 加了后两种）。只记在这台手机的浏览器里，读不到就按 30 天。
 const TOKEN_RANGE_KEY = 'cmm-mobile-token-range';
 const TOKEN_WEEK = window.CMM_TOKEN_WEEK;
-// 柱状图、对比、分组明细和额度去向的渲染和桌面面板共用 cards.js（2.0.0）。
+// 柱状图、1 年折线、周报、对比、分组明细、单日的按小时分布和额度去向的渲染和桌面面板共用 cards.js（2.0.0）。
 const CARDS = window.CMM_CARDS;
 let tokenRange = readTokenRange();
 // 只在用户点切换的那一次渲染里为真：柱子依次长出来、30 天格子淡入；后台刷新不重播（1.1.1）。
@@ -673,6 +673,8 @@ let tokenRangeEnter = false;
 // 柱状图当前的模型分组和那一份数据，点某一天时用它给详情里的模型上色。
 let currentWeekSeries = null;
 let currentTokenView = null;
+// 单日明细里的 5 小时窗口要用这一份（点某一天时只重画明细）。
+let currentTokenActivity = null;
 const sectionSignatures = new Map();
 const renderedMarkup = new WeakMap();
 const disclosureState = new Map();
@@ -1599,6 +1601,7 @@ function renderActivity(activitySlice) {
     els.tokenRange.hidden = true;
     currentTokenView = null;
     currentWeekSeries = null;
+    currentTokenActivity = null;
     updateHtml(els.tokenCard, empty(activitySlice?.error));
     return;
   }
@@ -1609,7 +1612,7 @@ function renderActivity(activitySlice) {
   const chartView = range !== 'month';
   const dayView = range === 'week' || range === 'month';
   const days = normalizeDays(activity.days || []);
-  // 7 天 / 30 天选的是某一天；90 天 / 1 年选的是某一段（一周或一个月）。
+  // 7 天 / 30 天选的是某一天；1 年选的是某个月；周报就是上周一到周日。
   const rangeDays = range === 'week' ? days.slice(-TOKEN_WEEK.WEEK_DAYS) : days;
   const today = days.at(-1) || emptyDay(new Date());
   const selectedDay = dayView ? rangeDays.find((day) => day.day === selectedDayByProvider[provider]) || today : null;
@@ -1617,6 +1620,7 @@ function renderActivity(activitySlice) {
   const totals = view.totals;
   const max = Math.max(1, ...days.map((day) => day.tokens));
   currentTokenView = view;
+  currentTokenActivity = activity;
   currentWeekSeries = chartView ? CARDS.seriesFor(view) : null;
   // 30 天格子在其余视图里照样排出来、只是藏起来，柱状图叠在同一格里按它的高度排：切换时卡片尺寸不动。
   const totalLabel = T(range === 'week' ? 'totalWeek' : 'total');
@@ -1632,7 +1636,7 @@ function renderActivity(activitySlice) {
     : CARDS.bucketDetailHtml(view, selectedBucket, { lang, series: currentWeekSeries });
   const summaryText = dayView
     ? `${formatDay(selectedDay.day)} · ${formatTokens(selectedDay.tokens)}`
-    : CARDS.summaryText(selectedBucket, lang);
+    : CARDS.summaryText(selectedBucket, lang, view);
 
   updateHtml(els.tokenCard, `
     <div class="token-summary">
@@ -1689,13 +1693,19 @@ function renderTokenRangeToggle() {
   if (els.tokenRange.innerHTML !== markup) els.tokenRange.innerHTML = markup;
 }
 
-// 7 天视图下，所选那天的详情多列一份按模型的拆分（颜色和柱子一致，渲染在 cards.js，和桌面同一份）。
+// 所选那天的详情：会话数、成本、命中率，下面是按小时分布和 5 小时窗口（2.0.0，和桌面同一份）；
+// 7 天视图再多列一份按模型的拆分（颜色和柱子一致，渲染在 cards.js，和桌面同一份）。
 function tokenDetailHtml(day) {
   const bucket = tokenRange === 'week' && currentTokenView
     ? currentTokenView.buckets.find((item) => item.key === day.day)
     : null;
   const models = bucket ? CARDS.modelsHtml(bucket.totals, { lang, series: currentWeekSeries }) : '';
-  return tokenDetailTemplate(day) + models;
+  const hours = CARDS.hoursHtml(day, {
+    lang,
+    windows: currentTokenActivity?.fiveHourWindows,
+    fiveHourUnlimited: currentTokenActivity?.fiveHourUnlimited
+  });
+  return tokenDetailTemplate(day) + hours + models;
 }
 
 function normalizeDays(rawDays) {
@@ -1720,7 +1730,9 @@ function normalizeDays(rawDays) {
       cachedInputTokens: hasCacheMetrics ? Math.max(0, Number(source.cachedInputTokens)) : null,
       threads: Number(source.threads || 0) || 0,
       costUsd: Number(source.costUsd || 0) || 0,
-      models: Array.isArray(source.models) ? source.models : []
+      models: Array.isArray(source.models) ? source.models : [],
+      // 本地时间每小时的 token（2.0.0），单日明细画按小时分布
+      hours: Array.isArray(source.hours) && source.hours.length === 24 ? source.hours : null
     });
   }
   return days;
@@ -2519,7 +2531,7 @@ els.tokenRange.addEventListener('click', (event) => {
 els.tokenCard.addEventListener('click', (event) => {
   const cell = event.target.closest('.heat-cell, .week-col');
   if (!cell || !currentState) return;
-  // 90 天 / 1 年的柱子是一段时间：记下选中哪一段，整块重画（明细换成那一段的）。
+  // 1 年视图的一列是一个月：记下选中哪个月，整块重画（明细换成那个月的）。
   if (cell.dataset.bucket) {
     const keys = selectedBucketByProvider[provider] || (selectedBucketByProvider[provider] = {});
     if (keys[tokenRange] === cell.dataset.bucket) return;

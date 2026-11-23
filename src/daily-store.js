@@ -1,5 +1,5 @@
 // 每日用量汇总落盘（2.0.0）。
-// 本机日志不会一直留着（Claude Code 默认只留 30 天），要看 90 天、一年就得自己存每天的汇总。
+// 本机日志不会一直留着（Claude Code 默认只留 30 天），要看一年就得自己存每天的汇总。
 // 每天按「模型 × 速度 × 提示长度档」存 token 分量（未缓存输入、5 分钟缓存写、1 小时缓存写、缓存读、输出、请求数），
 // 费用不存，每次按当时的价格表重算：改价、价格表自动更新后，旧数据跟着按新价算。
 const { componentsCostUsd, promptClassOf, entryPromptTokens } = require('./model-pricing');

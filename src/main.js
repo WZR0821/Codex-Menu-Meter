@@ -13,6 +13,7 @@ const { parseClaudeTranscriptLines } = require('./claude-token-activity');
 const { isCredentialUsable, isRefreshTokenExpired, mergeRefreshedOAuth } = require('./claude-credentials');
 const { parseClaudeTimestamp, normalizeClaudeOfficialUsage, resolveClaudePlan } = require('./claude-usage');
 const { buildActivityWindows } = require('./activity-windows');
+const { buildWeeklyReport, fiveHourWindows } = require('./usage-recap');
 const pace = require('./mobile/usage-pace');
 const { normalizeWebhookUrl, buildWebhookRequest } = require('./push-webhook');
 const {
@@ -179,7 +180,8 @@ const PANEL_WIDTH = 406;
 // 这两个常量只是首帧的起点和上下限（附加平台没有 Token 区，内容仍比主平台短）。
 const PANEL_HEIGHT = 640;
 const PANEL_CONTENT_MIN_HEIGHT = 300;
-const PANEL_CONTENT_MAX_HEIGHT = 780;
+// 2.0.0 从 780 提到 840：单日明细加了按小时分布，展开「统计详情」后约 830，不用滚动；屏幕矮时仍按屏幕高度封顶。
+const PANEL_CONTENT_MAX_HEIGHT = 840;
 // 切换平台时内容高度会短暂抖动（刷新态和稳定态差十几像素）。变高立刻生效免得内容被裁，
 // 变矮则要先稳住一段时间再收，避免一次切换里连着两次 setBounds 压在动画上造成卡顿；
 // 不超过这么多的变矮直接不收（变高不受它限制）。
@@ -1849,7 +1851,21 @@ async function readTokenActivity() {
 
 async function readCodexLocalActivity() {
   const entries = await collectCodexEntries();
-  return attachHistory('codex', buildLocalActivity(entries, 'codex_local', state.usage?.data), entries);
+  const activity = await attachHistory('codex', buildLocalActivity(entries, 'codex_local', state.usage?.data), entries);
+  return attachRecap('codex', activity, entries, state.usage?.data);
+}
+
+// 周报（第 27 条）和单日明细里的 5 小时窗口（第 28 条）：会话记录来自本机日志，额度最低点和窗口来自额度采样。
+// fiveHourUnlimited 让单日明细在 GPT 不限 5 小时额度时写「不限」，和 Claude 那一行同样高。
+function attachRecap(provider, activity, entries, usage) {
+  const samples = usageHistory[provider] || [];
+  activity.weeklyReport = buildWeeklyReport(entries, { now: Date.now(), costOf: entryCostUsd, createProjectResolver, samples });
+  activity.fiveHourWindows = fiveHourWindows(samples, {
+    since: activityWindowStartTs(),
+    durationMs: pace.windowDurationMs('five', provider) || undefined
+  });
+  activity.fiveHourUnlimited = Boolean(usage?.fiveHourUnlimited);
+  return activity;
 }
 
 function normalizeRadar(raw) {
@@ -2526,7 +2542,8 @@ function activityWindowStartTs() {
 async function readClaudeActivity() {
   const entries = await collectClaudeEntries();
   if (!entries.length) throw new Error(tr('errNoLocalClaude'));
-  return attachHistory('claude', buildLocalActivity(entries, 'claude_local', state.claudeUsage?.data), entries);
+  const activity = await attachHistory('claude', buildLocalActivity(entries, 'claude_local', state.claudeUsage?.data), entries);
+  return attachRecap('claude', activity, entries, state.claudeUsage?.data);
 }
 
 function buildLocalActivity(entries, source, usage) {
@@ -2551,13 +2568,16 @@ function buildLocalActivity(entries, source, usage) {
         unpricedModels: new Set(),
         sessions: new Set(),
         models: new Map(),
-        projects: new Map()
+        projects: new Map(),
+        // 按本地时间每小时的用量（2.0.0，第 28 条）：单日明细里画按小时分布
+        hours: new Array(24).fill(0)
       };
       dayMap.set(day, bucket);
     }
     const cost = entryCostUsd(entry);
     bucket.weighted += entry.weighted;
     bucket.tokens += entry.tokens;
+    bucket.hours[new Date(entry.ts).getHours()] += entry.tokens;
     bucket.ioTokens += entry.ioTokens;
     bucket.inputTokens += Number(entry.inputTokens) || 0;
     bucket.cachedInputTokens += Number(entry.cachedInputTokens) || 0;
@@ -2612,7 +2632,8 @@ function buildLocalActivity(entries, source, usage) {
           value: totals.tokens,
           costUsd: totals.priced ? roundCents(totals.costUsd) : null
         })),
-      projects: summarizeProjects(bucket.projects)
+      projects: summarizeProjects(bucket.projects),
+      hours: bucket.hours
     }));
 
   return {
@@ -2688,7 +2709,7 @@ function attributeWindow(entries, windowSummary) {
 // ---- 每日汇总落盘与历史回填（2.0.0） ----
 
 const DAILY_STORE_PATH = path.join(app.getPath('userData'), 'token-daily.json');
-// 界面最多看近一年：一年视图从 11 个月前的 1 号起，90 天视图和前 90 天对比要往前 180 天。
+// 界面最多看近一年：一年视图从 11 个月前的 1 号起，366 天足够。
 const HISTORY_VIEW_DAYS = 366;
 // 回填（把窗口之前的全部日志过一遍）放在启动后一会儿、后台慢慢做，先让当前数据出来。
 const HISTORY_BACKFILL_DELAY_MS = 20_000;

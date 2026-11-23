@@ -52,7 +52,7 @@ CMM_USER_DATA_DIR=/tmp/cmm-dev-data CMM_DISABLE_TOUCHBAR=1 npm start
 | `src/theme.js` | 桌面面板和设置窗口的深浅色切换 |
 | `src/settings.*` | 设置窗口结构、样式和行为；`settings-apple.css` 是设置窗口的 Apple 外观层 |
 | `src/mobile/*` | 手机端 PWA 页面、样式（`app.css`）和渲染；文案在 `mobile.js` 的 `TEXT`，不读 `i18n.js` |
-| `src/mobile/cards.js`、`token-week.js`、`usage-pace.js` | 桌面面板也加载：Token 活动卡和额度去向、直方图分段、用量节奏 |
+| `src/mobile/cards.js`、`token-week.js`、`usage-pace.js` | 桌面面板也加载：Token 活动卡（7 天柱状图、1 年折线、周报、单日按小时分布）和额度去向、直方图分段、用量节奏 |
 | `src/mobile/minimal.css`、`light.css` | 桌面在用：`minimal.css` 只有面板加载，`light.css` 面板和设置窗口都加载；手机页面不用 |
 | `src/mobile-server.js` | 只读手机端 HTTP/SSE 服务、鉴权和数据脱敏 |
 | `cloud/*` | 端到端加密快照 Worker、Durable Object 与 Wrangler 配置 |
@@ -69,6 +69,7 @@ CMM_USER_DATA_DIR=/tmp/cmm-dev-data CMM_DISABLE_TOUCHBAR=1 npm start
 | `src/claude-token-activity.js` | Claude 会话记录解析、去重键和 token 口径 |
 | `src/transcript-reader.js` | 大型会话文件的增量读取和缓存，含 `.jsonl.zst` 解压 |
 | `src/daily-store.js` | 按天存档 `token-daily.json`（2.0.0） |
+| `src/usage-recap.js` | 周报（上一个完整的自然周）和 5 小时窗口的纯计算，主进程调用（2.0.0） |
 | `src/model-pricing.js` | 内置价格、LiteLLM 价格表筛选和费用计算（2.0.0） |
 | `src/i18n.js` | 桌面面板和设置窗口的中文、English、日本語文案 |
 | `src/preload.js` | 受限 IPC 接口 |
@@ -220,7 +221,7 @@ Kimi / GLM 的 API Key 存在 macOS 钥匙串（2.0.0 起），服务名 `Codex 
 迁移：写进钥匙串成功后才从设置文件删掉，写不进去就留在原处照常使用。读取顺序是钥匙串、设置文件、环境变量
 （见第 11 节）。设置页的 Key 输入框留空表示不修改，另有清除按钮。Key 不能进入源码、截图或交接包。
 
-### 6.4 按天存档与 90 天 / 1 年视图（2.0.0）
+### 6.4 按天存档、1 年视图、周报和按小时分布（2.0.0）
 
 - `src/daily-store.js` 把每天的用量存进 `token-daily.json`。每天按「模型 × 速度档 × 提示长度档」记 token 分量
   （未缓存输入、5 分钟缓存写、1 小时缓存写、缓存读、输出、请求数）和会话数，不记费用。费用每次按当前价格表
@@ -231,9 +232,23 @@ Kimi / GLM 的 API Key 存在 macOS 钥匙串（2.0.0 起），服务名 `Codex 
   做完把该平台的 `backfilled` 记成 true，之后只增量更新。回填完成前 `history.status` 是 `pending`，完成后是
   `ready`；`coverageStart` 是存档里最早有记录的一天。开发者本机首次回填约 86 秒，主进程内存最高约 430 MB。
 - 存档版本 `DAILY_STORE_VERSION` 变了（改了汇总口径）时，已存的天先保留，回填重跑一遍，能从日志重算的天以新算的为准。
-- 90 天视图是截至今天的 13 个 7 天段（最早一段 6 天），1 年视图是 12 个自然月（本月算到今天）。
-- 环比（`src/mobile/cards.js`）：近 N 天（含今天）和前 N 天比；只有 `coverageStart` 不晚于前一段的第一天、
-  前一段有用量时才显示。
+- Token 活动的四种范围：7 天（按天的分色柱状图）、30 天（格子）、1 年、周报。本机记着的范围是发布前用过的
+  `quarter`（90 天，发布前按用户要求删掉）时按 30 天显示。
+- 1 年视图是 12 个自然月（本月算到今天），画成一条折线：平台主色、2px，下面一层很淡的面积；本地记录开始之前
+  的月份不画线。每月一列透明的点击区，和柱状图的列同一套类名和 `data-bucket`，悬停出提示、点击选中；选中和悬停
+  的月份在线上标一个圆点，悬停另画一条竖线，背后都不铺底色。最高的月份画在 84% 高（`LINE_TOP`）。
+- 周报（`src/usage-recap.js` 的 `buildWeeklyReport`）：上一个完整的自然周（本地时区周一 0 点到本周一 0 点），
+  主进程每次刷新 Token 活动时按本机会话记录现算（`attachRecap`），挂在 `activity.weeklyReport`：总量、读写、
+  命中、费用、会话数、有用量的天数、最忙的一天和时段、前三个模型和项目（其余并成「其他 N 个」）、前一周的总量、
+  这一周周额度采样里的最高已用百分比（即剩余最低点）。额度采样（`usageHistory`）只在应用开着时记，存 30 天。
+  界面上五行（最忙的一天、模型、项目、额度最低、费用）平分 30 天格子区的高度，日期写在「统计详情」那一行。
+- 单日按小时分布：`buildLocalActivity` 给近 30 天有用量的每一天记 `hours`（本地时间 24 个小时的 token）；没有
+  记录的那天渲染层按全 0 画，每一天、两个平台这一块一样高。5 小时窗口（`fiveHourWindows`）从额度采样的
+  `fiveReset` 还原：resetAt 相差 10 分钟以内算同一个窗口，落在窗口之外的旧采样不算，用量为 0 的窗口不要，
+  起点取 resetAt 往前 5 小时。GPT 不限 5 小时额度时 `fiveHourUnlimited` 为 true，界面写「不限」。手机页的数据经
+  `mobile-server.js` 脱敏后带上这三样（`hours`、`weeklyReport`、`fiveHourWindows` / `fiveHourUnlimited`）。
+- 环比（`src/mobile/cards.js`）：近 N 天（含今天）和前 N 天比，周报和前一周比；只有 `coverageStart` 不晚于
+  前一段的第一天、前一段有用量时才显示。1 年视图不比。
 
 ### 6.5 价格表与额度去向（2.0.0）
 
@@ -335,8 +350,10 @@ CC 5h：35%  周：51%
 面板为透明、无边框 BrowserWindow，宽度固定 `406`，高度跟随当前页内容：渲染层在
 `renderer.js` 量出「工具栏 + 状态行 + 活动页内容」的高度，通过 `panel:content-height`
 报给主进程，主进程在 `PANEL_CONTENT_MIN_HEIGHT`~`PANEL_CONTENT_MAX_HEIGHT` 之间取值
-并重新 `setBounds`。`PANEL_HEIGHT` 只是首帧的起点。这样用量页永远不需要滚动；附加平台虽然保留额度曲线，
-但没有 Token 区，也不会留下大片空白。
+并重新 `setBounds`。`PANEL_HEIGHT` 只是首帧的起点。这样明细都收起时用量页不需要滚动；附加平台虽然保留额度曲线，
+但没有 Token 区，也不会留下大片空白。2.0.0 把上限从 780 提到 840：单日明细加了按小时分布，展开「统计详情」后
+约 810–830。窗口高度同时受屏幕限制（工作区高度减 24），屏幕矮时（例如开发机可用高度 787）或几块明细同时展开时，
+多出的部分在面板里滚动，滚动条位置固定，宽度不变。
 
 - 渲染层每次上报当前可见内容的实际高度，不按页缓存；只有不到 3px 的变矮不报。切换平台、页面或雷达视图后
   先等 `PANEL_HEIGHT_SWITCH_HOLD_MS`（180ms）再报。
@@ -545,7 +562,7 @@ npm run lint
 npm test
 ```
 
-当前基线为 127 项单元测试。重点覆盖：
+当前基线为 136 项单元测试。重点覆盖：
 
 - Codex token 解析和子代理去重
 - 5 小时/周 Token 周期边界与滚动窗口降级
@@ -561,7 +578,8 @@ npm test
 - Token 活动 7 天直方图的分色、分段、柱高和型号写法
 - Codex `.jsonl.zst` 压缩会话的读取和缓存（2.0.0）
 - 按天存档的分量记录、增量构建、合并、版本变化后重建和裁剪（2.0.0）
-- 四种时间范围的分段、存档与实时数据的拼接、环比的显示条件、额度去向的折算（`test/cards.test.js`，2.0.0）
+- 7 天和 1 年的分段、1 年折线的画法、周报的整理和排版、单日按小时分布和 5 小时窗口、存档与实时数据的拼接、环比的显示条件、额度去向的折算（`test/cards.test.js`，2.0.0）
+- 周报的统计（上一个完整的自然周、最忙的一天和时段、模型和项目排名、周额度最低点）和 5 小时窗口的还原（`test/usage-recap.test.js`，2.0.0）
 - LiteLLM 价格表的筛选、校验和 272K 分档（2.0.0）
 
 依赖审计基线：
@@ -581,6 +599,11 @@ npm audit --omit=dev
 npm run qa:render -- test/fixtures/qa-state.json codex usage /tmp/cmm-usage.png
 npm run qa:render -- test/fixtures/qa-state.json claude radar /tmp/cmm-claude-radar.png
 ```
+
+`qa-render.js` 的常用环境变量：`CMM_QA_TOKEN_RANGE=week|month|year|recap` 切 Token 活动的范围，
+`CMM_QA_OPEN_QUOTA=1` 展开额度明细，`CMM_QA_OPEN_TOKEN=1` 展开「统计详情」，`CMM_QA_MEASURE=1` 打印尺寸，
+`CMM_QA_EVAL='<表达式>'` 截图前在页面里求值，`CMM_QA_APPEARANCE=dark` 深色。展开好几块明细时内容会超过面板上限，
+脚本默认报「需要滚动」，加 `CMM_QA_ALLOW_SCROLL=1` 只截图。README 截图用 `scripts/make-demo-state.js` 生成的合成数据拍。
 
 手机 QA：
 
@@ -679,7 +702,7 @@ Developer ID、hardened runtime、entitlements 和 notarization 流程。
 16. Worker 存储和日志中没有恢复码、主密钥或明文快照。
 17. 交付包不含 `settings.json`、OAuth token、API Key 或本机访问密钥。
 18. 版本号、README 版本表和版本历史、`docs/RELEASE-<version>.md`、本手册第 1 节都已同步。
-19. 桌面 GPT/Claude × 四种时间范围 × 明细收起/展开：同一状态下面板尺寸相同，切换不跳；手机三档屏高下四种范围都在一屏内。
+19. 桌面 GPT/Claude × 四种时间范围（7 天 / 30 天 / 1 年 / 周报）× 额度明细收起/展开：同一状态下面板尺寸相同，切换不跳；手机三档屏高下四种范围都在一屏内。
 20. `bash scripts/smoke-test.sh <应用路径>` 通过（把 `HOME` 指向空目录可模拟 CI）。
 21. 安装包里 app.asar 的 `src/` 与仓库逐文件一致；`package.json` 只差 electron-builder 去掉的 `scripts`、`devDependencies`、`build`。
 22. 从上一版覆盖安装后，首次启动的回填能走完（`token-daily.json` 里两个平台的 `backfilled` 都是 true），记下用时和主进程内存峰值。
@@ -810,10 +833,10 @@ open -a "Codex Menu Meter"
 ## 18. 当前 2.0.0 验证状态
 
 - JavaScript 语法检查：通过
-- 单元测试：127/127 通过；另在 UTC、洛杉矶、基里蒂马蒂三个时区和模拟 Linux 平台下各跑过一遍
-- 桌面面板（合成数据）：GPT/Claude × 四种时间范围 × 明细收起/展开共 16 种组合，收起 522、展开 714，额度卡宽 185，无溢出；深色外观、按钮悬停显示、强制出现滚动条时宽度不变都核对过
+- 单元测试：136/136 通过；另在 UTC、洛杉矶、基里蒂马蒂三个时区和模拟 Linux 平台下各跑过一遍
+- 桌面面板（合成数据）：GPT/Claude × 四种时间范围（7 天 / 30 天 / 1 年 / 周报）× 额度明细收起/展开共 16 种组合，收起 522、展开 714，额度卡宽 185，Token 活动卡 378×214，无溢出；1 年折线的圆点和折线位置误差为 0，周报五行都没有截断；单日按小时分布两个平台都是 94px；深色外观、按钮悬停显示、强制出现滚动条时宽度不变都核对过
 - 真实面板窗口：反复展开、收起，两个平台宽度不变；真实数据下展开后 GPT、Claude 一样高
-- 手机页面：390×844、375×667、320×568 三档下四种范围都在一屏内
+- 手机页面：390×844、375×667、320×568 三档下四种范围都在一屏内，底边在各范围之间一致（725 / 548 / 472）；深色外观看过
 - Touch Bar helper 和 `panel-window.node`：`x86_64 arm64`；Touch Bar helper 源码未变时会复用已校验的 universal 二进制，需强制重编译时设置 `CMM_FORCE_NATIVE_REBUILD=1`
 - Intel 应用主程序 `x86_64`，Apple Silicon 应用主程序 `arm64`，两个都通过 `codesign --verify --deep --strict`
 - 冒烟测试：打好的 Intel 版在空用户目录下 26 秒通过
