@@ -7,7 +7,7 @@ const { componentsCostUsd, promptClassOf, entryPromptTokens } = require('./model
 const DAILY_STORE_VERSION = 1;
 // 存两年多一点；界面目前最多用到近一年和它的前一段。
 const DAILY_STORE_MAX_DAYS = 800;
-const PROVIDERS = ['codex', 'claude'];
+const PROVIDERS = ['codex', 'claude', 'antigravity'];
 
 function num(value) {
   const number = Number(value);

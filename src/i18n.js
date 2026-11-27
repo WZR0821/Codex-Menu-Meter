@@ -32,6 +32,7 @@
     tabRadar: ['雷达', 'Radar', 'レーダー'],
     usageTitleCodex: ['GPT 额度', 'GPT Quota', 'GPT 使用枠'],
     usageTitleClaude: ['Claude 额度', 'Claude Quota', 'Claude 使用枠'],
+    usageTitleAntigravity: ['Google 额度', 'Google Quota', 'Google 使用枠'],
     usageTitleExtra: ['{name} 额度', '{name} Quota', '{name} 使用枠'],
     tokenTitle: ['Token 活动', 'Token Activity', 'トークン活動'],
     iqTitle: ['今日 IQ', 'Model IQ', '本日の IQ'],
@@ -48,6 +49,12 @@
       '来自 Claude CLI 登录账号的官方用量接口',
       'From the official usage API of your Claude CLI account',
       'Claude CLI アカウントの公式使用量 API から取得'
+    ],
+    officialSuffixAntigravity: [' · 官方', ' · Official', ' · 公式'],
+    officialTipAntigravity: [
+      '来自本机 Antigravity 的官方额度；Antigravity 开着时才能读到',
+      'Official quota from the Antigravity app on this Mac; readable while Antigravity is open',
+      'この Mac の Antigravity から取得した公式の使用枠（Antigravity の起動中のみ取得可能）'
     ],
     noUsageData: ['暂无用量数据', 'No usage data yet', '使用量データがありません'],
     windowUnavailable: ['窗口数据不可用', 'Window data unavailable', 'ウィンドウデータなし'],
@@ -270,6 +277,13 @@
     // 托盘（主进程）
     trayCodex: ['GPT 5h：{p}  周：{s}', 'GPT 5h {p} · W {s}', 'GPT 5h：{p}  週：{s}'],
     trayClaude: ['CC 5h：{p}  周：{s}', 'CC 5h {p} · W {s}', 'CC 5h：{p}  週：{s}'],
+    trayAntigravity: ['GA 5h：{p}  周：{s}', 'GA 5h {p} · W {s}', 'GA 5h：{p}  週：{s}'],
+    trayTipLoadingAntigravity: ['Google 用量读取中', 'Loading Google usage', 'Google 使用量を取得中'],
+    trayTipAntigravity: [
+      'Google 5小时剩余 {p}%，周额度剩余 {s}%{limit}',
+      'Google: 5h {p}% left, weekly {s}% left{limit}',
+      'Google 5時間残り {p}%、週間残り {s}%{limit}'
+    ],
     trayTipLoadingCodex: ['Codex 用量读取中', 'Loading Codex usage', 'Codex 使用量を取得中'],
     trayTipLoadingClaude: ['Claude 用量读取中', 'Loading Claude usage', 'Claude 使用量を取得中'],
     trayTipCodex: [
@@ -406,6 +420,31 @@
       'Failed to refresh Claude credentials',
       'Claude 資格情報の更新に失敗'
     ],
+    errAntigravityNotRunning: [
+      'Antigravity 没在运行，打开后自动读取额度',
+      'Antigravity is not running. Open it and the quota loads automatically.',
+      'Antigravity が起動していません。起動すると自動で読み込みます。'
+    ],
+    errAntigravityBadData: [
+      'Antigravity 返回的额度格式变了，暂时读不出',
+      'Antigravity returned quota data in an unexpected format',
+      'Antigravity の使用枠データの形式が想定と異なります'
+    ],
+    errAntigravityAuth: [
+      'Antigravity 未登录或登录已过期，请在 Antigravity 里重新登录',
+      'Antigravity is signed out or the sign-in expired. Sign in again in Antigravity.',
+      'Antigravity が未ログインか期限切れです。Antigravity で再ログインしてください。'
+    ],
+    errAntigravitySqlite: [
+      '读不了 Antigravity 的本机记录（缺少 SQLite 支持）',
+      'Cannot read Antigravity local records (SQLite unavailable)',
+      'Antigravity のローカル記録を読めません（SQLite が利用不可）'
+    ],
+    errNoLocalAntigravity: [
+      '~/.gemini/antigravity 里还没有本地用量记录。',
+      'No local usage records in ~/.gemini/antigravity yet.',
+      '~/.gemini/antigravity にローカル記録がまだありません。'
+    ],
     errNoLocalClaude: [
       '~/.claude/projects 里还没有本地用量记录。',
       'No local usage records in ~/.claude/projects yet.',
@@ -456,6 +495,7 @@
     quitAppHint: ['关闭菜单栏工具', 'Close the menu bar tool', 'メニューバーツールを閉じる'],
     providerSection: ['模型显示', 'Visible providers', '表示するプロバイダ'],
     claudeHint: ['在面板、菜单栏和 Touch Bar 中显示 Claude', 'Show Claude in the panel, menu bar, and Touch Bar', 'パネル、メニューバー、Touch Bar に Claude を表示'],
+    antigravityHint: ['显示 Google Antigravity 的额度和本机 Token 记录（额度要 Antigravity 开着才能读到）', 'Show Google Antigravity quota and local token records (quota needs Antigravity open)', 'Google Antigravity の使用枠とローカルのトークン記録を表示（使用枠は起動中のみ）'],
     kimiHint: ['显示 Kimi Coding Plan 额度（api.kimi.com）', 'Show Kimi Coding Plan quota (api.kimi.com)', 'Kimi Coding Plan のクォータを表示'],
     glmHint: ['显示智谱 GLM Coding Plan 额度（bigmodel.cn / z.ai）', 'Show GLM Coding Plan quota (bigmodel.cn / z.ai)', 'GLM Coding Plan のクォータを表示'],
     qwenHint: ['官方暂无额度查询接口，开启后仅显示说明', 'No public quota API; shows a notice only', '公開クォータ API 非対応。案内のみ表示'],
@@ -514,6 +554,7 @@
     refreshing: ['刷新中', 'Refreshing', '更新中'],
     // ---- 0.11：节奏、提醒、推送、外观 ----
     windowNameScoped: ['{name} 周额度', '{name} weekly', '{name} 週間'],
+    windowNameScopedFive: ['{name} 5 小时额度', '{name} 5h', '{name} 5時間'],
     notifyExhaustedTitle: ['{name} {window}已用尽', '{name} {window} exhausted', '{name} {window}を使い切りました'],
     notifyExhaustedBody: ['{window}将在 {time} 恢复。', '{window} comes back at {time}.', '{window}は {time} に回復します。'],
     notifyPaceTitle: ['{name} {window}用得偏快', '{name} {window} is running fast', '{name} {window}のペースが速めです'],

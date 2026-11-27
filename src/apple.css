@@ -58,7 +58,10 @@ body.apple-theme {
   color: var(--a-label);
 }
 
+/* 2.1.0 起主题色：GPT 蓝、Claude 橙、Google 绿（用户定的）。Google 沿用原来 GPT 那套绿，GPT 用系统蓝。 */
+body.apple-theme .panel[data-provider="codex"] { --accent: var(--a-blue); --accent-text: var(--a-blue-text); --accent-rgb: 0, 122, 255; }
 body.apple-theme .panel[data-provider="claude"] { --accent: #d97757; --accent-text: #b5512c; --accent-rgb: 217, 119, 87; }
+body.apple-theme .panel[data-provider="antigravity"] { --accent: var(--a-green); --accent-text: var(--a-green-text); --accent-rgb: 52, 199, 89; }
 body.apple-theme .panel[data-provider="kimi"] { --accent: #007aff; --accent-text: #0068d9; --accent-rgb: 0, 122, 255; }
 body.apple-theme .panel[data-provider="glm"] { --accent: #30b0c7; --accent-text: #0c7d93; --accent-rgb: 48, 176, 199; }
 body.apple-theme .panel[data-provider="qwen"] { --accent: #5856d6; --accent-text: #4a48c4; --accent-rgb: 88, 86, 214; }
@@ -244,6 +247,18 @@ body.apple-theme.light-theme .panel[data-provider] .quota-card-week { --quota-ac
 body.apple-theme.light-theme .panel[data-provider] .quota-card-extra { --quota-accent: var(--accent); --quota-ink: var(--accent-text); }
 body.apple-theme.light-theme .panel[data-provider] .quota-card.critical { --quota-accent: var(--a-red); --quota-ink: var(--a-red-text); background: var(--a-card); }
 body.apple-theme.light-theme .quota-card-top .quota-window-title { font-size: 12px; font-weight: 500; color: var(--a-label-2); }
+/* Antigravity 的分组名（2.1.0）：右上角一个浅底小标签，放不下时省略号截断 */
+body.apple-theme.light-theme .quota-card-top .quota-group-tag {
+  justify-self: end;
+  max-width: 100%;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--a-fill);
+  color: var(--a-label-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 17px;
+}
 body.apple-theme.light-theme .quota-card > .quota-remaining-value {
   margin: 3px 0 0;
   font-family: var(--a-rounded);
@@ -500,6 +515,9 @@ body.apple-theme.light-theme .trend-card { padding-left: 0; padding-right: 0; ba
 body.apple-theme.light-theme .trend-legend { font-size: 11px; color: var(--a-label-2); }
 body.apple-theme.light-theme .trend-five,
 body.apple-theme.light-theme .panel[data-provider="claude"] .trend-five { stroke: var(--accent); }
+/* GPT 改成蓝色后，5 小时曲线仍用绿色，免得和周额度那条蓝线分不清（手机页同样） */
+body.apple-theme.light-theme .panel[data-provider="codex"] .trend-five { stroke: #24a948; }
+body.apple-theme.light-theme .panel[data-provider="codex"] .trend-dot-five { background: #24a948; }
 body.apple-theme.light-theme .trend-week { stroke: var(--a-blue); }
 body.apple-theme.light-theme .trend-dot-five,
 body.apple-theme.light-theme .panel[data-provider="claude"] .trend-dot-five { background: var(--accent); box-shadow: none; }
@@ -1118,8 +1136,9 @@ html[data-appearance="dark"] body.apple-theme {
   --accent-rgb: 36, 169, 72;
   --line-strong: rgba(235, 235, 245, 0.2);
 }
-html[data-appearance="dark"] body.apple-theme .panel[data-provider="codex"] { --accent: #24a948; --accent-text: #32d74b; --accent-rgb: 36, 169, 72; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="codex"] { --accent: #0a84ff; --accent-text: #409cff; --accent-rgb: 10, 132, 255; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="claude"] { --accent: #d9734f; --accent-text: #f08c66; --accent-rgb: 217, 115, 79; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="antigravity"] { --accent: #24a948; --accent-text: #32d74b; --accent-rgb: 36, 169, 72; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="kimi"] { --accent: #0a84ff; --accent-text: #409cff; --accent-rgb: 10, 132, 255; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="glm"] { --accent: #40c8e0; --accent-text: #5ad4ea; --accent-rgb: 64, 200, 224; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="qwen"] { --accent: #5e5ce6; --accent-text: #9b99ff; --accent-rgb: 94, 92, 230; }
@@ -1140,8 +1159,9 @@ html[data-appearance="dark"] body.apple-theme.light-theme .catalog-filter[aria-p
 /* 分段控件：深色下选中块要比底槽亮（系统做法），不能沿用卡片色（比底槽还暗）。
    选中的平台名换成更亮的一档主色，在 #545458 上对比度约 4.4–4.7。 */
 html[data-appearance="dark"] body.apple-theme { --a-thumb: #545458; }
-html[data-appearance="dark"] body.apple-theme .panel[data-provider="codex"] { --accent-thumb-text: #66e381; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="codex"] { --accent-thumb-text: #a6d0ff; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="claude"] { --accent-thumb-text: #ffb9a0; }
+html[data-appearance="dark"] body.apple-theme .panel[data-provider="antigravity"] { --accent-thumb-text: #66e381; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="kimi"] { --accent-thumb-text: #a6d0ff; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="glm"] { --accent-thumb-text: #70dcef; }
 html[data-appearance="dark"] body.apple-theme .panel[data-provider="qwen"] { --accent-thumb-text: #c8c7ff; }

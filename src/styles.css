@@ -465,12 +465,13 @@ h2 {
   letter-spacing: 0;
 }
 
-/* 附加平台（Kimi / GLM / Qwen）：保留用量与曲线，隐藏雷达页签和 Token 活动。 */
-.panel.extra-provider .tabs {
+/* 附加平台（Kimi / GLM / Qwen）：保留用量与曲线，隐藏雷达页签和 Token 活动。
+   Antigravity（2.1.0）没有雷达数据源，也只隐藏雷达页签（no-radar），Token 活动照常。 */
+.panel.no-radar .tabs {
   grid-template-columns: 1fr;
 }
 
-.panel.extra-provider .tab-button[data-tab="radar"] {
+.panel.no-radar .tab-button[data-tab="radar"] {
   display: none;
 }
 

@@ -361,7 +361,7 @@ test('range toggle has four equal buttons and unknown ranges fall back to 30 day
   assert.equal(CARDS.normalizeRange('decade'), 'month');
   assert.equal(CARDS.statLabel(CARDS.buildView('year', {}, { now: NOW }), 'en-US'), '12-month used');
   assert.equal(CARDS.statLabel(CARDS.buildView('recap', {}, { now: NOW }), 'zh-CN'), '上周已使用');
-  assert.equal(CARDS.rangeLabel('recap', 'en-US'), 'Weekly');
+  assert.equal(CARDS.rangeLabel('recap', 'en-US'), 'Recap');
 });
 
 test('formatting matches the panel: tokens, dollars, cache hit and points', () => {

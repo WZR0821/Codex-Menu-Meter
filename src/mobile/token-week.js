@@ -77,6 +77,14 @@
       return `GPT-${gptMatch[1]}${suffix}`;
     }
     if (/^gpt-/i.test(raw)) return raw.replace(/^gpt/i, 'GPT');
+    // Antigravity（2.1.0）：gemini-4-hydrogen → Gemini 4 Hydrogen，gemini-3.8-flash → Gemini 3.8 Flash。
+    const geminiMatch = raw.match(/^gemini-(\d+(?:\.\d+)*)(?:-(.+))?$/i);
+    if (geminiMatch) {
+      const suffix = geminiMatch[2]
+        ? ` ${geminiMatch[2].split('-').filter(Boolean).map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(' ')}`
+        : '';
+      return `Gemini ${geminiMatch[1]}${suffix}`;
+    }
     return raw.replace(/^claude-/i, '');
   }
 

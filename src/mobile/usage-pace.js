@@ -31,6 +31,11 @@
     if (key === 'week') return WEEK_MS;
     // Claude 的额外窗口都是按模型划分的周限额（limits[] 里的 weekly_scoped）。
     if (provider === 'claude' && String(key).startsWith('extra:')) return WEEK_MS;
+    // Antigravity 另一组的窗口（2.1.0）：一周的键就是组名，5 小时的带「 · 5h」，别的长度不认。
+    if (provider === 'antigravity' && String(key).startsWith('extra:')) {
+      if (/·\s*5h$/.test(key)) return FIVE_HOUR_MS;
+      return String(key).includes('·') ? null : WEEK_MS;
+    }
     return null;
   }
 

@@ -6,6 +6,10 @@ const CLAUDE_BUNDLE_IDS = new Set([
   'com.anthropic.claudefordesktop'
 ]);
 
+const ANTIGRAVITY_BUNDLE_IDS = new Set([
+  'com.google.antigravity'
+]);
+
 function normalize(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -14,14 +18,17 @@ function detectForegroundProvider({ bundleId, name, bundlePath } = {}) {
   const id = normalize(bundleId);
   if (CODEX_BUNDLE_IDS.has(id)) return 'codex';
   if (CLAUDE_BUNDLE_IDS.has(id)) return 'claude';
+  if (ANTIGRAVITY_BUNDLE_IDS.has(id)) return 'antigravity';
 
   const appName = normalize(name);
   if (appName === 'codex' || appName === 'chatgpt') return 'codex';
   if (appName === 'claude' || appName === 'claude code') return 'claude';
+  if (appName === 'antigravity') return 'antigravity';
 
   const appBundle = normalize(bundlePath).match(/\/([^/]+)\.app(?:\/|$)/)?.[1] || '';
   if (appBundle === 'codex' || appBundle === 'chatgpt') return 'codex';
   if (appBundle === 'claude' || appBundle === 'claude code') return 'claude';
+  if (appBundle === 'antigravity') return 'antigravity';
   return null;
 }
 

@@ -21,6 +21,10 @@ const TEXT = {
     radar: '雷达',
     usageTitle: '{name} 额度',
     tokenTitle: 'Token 活动',
+    appTitle: 'AI 用量',
+    providerNav: '模型平台',
+    viewNav: '视图',
+    keyInvalid: '访问密钥已失效',
     iqTitle: '今日 IQ',
     radarTitle: '额度雷达',
     radarSubtabIntelligence: '智力',
@@ -217,6 +221,10 @@ const TEXT = {
     radar: 'Radar',
     usageTitle: '{name} quota',
     tokenTitle: 'Token activity',
+    appTitle: 'AI Usage',
+    providerNav: 'Providers',
+    viewNav: 'View',
+    keyInvalid: 'Access key no longer valid',
     iqTitle: "Today's IQ",
     radarTitle: 'Quota radar',
     radarSubtabIntelligence: 'Intelligence',
@@ -411,7 +419,11 @@ const TEXT = {
     usage: '使用量',
     radar: 'レーダー',
     usageTitle: '{name} クォータ',
-    tokenTitle: 'Token アクティビティ',
+    tokenTitle: 'トークン活動',
+    appTitle: 'AI 使用量',
+    providerNav: 'プロバイダ',
+    viewNav: '表示',
+    keyInvalid: 'アクセスキーが無効です',
     iqTitle: '今日の IQ',
     radarTitle: 'クォータレーダー',
     radarSubtabIntelligence: '知能',
@@ -900,11 +912,32 @@ function connectEvents() {
   eventSource.onerror = () => {
     setConnection(false);
     eventSource?.close();
-    // Cookie 可能被清掉了：重连前先重新换一次。
-    reconnectTimer = window.setTimeout(() => {
-      ensureSession().finally(connectEvents);
-    }, 5000);
+    reconnectTimer = window.setTimeout(reconnectEvents, 5000);
   };
+}
+
+// 事件流断了：先重新换 Cookie（可能被清掉了），再用访问密钥读一次状态。
+// 读到 401 说明电脑上换过访问密钥，停止重连并说明原因；以前会一直显示「Mac 已离线」、每 5 秒重试（2.1.0 修）。
+async function reconnectEvents() {
+  await ensureSession();
+  try {
+    applyState(await api('/api/state'));
+    setConnection(true);
+    connectEvents();
+  } catch (error) {
+    if (error.message === 'unauthorized') {
+      showAccessRevoked();
+      return;
+    }
+    setConnection(false);
+    reconnectTimer = window.setTimeout(reconnectEvents, 5000);
+  }
+}
+
+function showAccessRevoked() {
+  setConnection(false);
+  els.connectionLabel.textContent = T('keyInvalid');
+  showToast(T('unauthorized'));
 }
 
 async function refreshCloudState() {
@@ -1048,6 +1081,12 @@ function applyState(state) {
 
 function renderStaticText() {
   document.querySelectorAll('[data-ui-copy]').forEach((node) => { node.textContent = T(node.dataset.uiCopy); });
+  // 页面标题、大标题和导航的读屏名称也跟着界面语言走（2.1.0 前写死中文）。
+  document.title = T('appTitle');
+  const heading = document.querySelector('.app-title, header h1:not(#pairingTitle)');
+  if (heading) heading.textContent = T('appTitle');
+  els.providerSwitch?.setAttribute('aria-label', T('providerNav'));
+  document.querySelector('.view-switch')?.setAttribute('aria-label', T('viewNav'));
   els.viewButtons[0].textContent = T('usage');
   els.viewButtons[1].textContent = T('radar');
   els.footerStatus.textContent = T(connectionMode === 'cloud' ? 'cloudReadOnly' : 'readOnly');
@@ -1094,6 +1133,8 @@ function render() {
   const hasActivity = Boolean(providerData.activity);
   const hasRadar = Boolean(providerData.radar);
   document.body.dataset.providerKind = hasActivity || hasRadar ? 'main' : 'extra';
+  // Antigravity 有 Token 活动、没有雷达：视图切换和附加平台一样收起（2.1.0）。
+  document.body.dataset.radar = hasRadar ? 'on' : 'off';
   els.tokenHeading.hidden = !hasActivity;
   els.tokenCard.hidden = !hasActivity;
   if (!hasRadar && activeView === 'radar') {
@@ -1102,8 +1143,8 @@ function render() {
   }
   restoreDisclosures();
   if (activeView === 'usage') {
-    // 套餐名只有 Claude 显示，和桌面面板一致。
-    const planLabel = provider === 'claude' && providerData.usage?.data?.planType
+    // 套餐名只有 Claude 和 Antigravity 显示，和桌面面板一致。
+    const planLabel = (provider === 'claude' || provider === 'antigravity') && providerData.usage?.data?.planType
       ? ` · ${formatPlanType(providerData.usage.data.planType)}`
       : '';
     els.usageHeading.textContent = T('usageTitle', { name: providerData.label }) + planLabel;
@@ -1130,7 +1171,7 @@ function formatPlanType(value) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : '';
 }
 
-const MAIN_PROVIDERS = ['codex', 'claude'];
+const MAIN_PROVIDERS = ['codex', 'claude', 'antigravity'];
 
 function renderUsage(usageSlice, activitySlice) {
   // 获取失败或超过 staleAfterMs 没刷新：标题右侧改成橙色的「数据截至 hh:mm」，卡片照常显示上次的数。
@@ -1151,16 +1192,15 @@ function renderUsage(usageSlice, activitySlice) {
   // GPT / Claude 的专项周限额（例如 Fable）只有一项时并进「一周」卡（1.1.0 起，和桌面同一条规则）：
   // 大数字右侧放名称和剩余，进度条下面多一道细条，它的重置时间放进这张卡的明细里。
   const scopedWindows = isExtra ? [] : (usage.extraWindows || []);
-  const foldedScopedWindow = scopedWindows.length === 1 && usage.secondaryWindow && String(scopedWindows[0].name || '').trim()
-    ? scopedWindows[0]
-    : null;
+  const { five: foldedFiveWindow, week: foldedScopedWindow } = foldedScopedWindows(scopedWindows, usage);
   if (usage.fiveHourUnlimited) {
     cards.push(unlimitedTemplate(T('label5h'), activityWindows.fiveHour));
   } else if (usage.primaryWindow) {
     cards.push(quotaTemplate(usage.primaryWindow, T('label5h'), {
       kind: 'five',
       activityWindow: activityWindows.fiveHour,
-      detailKey: 'fiveHour'
+      detailKey: 'fiveHour',
+      scopedWindow: foldedFiveWindow
     }));
   }
   if (usage.secondaryWindow) {
@@ -1178,12 +1218,13 @@ function renderUsage(usageSlice, activitySlice) {
   const compact = !isExtra && extraWindows.length > 1;
   const slimRows = [];
   extraWindows.forEach((windowValue, index) => {
-    const name = String(windowValue.name || '').trim();
+    const name = scopedWindowName(windowValue);
     if (isExtra) {
       cards.push(quotaTemplate(windowValue, name || T('labelWeek'), { kind: 'extra', detailKey: `extra-${index}` }));
-    } else if (windowValue !== foldedScopedWindow) {
+    } else if (windowValue !== foldedScopedWindow && windowValue !== foldedFiveWindow) {
       // 「一周 · 」前缀单独包一层：窄屏上先省掉它，把位置让给重置倒计时。
-      slimRows.push(quotaSlimRowTemplate(windowValue, name || T('labelWeek'), name && !compact ? T('labelWeek') : ''));
+      const prefix = windowValue.fold === 'five' ? T('label5h') : T('labelWeek');
+      slimRows.push(quotaSlimRowTemplate(windowValue, name || T('labelWeek'), name && !compact ? prefix : ''));
     }
   });
   // 额度去向（2.0.0）：一整块接在额度卡下面，跟着标题行的「使用明细」按钮一起展开（渲染在 cards.js，和桌面同一份）。
@@ -1194,6 +1235,27 @@ function renderUsage(usageSlice, activitySlice) {
     ? `${cards.join('')}${slimRows.length ? `<div class="quota-slim-rows${compact ? ' compact' : ''}">${slimRows.join('')}</div>` : ''}${attribution}`
     : '';
   updateHtml(els.quotaGrid, markup || empty(usageSlice?.error));
+}
+
+// 专项限额的显示名、并进哪张卡、卡片标题后的分组名：规则和桌面 renderer.js 同名函数一致（2.1.0）。
+function scopedWindowName(windowValue) {
+  return String(windowValue?.label || windowValue?.name || '').trim();
+}
+
+function foldedScopedWindows(scopedWindows, usage) {
+  const named = scopedWindows.filter((item) => scopedWindowName(item));
+  const week = named.find((item) => item.fold === 'week')
+    || (named.length === 1 && scopedWindows.length === 1 && !named[0].fold ? named[0] : null);
+  const five = named.find((item) => item.fold === 'five') || null;
+  return {
+    five: five && usage.primaryWindow && !usage.fiveHourUnlimited ? five : null,
+    week: week && usage.secondaryWindow ? week : null
+  };
+}
+
+function cardLabel(base, windowValue) {
+  const group = String(windowValue?.group || '').trim();
+  return group ? `${base} · ${group}` : base;
 }
 
 function remainingPercentOf(windowValue) {
@@ -1210,9 +1272,18 @@ function quotaTemplate(windowValue, label, { kind = 'five', activityWindow = nul
   const critical = !windowValue.inactive && remaining <= 10;
   const pace = windowPace(windowValue, kind === 'five' ? 'five' : kind === 'week' ? 'week' : extraPaceKey(windowValue));
   const serious = !critical && pace?.tier === 'serious';
+  // Antigravity 的分组名放右上角（和桌面一致），标题仍是「5 小时 剩余」。
+  const group = String(windowValue.group || '').trim();
+  const groupTag = group ? `<span class="quota-group-tag">${escapeHtml(group)}</span>` : '';
+  // 有分组标签时「剩余」二字单独包一层，窄屏上省掉它给标签让位（读屏仍读完整标题）。
+  const fullTitle = T('remaining', { label });
+  const titleRest = fullTitle.startsWith(label) ? fullTitle.slice(label.length) : '';
+  const titleHtml = group && titleRest
+    ? `<span class="quota-top-label" aria-label="${escapeHtml(fullTitle)}">${escapeHtml(label)}<span class="quota-top-rest">${escapeHtml(titleRest)}</span></span>`
+    : `<span class="quota-top-label">${escapeHtml(fullTitle)}</span>`;
   return `
     <article class="quota-card quota-card-${kind}${critical ? ' critical' : ''}${serious ? ' pace-serious' : ''}${scopedWindow ? ' has-scoped' : ''}" style="--quota:${remaining}%">
-      <div class="quota-top">${escapeHtml(T('remaining', { label }))}</div>
+      <div class="quota-top${group ? ' has-group' : ''}">${titleHtml}${groupTag}</div>
       <div class="quota-value-row"><strong class="quota-value">${remaining}%</strong>${critical ? '' : paceFlagHtml(pace)}${scopedWindow ? quotaScopedStatHtml(scopedWindow) : ''}</div>
       <div class="quota-progress" aria-hidden="true"><i></i>${paceTickHtml(pace)}${scopedWindow ? quotaScopedLaneHtml(scopedWindow) : ''}</div>
       <small>${escapeHtml(quotaFooter(windowValue))}</small>
@@ -1232,11 +1303,16 @@ function scopedWindowState(windowValue) {
 
 function quotaScopedStatHtml(windowValue) {
   const { remaining, critical, pace } = scopedWindowState(windowValue);
-  const name = String(windowValue.name || '').trim();
+  const name = scopedWindowName(windowValue);
   const ahead = !critical && ['warning', 'serious'].includes(pace?.tier);
   const icon = ahead ? `<i class="pace-icon tier-${pace.tier}" aria-hidden="true">▲</i>` : '';
   const label = `${T('remaining', { label: name })} ${remaining}%${ahead ? ` · ${T('paceAheadShort')}` : ''}`;
-  return `<span class="quota-scoped-stat${critical ? ' critical' : ''}" role="img" aria-label="${escapeHtml(label)}"><span class="quota-scoped-name">${icon}${escapeHtml(name)}</span><b>${remaining}%</b></span>`;
+  // 窄屏放不下长名字（Antigravity 的「Claude/GPT」）时换成短名，再放不下就省略号截断，不再顶出卡片（2.1.0）。
+  const short = String(windowValue.shortLabel || '').trim();
+  const nameHtml = short && short !== name
+    ? `<span class="name-full">${escapeHtml(name)}</span><span class="name-short">${escapeHtml(short)}</span>`
+    : escapeHtml(name);
+  return `<span class="quota-scoped-stat${critical ? ' critical' : ''}" role="img" aria-label="${escapeHtml(label)}"><span class="quota-scoped-name">${icon}${nameHtml}</span><b>${remaining}%</b></span>`;
 }
 
 // 进度条下面那一道：和上面的一周共用一个圆角外框；匀速刻度只画在上面那道。
@@ -1389,13 +1465,13 @@ function miniTrendY(value) {
 
 function miniTrendSeries(usage, points) {
   const series = [];
-  if (!usage.fiveHourUnlimited && usage.primaryWindow) series.push({ key: 'five', cls: 'five', label: T('label5h'), read: (point) => point.five });
-  if (usage.secondaryWindow) series.push({ key: 'week', cls: 'week', label: T('labelWeek'), read: (point) => point.week });
+  if (!usage.fiveHourUnlimited && usage.primaryWindow) series.push({ key: 'five', cls: 'five', label: cardLabel(T('label5h'), usage.primaryWindow), read: (point) => point.five });
+  if (usage.secondaryWindow) series.push({ key: 'week', cls: 'week', label: cardLabel(T('labelWeek'), usage.secondaryWindow), read: (point) => point.week });
   // 专项周限额只画一条：两条同色的线分不清，第二条以后只看卡片。
   const scoped = (usage.extraWindows || []).find((item) => item && !item.inactive && String(item.name || '').trim());
-  if (provider === 'claude' && scoped) {
+  if ((provider === 'claude' || provider === 'antigravity') && scoped) {
     const name = String(scoped.name).trim();
-    series.push({ key: `extra:${name}`, cls: 'scoped', label: name, read: (point) => point.ex?.[name] });
+    series.push({ key: `extra:${name}`, cls: 'scoped', label: scopedWindowName(scoped), read: (point) => point.ex?.[name] });
   }
   return series.filter((item) => points.some((point) => finiteOrNull(item.read(point)) !== null));
 }
@@ -1540,7 +1616,7 @@ function quotaActivityTemplate(detailKey, activityWindow, windowValue = null, sc
   }
   // 并进「一周」卡的专项限额：手机上没有悬停提示，它的重置时间放在这里。
   if (scopedWindow?.resetAt) {
-    rows.push(`<div class="quota-activity-row"><span>${escapeHtml(T('scopedResetTime', { name: String(scopedWindow.name || '').trim() }))}</span><b>${escapeHtml(formatDateTime(scopedWindow.resetAt))}</b></div>`);
+    rows.push(`<div class="quota-activity-row"><span>${escapeHtml(T('scopedResetTime', { name: scopedWindowName(scopedWindow) }))}</span><b>${escapeHtml(formatDateTime(scopedWindow.resetAt))}</b></div>`);
   }
   if (activityWindow) {
     const tone = cacheHitTone(activityWindow.cachedInputTokens, activityWindow.inputTokens);
@@ -2161,8 +2237,9 @@ function normalizeModelKey(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// 型号写法和桌面一致（token-week.js）：claude-opus-5-5 → Opus 5.5，gpt-6.2-astra → GPT-6.2 Astra。
 function formatModelName(value) {
-  return String(value || 'Model').replace(/^gpt-/i, 'GPT-').replace(/-/g, ' ');
+  return TOKEN_WEEK.formatModelName(value) || 'Model';
 }
 
 function formatModelBenchmark(item) {
@@ -2394,11 +2471,12 @@ function formatReset(value) {
   return T('resetSoon');
 }
 
+// 金额写法和桌面、cards.js 一致（$128、$12.3、$0.45）；以前中文界面会写成「US$128.4」。
 function formatUsd(value) {
   if (value === null || value === undefined || value === '') return '--';
   const number = Number(value);
   if (!Number.isFinite(number)) return '--';
-  return new Intl.NumberFormat(lang, { style: 'currency', currency: 'USD', maximumFractionDigits: number < 1 ? 2 : 1 }).format(number);
+  return CARDS.formatUsd(number);
 }
 
 function formatHours(value) {
@@ -2429,6 +2507,8 @@ function formatCacheHitRate(cachedInputTokens, inputTokens) {
 function cacheHitTone(cachedInputTokens, inputTokens) {
   const rate = cacheHitPercent(cachedInputTokens, inputTokens);
   if (rate === null) return 'cache-hit-neutral';
+  // Antigravity 的常态命中率还不知道，先不上色，和桌面一致（2.1.0）。
+  if (provider === 'antigravity') return 'cache-hit-neutral';
   // 按显示出来的那个数字（保留 1 位小数）判色，否则 96.97% 会显示成 97% 却是黄色。
   // 分界 97 / 93（2.0.0 起，原来是 99 / 95），和桌面面板一致。
   const shown = Math.round(rate * 10) / 10;

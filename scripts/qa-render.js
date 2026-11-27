@@ -28,7 +28,7 @@ app.whenReady().then(async () => {
   }
   // CMM_QA_TREND=day|week：截图前展开额度曲线并切到对应范围。
   const trendRange = ['day', 'week'].includes(process.env.CMM_QA_TREND) ? process.env.CMM_QA_TREND : '';
-  const knownProviders = ['codex', 'claude', 'kimi', 'glm', 'qwen'];
+  const knownProviders = ['codex', 'claude', 'antigravity', 'kimi', 'glm', 'qwen'];
   const targetProvider = knownProviders.includes(provider) ? provider : 'codex';
   state.provider = motion === 'switch' && targetProvider !== 'codex' ? 'codex' : targetProvider;
 

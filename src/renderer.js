@@ -248,6 +248,9 @@ function activeSlices(state) {
   if (provider === 'claude') {
     return { usage: state.claudeUsage || {}, radar: state.claudeRadar || {}, activity: state.claudeActivity || {}, service: state.claudeStatus || {} };
   }
+  if (provider === 'antigravity') {
+    return { usage: state.antigravityUsage || {}, radar: { status: 'idle' }, activity: state.antigravityActivity || {}, service: { status: 'idle' } };
+  }
   if (EXTRA_PROVIDER_IDS.includes(provider)) {
     return { usage: state[`${provider}Usage`] || {}, radar: { status: 'idle' }, activity: { status: 'idle' }, service: { status: 'idle' } };
   }
@@ -696,10 +699,12 @@ function render(state) {
   if (languageChanged) applyStaticText();
   const provider = state.provider || 'codex';
   const isExtra = EXTRA_PROVIDER_IDS.includes(provider);
+  const noRadar = !hasRadar(provider);
   els.panel.classList.toggle('extra-provider', isExtra);
+  els.panel.classList.toggle('no-radar', noRadar);
   if (previousProvider && previousProvider !== provider) {
     setActiveTab('usage', { provider, animate: false, renderContent: false });
-  } else if (isExtra && els.panel.dataset.activeTab === 'radar') {
+  } else if (noRadar && els.panel.dataset.activeTab === 'radar') {
     setActiveTab('usage', { provider, animate: false, renderContent: false });
   }
   syncProviderUi(provider);
@@ -727,7 +732,7 @@ function renderVisibleContent(stateValue, tab, providedSlices = null) {
     if (!isExtra) renderSection('tokens', [slices.activity, activeTokenDay, activeTokenBucket[tokenRange], formatIsoDate(new Date()), tokenRange], () => renderTokenActivity(slices.activity));
     return;
   }
-  if (!isExtra) {
+  if (hasRadar(provider)) {
     const view = radarViewByProvider[provider] || 'intelligence';
     setActiveRadarView(view, {
       provider,
@@ -795,15 +800,15 @@ els.trendLegend?.addEventListener('click', (event) => {
 function trendSeriesFor(usage, provider, samples) {
   const series = [];
   if (!usage?.fiveHourUnlimited) {
-    series.push({ key: 'five', paceKey: 'five', label: T('windowName5h'), tone: 'five', pick: (s) => s.five, window: usage?.primaryWindow });
+    series.push({ key: 'five', paceKey: 'five', label: cardLabel(T('windowName5h'), usage?.primaryWindow), tone: 'five', pick: (s) => s.five, window: usage?.primaryWindow });
   }
-  series.push({ key: 'week', paceKey: 'week', label: T('windowNameWeek'), tone: 'week', pick: (s) => s.week, window: usage?.secondaryWindow });
+  series.push({ key: 'week', paceKey: 'week', label: cardLabel(T('windowNameWeek'), usage?.secondaryWindow), tone: 'week', pick: (s) => s.week, window: usage?.secondaryWindow });
   const scoped = EXTRA_PROVIDER_IDS.includes(provider)
     ? null
     : (usage?.extraWindows || []).find((windowValue) => windowValue && !windowValue.inactive && String(windowValue.name || '').trim());
   if (scoped) {
     const name = String(scoped.name).trim();
-    series.push({ key: `extra:${name}`, paceKey: `extra:${name}`, label: name, tone: 'scoped', pick: (s) => s.ex?.[name], window: scoped });
+    series.push({ key: `extra:${name}`, paceKey: `extra:${name}`, label: scopedWindowName(scoped), tone: 'scoped', pick: (s) => s.ex?.[name], window: scoped });
   }
   return series.map((item) => ({
     ...item,
@@ -1194,18 +1199,31 @@ els.statusLine?.addEventListener('click', (event) => {
   window.codexMeter.openExternal(link.dataset.openUrl);
 });
 
+// 雷达页签（IQ、额度雷达、重置卡）只有 GPT 和 Claude 有数据源；Antigravity 和附加平台只有用量页。
+function hasRadar(provider) {
+  return provider === 'codex' || provider === 'claude';
+}
+
+// 额度来自官方客户端的平台：标题后注明「官方」，悬停说明来源。
+const OFFICIAL_SOURCE = {
+  claude: { suffix: 'officialSuffix', tip: 'officialTip' },
+  antigravity: { suffix: 'officialSuffixAntigravity', tip: 'officialTipAntigravity' }
+};
+
 function renderMeters(usageState, provider, activityState) {
   const usage = usageState.data;
   const activityWindows = activityState?.data?.windows || {};
   const isExtra = EXTRA_PROVIDER_IDS.includes(provider);
+  const official = OFFICIAL_SOURCE[provider] || null;
   if (els.usageTitle) {
-    const planLabel = provider === 'claude' && usage?.planType ? ` · ${formatPlanType(usage.planType)}` : '';
+    const planLabel = (provider === 'claude' || provider === 'antigravity') && usage?.planType ? ` · ${formatPlanType(usage.planType)}` : '';
     const title = isExtra
       ? T('usageTitleExtra', { name: EXTRA_PROVIDER_NAMES[provider] })
-      : provider === 'claude' ? T('usageTitleClaude') : T('usageTitleCodex');
+      : provider === 'claude' ? T('usageTitleClaude')
+        : provider === 'antigravity' ? T('usageTitleAntigravity') : T('usageTitleCodex');
     els.usageTitle.textContent = title + planLabel;
   }
-  const officialSuffix = provider === 'claude' && usage ? T('officialSuffix') : '';
+  const officialSuffix = official && usage ? T(official.suffix) : '';
   // 刷新失败或睡眠后没刷到：数字照常显示，但标明数据截至何时，避免把旧数字当成实时。
   const stale = Boolean(usage) && (usageState.status === 'error' || PACE?.isStale(usageState.fetchedAt, usageState.staleAfterMs));
   const retry = Number(usageState.retryAt) > Date.now() ? T('retryAt', { time: formatResetClock(usageState.retryAt) }) : '';
@@ -1217,7 +1235,7 @@ function renderMeters(usageState, provider, activityState) {
   els.usageUpdated.classList.toggle('stale', stale);
   els.usageUpdated.title = stale
     ? [usageState.error || T('dataStaleTip'), retry].filter(Boolean).join(' · ')
-    : provider === 'claude' && usage ? T('officialTip') : '';
+    : official && usage ? T(official.tip) : '';
   if (!usage) {
     const reconnect = provider === 'claude' && CLAUDE_RECONNECT_CODES.includes(usageState.errorCode);
     if (!reconnect) claudeReconnect = { pending: false, failed: '' };
@@ -1230,16 +1248,15 @@ function renderMeters(usageState, provider, activityState) {
 
   const cards = [];
   const scopedWindows = isExtra ? [] : (usage.extraWindows || []);
-  const foldedScopedWindow = scopedWindows.length === 1 && usage.secondaryWindow && String(scopedWindows[0].name || '').trim()
-    ? scopedWindows[0]
-    : null;
+  const { five: foldedFiveWindow, week: foldedScopedWindow } = foldedScopedWindows(scopedWindows, usage);
   if (usage.fiveHourUnlimited) {
     cards.push(unlimitedCardTemplate(T('label5h'), activityWindows.fiveHour, 'fiveHour'));
   } else if (usage.primaryWindow || !isExtra) {
     cards.push(quotaCardTemplate(usage.primaryWindow, T('label5h'), {
       provider,
       activityWindow: activityWindows.fiveHour,
-      activityWindowKey: 'fiveHour'
+      activityWindowKey: 'fiveHour',
+      scopedWindow: foldedFiveWindow
     }));
   }
   if (usage.secondaryWindow || !isExtra) {
@@ -1257,7 +1274,7 @@ function renderMeters(usageState, provider, activityState) {
   (usage.extraWindows || []).forEach((windowValue) => {
     if (isExtra) {
       cards.push(quotaCardTemplate(windowValue, String(windowValue.name || '').trim() || T('labelWeek'), { provider }));
-    } else if (windowValue !== foldedScopedWindow) {
+    } else if (windowValue !== foldedScopedWindow && windowValue !== foldedFiveWindow) {
       slimRows.push(quotaSlimRowTemplate(windowValue, scopedWindowLabel(windowValue)));
     }
   });
@@ -1337,7 +1354,7 @@ function quotaCardTemplate(windowValue, label, {
   const remaining = Number.isFinite(Number(windowValue.remainingPercent))
     ? clamp(Math.round(Number(windowValue.remainingPercent)), 0, 100)
     : 0;
-  const inactive = provider === 'claude' && windowValue.inactive;
+  const inactive = (provider === 'claude' || provider === 'antigravity') && windowValue.inactive;
   const critical = !inactive && remaining <= 10;
   const pace = inactive ? null : windowPace(windowValue, paceKeyForWindow(activityWindowKey, windowValue), provider);
   const footer = windowValue.resetAt
@@ -1350,6 +1367,9 @@ function quotaCardTemplate(windowValue, label, {
   const windowTitle = T('remainingTitle', { label });
   const paceClass = !critical && pace?.tier === 'serious' ? ' pace-serious' : '';
   const badge = paceBadgeTemplate(pace);
+  // Antigravity（2.1.0）：窗口属于哪一组（Gemini、Claude/GPT）写在卡片右上角，标题仍是「5 小时 剩余」。
+  const group = String(windowValue.group || '').trim();
+  const groupTag = group ? `<span class="quota-group-tag" title="${escapeHtml(group)}">${escapeHtml(group)}</span>` : '';
   return `
     <article class="quota-card ${windowClass}${critical ? ' critical' : ''}${paceClass}${scopedWindow ? ' has-scoped' : ''}" style="--quota-percent:${remaining}%;">
       <div class="quota-card-top">
@@ -1357,6 +1377,7 @@ function quotaCardTemplate(windowValue, label, {
           <i class="quota-window-mark" aria-hidden="true">${escapeHtml(windowMark)}</i>
           <span>${escapeHtml(windowTitle)}</span>
         </span>
+        ${groupTag}
       </div>
       <strong class="quota-remaining-value" data-quota-key="${escapeHtml(`${provider}:${label}`)}" data-quota-value="${remaining}">${remaining}%</strong>
       ${scopedWindow ? quotaScopedStatTemplate(scopedWindow, provider) : ''}
@@ -1373,8 +1394,33 @@ function quotaCardTemplate(windowValue, label, {
 }
 
 function scopedWindowLabel(windowValue) {
-  const name = String(windowValue?.name || '').trim();
-  return name ? `${T('labelWeek')} · ${name}` : T('labelWeek');
+  const name = scopedWindowName(windowValue);
+  const base = windowValue?.fold === 'five' ? T('label5h') : T('labelWeek');
+  return name ? `${base} · ${name}` : base;
+}
+
+// 专项限额的显示名：Antigravity 另一组的 5 小时窗口键名带「 · 5h」，显示时只写组名（label）。
+function scopedWindowName(windowValue) {
+  return String(windowValue?.label || windowValue?.name || '').trim();
+}
+
+// 并进卡片的专项限额：Claude 的 Fable（只有一项、没标 fold）并进「一周」卡；
+// Antigravity 另一组的窗口按 fold 分别并进「5 小时」和「一周」卡。其余的在卡片下方逐行列出。
+function foldedScopedWindows(scopedWindows, usage) {
+  const named = scopedWindows.filter((item) => scopedWindowName(item));
+  const week = named.find((item) => item.fold === 'week')
+    || (named.length === 1 && scopedWindows.length === 1 && !named[0].fold ? named[0] : null);
+  const five = named.find((item) => item.fold === 'five') || null;
+  return {
+    five: five && usage.primaryWindow && !usage.fiveHourUnlimited ? five : null,
+    week: week && usage.secondaryWindow ? week : null
+  };
+}
+
+// 曲线图例：窗口属于某个分组时（Antigravity）在后面注明，例如「周额度 · Gemini」。
+function cardLabel(base, windowValue) {
+  const group = String(windowValue?.group || '').trim();
+  return group ? `${base} · ${group}` : base;
 }
 
 // 「一周」卡里的专项限额（1.1.0）：大数字右侧上面名称、下面剩余百分比，进度条下面多一道细条，
@@ -1398,7 +1444,7 @@ function quotaScopedStatTemplate(windowValue, provider = 'claude') {
   if (pace?.ready) tipParts.push(paceTickTip(pace));
   const tier = !critical && ['warning', 'serious'].includes(pace?.tier) ? pace.tier : '';
   const icon = tier ? `<i class="pace-icon tier-${tier}" aria-label="${escapeHtml(T('paceAheadShort'))}">▲</i>` : '';
-  return `<span class="quota-scoped-stat${critical ? ' critical' : ''}" role="img" title="${escapeHtml(tipParts.join(' · '))}" aria-label="${escapeHtml(tipParts.join(' · '))}"><span class="quota-scoped-name">${icon}${escapeHtml(String(windowValue.name).trim())}</span><b>${remaining}%</b></span>`;
+  return `<span class="quota-scoped-stat${critical ? ' critical' : ''}" role="img" title="${escapeHtml(tipParts.join(' · '))}" aria-label="${escapeHtml(tipParts.join(' · '))}"><span class="quota-scoped-name">${icon}${escapeHtml(scopedWindowName(windowValue))}</span><b>${remaining}%</b></span>`;
 }
 
 // 进度条下面那一道：专项限额自己的剩余，和上面的一周共用一个圆角外框；匀速刻度只画在上面那道。
@@ -1840,13 +1886,14 @@ function unlimitedCardTemplate(label, activityWindow = null, activityWindowKey =
 }
 
 function isLocalActivitySource(source) {
-  return source === 'claude_local' || source === 'codex_local';
+  return source === 'claude_local' || source === 'codex_local' || source === 'antigravity_local';
 }
 
 function activityNotice(activity) {
   if (!activity) return '';
   if (activity.source === 'claude_local') return T('noticeLocal', { dir: '~/.claude' });
   if (activity.source === 'codex_local') return T('noticeLocal', { dir: '~/.codex' });
+  if (activity.source === 'antigravity_local') return T('noticeLocal', { dir: '~/.gemini/antigravity' });
   return '';
 }
 
@@ -3201,6 +3248,8 @@ function formatCacheHitRate(cachedInputTokens, inputTokens) {
 function cacheHitTone(cachedInputTokens, inputTokens) {
   const rate = cacheHitPercent(cachedInputTokens, inputTokens);
   if (rate === null) return 'cache-hit-neutral';
+  // 97 / 93 的分界是按 Claude、GPT 的常态定的；Antigravity（Gemini 隐式缓存）的常态还不知道，先不上色（2.1.0）。
+  if (currentProviderKey() === 'antigravity') return 'cache-hit-neutral';
   // 按显示出来的那个数字（保留 1 位小数）判色，否则 96.97% 会显示成 97% 却是黄色。
   // 分界 97 / 93（2.0.0 起，原来是 99 / 95）：上下文封顶和子代理让 Claude 的常态落在 97%–98%。
   const shown = Math.round(rate * 10) / 10;

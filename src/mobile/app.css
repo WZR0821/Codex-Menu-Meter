@@ -49,7 +49,10 @@
   --row-h: 42px;
 }
 
+/* 2.1.0 起主题色：GPT 蓝、Claude 橙、Google 绿（和桌面一致） */
+body[data-provider="codex"] { --accent: var(--blue); --accent-text: var(--blue-text); --accent-rgb: 0, 122, 255; }
 body[data-provider="claude"] { --accent: #d97757; --accent-text: #b5512c; --accent-rgb: 217, 119, 87; }
+body[data-provider="antigravity"] { --accent: var(--green); --accent-text: var(--green-text); --accent-rgb: 52, 199, 89; }
 body[data-provider="kimi"] { --accent: #007aff; --accent-text: #0068d9; --accent-rgb: 0, 122, 255; }
 body[data-provider="glm"] { --accent: #30b0c7; --accent-text: #0c7d93; --accent-rgb: 48, 176, 199; }
 body[data-provider="qwen"] { --accent: #5856d6; --accent-text: #4a48c4; --accent-rgb: 88, 86, 214; }
@@ -219,7 +222,8 @@ body.offline .live-dot { background: var(--orange); }
 .radar-subtab.active,
 .radar-sort-button.active { background: var(--card); box-shadow: var(--thumb-shadow); }
 /* 附加平台没有雷达数据，视图切换整条收起 */
-body[data-provider-kind="extra"] .view-switch { display: none; }
+body[data-provider-kind="extra"] .view-switch,
+body[data-radar="off"] .view-switch { display: none; }
 
 /* ---- 视图与分区标题 ---- */
 .view { display: none; margin-top: var(--section-gap); }
@@ -244,6 +248,8 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
 }
 .section-head > span { flex: none; font-size: 12px; color: var(--label-3); font-variant-numeric: tabular-nums; }
 .token-heading { margin-top: var(--section-gap); }
+/* 标题不让位：英文、日文下以前会被四段切换挤成「Token …」，现在由更新时间先省略（2.1.0 修） */
+.token-heading > h2 { flex: none; }
 
 .empty {
   padding: 18px 16px;
@@ -283,6 +289,22 @@ body[data-provider-kind="extra"] .view-switch { display: none; }
   color: var(--label-2);
   font-size: 13px;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Antigravity 的分组名（2.1.0）：标题不让位，小标签放不下时省略号截断 */
+.quota-top.has-group { display: flex; align-items: center; gap: 6px; padding-right: 0; }
+.quota-top.has-group .quota-top-label { flex: none; }
+.quota-group-tag {
+  min-width: 0;
+  margin-left: auto;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--label-2);
+  font-size: 11px;
+  line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -996,6 +1018,8 @@ footer span + span::before { margin-right: 6px; content: "·"; }
     --accent-rgb: 48, 209, 88;
   }
   body[data-provider="claude"] { --accent: #d9734f; --accent-text: #f08c66; --accent-rgb: 217, 115, 79; --accent-thumb-text: #ffb9a0; }
+  body[data-provider="codex"] { --accent: var(--blue); --accent-text: var(--blue-text); --accent-rgb: 10, 132, 255; --accent-thumb-text: #a6d0ff; }
+  body[data-provider="antigravity"] { --accent: var(--green); --accent-text: var(--green-text); --accent-rgb: 48, 209, 88; --accent-thumb-text: #66e381; }
   body[data-provider="kimi"] { --accent: #0a84ff; --accent-text: #409cff; --accent-rgb: 10, 132, 255; --accent-thumb-text: #a6d0ff; }
   body[data-provider="glm"] { --accent: #40c8e0; --accent-text: #5ad4ea; --accent-rgb: 64, 200, 224; --accent-thumb-text: #70dcef; }
   body[data-provider="qwen"] { --accent: #5e5ce6; --accent-text: #9b99ff; --accent-rgb: 94, 92, 230; --accent-thumb-text: #c8c7ff; }
@@ -1031,7 +1055,8 @@ footer span + span::before { margin-right: 6px; content: "·"; }
    两道加外边距的总高和普通卡一样，卡片高度不变，两张卡仍然对齐。 */
 .quota-scoped-stat {
   display: flex;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   flex-direction: column;
   align-self: flex-end;
   align-items: flex-end;
@@ -1039,7 +1064,16 @@ footer span + span::before { margin-right: 6px; content: "·"; }
   margin-bottom: 3px;
   white-space: nowrap;
 }
-.quota-scoped-name { display: inline-flex; align-items: center; color: var(--label-2); font-size: 12px; font-weight: 500; line-height: 14px; }
+.quota-scoped-name { display: inline-flex; align-items: center; max-width: 100%; overflow: hidden; color: var(--label-2); font-size: 12px; font-weight: 500; line-height: 14px; }
+.quota-scoped-name > :is(.name-full, .name-short) { overflow: hidden; text-overflow: ellipsis; }
+.quota-scoped-name > .name-short { display: none; }
+@media (max-width: 400px) {
+  .quota-scoped-name > .name-full { display: none; }
+  .quota-scoped-name > .name-short { display: inline; }
+  /* 分组卡的标题在窄屏上省掉「剩余」，把位置让给右上角的分组名 */
+  .quota-top.has-group .quota-top-rest { display: none; }
+  .quota-group-tag { padding: 0 5px; }
+}
 .quota-scoped-name .pace-icon { margin-right: 3px; vertical-align: 0; }
 .quota-scoped-stat b {
   color: var(--series-scoped-text);
@@ -1111,6 +1145,10 @@ footer span + span::before { margin-right: 6px; content: "·"; }
 .quota-slim-row.pace-serious { --quota-accent: var(--status-serious); }
 .quota-value-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .quota-value-row > .quota-value { flex: none; }
+/* 并进了专项限额的卡（Fable、Antigravity 另一组）：大数字右侧已有名称和百分比，
+   节奏标记只留 ▲（读屏仍读出「偏快」），否则会被挤成半个三角（2.1.0 修）。 */
+.quota-card.has-scoped .pace-flag { flex: none; overflow: visible; }
+.quota-card.has-scoped .pace-flag span { display: none; }
 .pace-flag {
   display: inline-flex;
   align-items: baseline;
@@ -1161,7 +1199,8 @@ footer span + span::before { margin-right: 6px; content: "·"; }
 /* 曲线配色过了 dataviz 校验（浅色 #fff、深色 #1c1c1e 两种底）：GPT 的系统绿在白底上对比度只有 2.2，
    曲线改用和桌面面板一样的 #24a948；Claude 用强调色本身。 */
 .pace-card { --series-five: var(--accent); }
-body[data-provider="codex"] .pace-card { --series-five: #24a948; }
+body[data-provider="codex"] .pace-card,
+body[data-provider="antigravity"] .pace-card { --series-five: #24a948; }
 .pace-card {
   margin-top: var(--gap);
   padding: 10px var(--card-pad-x) 9px;

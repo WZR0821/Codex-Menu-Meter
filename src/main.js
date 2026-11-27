@@ -10,6 +10,7 @@ const qrcode = require('qrcode-generator');
 const i18n = require('./i18n');
 const { parseCodexRolloutLines } = require('./codex-token-activity');
 const { parseClaudeTranscriptLines } = require('./claude-token-activity');
+const { readAntigravityUsage, createAntigravityActivityReader } = require('./antigravity');
 const { isCredentialUsable, isRefreshTokenExpired, mergeRefreshedOAuth } = require('./claude-credentials');
 const { parseClaudeTimestamp, normalizeClaudeOfficialUsage, resolveClaudePlan } = require('./claude-usage');
 const { buildActivityWindows } = require('./activity-windows');
@@ -153,10 +154,13 @@ const CLAUDE_RECONNECT_POLL_MS = 8_000;
 const CLAUDE_RECONNECT_CODES = new Set(['claude-auth-expired', 'claude-no-creds']);
 const CLAUDE_LOGIN_COMMAND = 'claude auth login --claudeai';
 const EXTRA_USAGE_REFRESH_MS = 5 * 60_000;
+// Antigravity 的额度从本机语言服务读，便宜，和 GPT 一样两分钟一次。
+const ANTIGRAVITY_USAGE_REFRESH_MS = 2 * 60_000;
 // 超过这么久没有成功刷新就标记「数据截至」：约为刷新间隔的 3 倍，偶尔一次失败不打扰。
 const STALE_AFTER_MS = {
   usage: 3 * USAGE_REFRESH_MS,
   claudeUsage: 3 * CLAUDE_USAGE_REFRESH_MS,
+  antigravityUsage: 3 * ANTIGRAVITY_USAGE_REFRESH_MS,
   kimiUsage: 3 * EXTRA_USAGE_REFRESH_MS,
   glmUsage: 3 * EXTRA_USAGE_REFRESH_MS,
   qwenUsage: 3 * EXTRA_USAGE_REFRESH_MS
@@ -221,6 +225,8 @@ const state = {
   claudeActivity: idleSlice(),
   codexStatus: idleSlice(),
   claudeStatus: idleSlice(),
+  antigravityUsage: idleSlice(),
+  antigravityActivity: idleSlice(),
   kimiUsage: idleSlice(),
   glmUsage: idleSlice(),
   qwenUsage: idleSlice()
@@ -270,6 +276,7 @@ let settingsWindow = null;
 let settings = { ...defaultSettings };
 let usageTimer = null;
 let claudeUsageTimer = null;
+let antigravityUsageTimer = null;
 let claudeReconnectTimer = null;
 let radarTimer = null;
 let serviceStatusTimer = null;
@@ -416,6 +423,9 @@ function retryFailedUsageSlices() {
   if (isProviderEnabled('claude', settings.providerSettings) && state.claudeUsage.status === 'error' && !claudeNeedsReconnect()) {
     refreshClaudeUsage();
   }
+  if (isProviderEnabled('antigravity', settings.providerSettings) && state.antigravityUsage.status === 'error') {
+    refreshAntigravityUsage();
+  }
   for (const id of enabledExtraIds()) {
     if (state[`${id}Usage`].status === 'error') refreshExtraUsage(id);
   }
@@ -455,6 +465,7 @@ function usageSliceFor(provider) {
 function refreshUsageFor(provider) {
   if (provider === 'codex') return refreshUsage();
   if (provider === 'claude') return refreshClaudeUsage();
+  if (provider === 'antigravity') return refreshAntigravityUsage();
   if (EXTRA_PROVIDER_IDS.includes(provider)) return refreshExtraUsage(provider);
   return Promise.resolve(null);
 }
@@ -1078,6 +1089,11 @@ function clearProviderState(provider) {
     state.claudeRadar = idleSlice();
     state.claudeActivity = idleSlice();
     state.claudeStatus = idleSlice();
+    return;
+  }
+  if (provider === 'antigravity') {
+    state.antigravityUsage = idleSlice();
+    state.antigravityActivity = idleSlice();
     return;
   }
   if (EXTRA_PROVIDER_IDS.includes(provider)) state[`${provider}Usage`] = idleSlice();
@@ -2546,6 +2562,71 @@ async function readClaudeActivity() {
   return attachRecap('claude', activity, entries, state.claudeUsage?.data);
 }
 
+// ---- Google Antigravity（2.1.0）：额度读本机语言服务，Token 活动读本机会话库，细节见 src/antigravity.js ----
+const antigravityReader = createAntigravityActivityReader({
+  tmpDir: path.join(app.getPath('temp'), 'codex-menu-meter-antigravity')
+});
+let antigravityEntriesSnapshot = { entries: null, scannedAt: 0 };
+let antigravityEntriesInflight = null;
+
+function refreshAntigravityUsage() {
+  return refreshStateSlice('antigravity-usage', 'antigravityUsage', () => readAntigravityUsage(), {
+    formatError: antigravityErrorMessage,
+    onSettled: () => {
+      syncActivityWindows('antigravity');
+      updateTrayTitle();
+      recordUsageSample('antigravity');
+      scheduleResetRefresh();
+    }
+  });
+}
+
+function antigravityErrorMessage(error) {
+  if (error?.code === 'antigravity-not-running') return tr('errAntigravityNotRunning');
+  if (error?.code === 'antigravity-bad-data') return tr('errAntigravityBadData');
+  if (error?.code === 'antigravity-sqlite-unavailable') return tr('errAntigravitySqlite');
+  if (error?.status === 401 || error?.status === 403) return tr('errAntigravityAuth');
+  return requestErrorMessage(error, 'Antigravity');
+}
+
+// 会话库按文件签名缓存在 reader 里；这里再挡一层 30 秒，免得一次刷新里额度和活动各扫一遍。
+async function collectAntigravityEntries({ force = false } = {}) {
+  if (!force && antigravityEntriesSnapshot.entries && Date.now() - antigravityEntriesSnapshot.scannedAt < CLAUDE_ENTRY_CACHE_MS) {
+    return antigravityEntriesSnapshot.entries;
+  }
+  if (antigravityEntriesInflight) return antigravityEntriesInflight;
+  antigravityEntriesInflight = antigravityReader.collect();
+  try {
+    const entries = await antigravityEntriesInflight;
+    antigravityEntriesSnapshot = { entries, scannedAt: Date.now() };
+    return entries;
+  } finally {
+    antigravityEntriesInflight = null;
+  }
+}
+
+function refreshAntigravityActivity() {
+  return refreshStateSlice('antigravity-activity', 'antigravityActivity', readAntigravityActivity, {
+    formatError: (error) => (error?.code ? antigravityErrorMessage(error) : error?.message || tr('errNoLocalAntigravity'))
+  });
+}
+
+async function readAntigravityActivity() {
+  const entries = await collectAntigravityEntries();
+  if (!entries.length) throw new Error(tr('errNoLocalAntigravity'));
+  const usage = state.antigravityUsage?.data;
+  const activity = await attachHistory('antigravity', buildLocalActivity(entries, 'antigravity_local', usage), entries);
+  return attachRecap('antigravity', activity, entries, usage);
+}
+
+// Antigravity 两张额度卡可能属于不同分组（免费档：5 小时是 Claude/GPT 组，一周是 Gemini 组），
+// 卡片明细里的「本窗口本机用量」和额度去向只算这一组模型的记录。
+function antigravityEntriesForGroup(entries, group) {
+  if (!group) return entries;
+  const gemini = /^gemini$/i.test(String(group));
+  return (entries || []).filter((entry) => /gemini/i.test(String(entry.model || '')) === gemini);
+}
+
 function buildLocalActivity(entries, source, usage) {
   const cutoffTs = activityWindowStartTs();
   const pricing = pricingInfo();
@@ -2642,7 +2723,7 @@ function buildLocalActivity(entries, source, usage) {
     windowDays: ACTIVITY_WINDOW_DAYS,
     pricingAsOf: pricing.asOf,
     pricingSource: pricing.source,
-    windows: buildWindowsWithAttribution(entries, usage),
+    windows: buildWindowsWithAttribution(entries, usage, source === 'antigravity_local' ? 'antigravity' : null),
     days
   };
 }
@@ -2656,7 +2737,14 @@ function roundCents(value) {
 // 界面固定三行（前两个项目 + 其他），两个平台切换时这一块一样高。
 const ATTRIBUTION_PROJECTS = 2;
 
-function buildWindowsWithAttribution(entries, usage) {
+function buildWindowsWithAttribution(entries, usage, provider = null) {
+  if (provider === 'antigravity') {
+    const fiveHour = buildActivityWindows(antigravityEntriesForGroup(entries, usage?.primaryWindow?.group), usage).fiveHour;
+    const weekEntries = antigravityEntriesForGroup(entries, usage?.secondaryWindow?.group);
+    const week = buildActivityWindows(weekEntries, usage).week;
+    week.attribution = attributeWindow(weekEntries, week);
+    return { fiveHour, week };
+  }
   const windows = buildActivityWindows(entries, usage);
   if (windows.week) windows.week.attribution = attributeWindow(entries, windows.week);
   return windows;
@@ -2809,6 +2897,7 @@ async function runHistoryBackfills() {
       historyBackfill.running = null;
       // 回填完重建一次活动数据，界面马上看到更早的记录。
       if (provider === 'claude') refreshClaudeActivity().catch(() => {});
+      else if (provider === 'antigravity') refreshAntigravityActivity().catch(() => {});
       else refreshTokenActivity().catch(() => {});
     }
   } finally {
@@ -2830,6 +2919,18 @@ async function backfillProviderHistory(provider) {
   const providerStore = store.providers[provider];
   if (providerStore.backfilled) return;
   const cutoffTs = activityWindowStartTs();
+  if (provider === 'antigravity') {
+    // 会话库本身就是全部记录（不像 Claude Code 只留 30 天），窗口之前的一次读完。
+    const builder = createDayRecordBuilder();
+    for (const entry of await antigravityReader.collect()) {
+      if (entry.ts < cutoffTs) builder.add(entry);
+    }
+    mergeDayRecords(providerStore, builder.finish(), { replace: providerStore.rebuild === true });
+    providerStore.backfilled = true;
+    providerStore.rebuild = false;
+    queueDailyStoreSave(0);
+    return;
+  }
   const isClaude = provider === 'claude';
   const files = isClaude ? await findTranscriptFiles(CLAUDE_PROJECTS_DIR) : await listCodexTranscripts();
   const parser = isClaude ? parseClaudeTranscriptLines : parseCodexRolloutLines;
@@ -3019,14 +3120,16 @@ function createProjectResolver(cwds) {
 }
 
 function syncActivityWindows(provider) {
-  const isClaude = provider === 'claude';
-  const entries = isClaude ? claudeEntriesSnapshot.entries : codexEntriesSnapshot.entries;
-  const activity = isClaude ? state.claudeActivity : state.tokenActivity;
-  const usage = isClaude ? state.claudeUsage?.data : state.usage?.data;
+  const sources = {
+    codex: () => [codexEntriesSnapshot.entries, state.tokenActivity, state.usage?.data],
+    claude: () => [claudeEntriesSnapshot.entries, state.claudeActivity, state.claudeUsage?.data],
+    antigravity: () => [antigravityEntriesSnapshot.entries, state.antigravityActivity, state.antigravityUsage?.data]
+  };
+  const [entries, activity, usage] = (sources[provider] || sources.codex)();
   if (!Array.isArray(entries) || !activity?.data) return;
   activity.data = {
     ...activity.data,
-    windows: buildWindowsWithAttribution(entries, usage)
+    windows: buildWindowsWithAttribution(entries, usage, provider === 'antigravity' ? 'antigravity' : null)
   };
 }
 
@@ -3369,9 +3472,11 @@ function alertTracker(provider, key) {
 }
 
 function alertWindowLabel(entry) {
-  if (entry.key === 'five') return tr('windowName5h');
-  if (entry.key === 'week') return tr('windowNameWeek');
-  return tr('windowNameScoped', { name: entry.name || '' });
+  const group = entry.window?.group ? `${entry.window.group} ` : '';
+  if (entry.key === 'five') return `${group}${tr('windowName5h')}`;
+  if (entry.key === 'week') return `${group}${tr('windowNameWeek')}`;
+  if (entry.window?.fold === 'five') return tr('windowNameScopedFive', { name: entry.window.label || entry.name || '' });
+  return tr('windowNameScoped', { name: entry.window?.label || entry.name || '' });
 }
 
 function alertsActive() {
@@ -3841,6 +3946,7 @@ function updateSnapshot() {
 const DIAGNOSTIC_SLICES = [
   'usage', 'tokenActivity', 'radar', 'codexStatus',
   'claudeUsage', 'claudeActivity', 'claudeRadar', 'claudeStatus',
+  'antigravityUsage', 'antigravityActivity',
   'kimiUsage', 'glmUsage', 'qwenUsage'
 ];
 
@@ -3886,8 +3992,14 @@ async function buildDiagnostics() {
   } catch (error) {
     push(`  Codex rollouts: ${error?.message || error}`);
   }
+  try {
+    const conversations = (await fs.readdir(path.join(antigravityReader.root, 'conversations'))).filter((name) => name.endsWith('.db'));
+    push(`  Antigravity conversations: ${conversations.length} files (${antigravityReader.cacheSize()} cached)`);
+  } catch {
+    push('  Antigravity conversations: none');
+  }
   const store = dailyStore;
-  for (const provider of ['codex', 'claude']) {
+  for (const provider of ['codex', 'claude', 'antigravity']) {
     const providerStore = store?.providers?.[provider];
     if (!providerStore) continue;
     push(`  History ${provider}: ${Object.keys(providerStore.days).length} days from ${providerStore.coverageStart || '-'} · backfilled ${providerStore.backfilled ? 'yes' : 'no'}${historyBackfill.running === provider ? ' (running)' : ''}`);
@@ -4152,23 +4264,30 @@ function updateTrayTitle() {
     tray.setToolTip(title);
     return;
   }
-  const isClaude = state.provider === 'claude';
-  const usage = isClaude ? state.claudeUsage.data : state.usage.data;
+  const provider = state.provider === 'claude' || state.provider === 'antigravity' ? state.provider : 'codex';
+  const usage = usageSliceFor(provider)?.data;
   const primary = usage?.primaryWindow?.remainingPercent;
   const secondary = usage?.secondaryWindow?.remainingPercent;
   const primaryText = usage?.fiveHourUnlimited ? '∞' : Number.isFinite(primary) ? `${primary}%` : '--';
   const secondaryText = Number.isFinite(secondary) ? `${secondary}%` : '--';
-  tray.setTitle(tr(isClaude ? 'trayClaude' : 'trayCodex', { p: primaryText, s: secondaryText }));
-  tray.setToolTip(createTrayTooltip(usage, isClaude));
+  tray.setTitle(tr(TRAY_KEYS[provider].title, { p: primaryText, s: secondaryText }));
+  tray.setToolTip(createTrayTooltip(usage, provider));
 }
 
-function createTrayTooltip(usage, isClaude) {
+const TRAY_KEYS = {
+  codex: { title: 'trayCodex', loading: 'trayTipLoadingCodex', tip: 'trayTipCodex' },
+  claude: { title: 'trayClaude', loading: 'trayTipLoadingClaude', tip: 'trayTipClaude' },
+  antigravity: { title: 'trayAntigravity', loading: 'trayTipLoadingAntigravity', tip: 'trayTipAntigravity' }
+};
+
+function createTrayTooltip(usage, provider) {
+  const keys = TRAY_KEYS[provider] || TRAY_KEYS.codex;
   const limit = usage?.limitReached ? tr('trayTipLimit') : '';
   if (usage?.fiveHourUnlimited) {
     return tr('trayTipCodexUnlimited', { s: usage.secondaryWindow?.remainingPercent ?? '--', limit });
   }
-  if (!usage?.primaryWindow) return tr(isClaude ? 'trayTipLoadingClaude' : 'trayTipLoadingCodex');
-  return tr(isClaude ? 'trayTipClaude' : 'trayTipCodex', {
+  if (!usage?.primaryWindow) return tr(keys.loading);
+  return tr(keys.tip, {
     p: usage.primaryWindow.remainingPercent,
     s: usage.secondaryWindow?.remainingPercent ?? '--',
     limit
@@ -4398,7 +4517,7 @@ function createTouchBarProviderPayload(label, usage, iqItems, provider) {
       extra: (usage?.extraWindows || [])
         .filter((item) => String(item?.name || '').trim())
         .slice(0, 2)
-        .map((item) => touchBarQuota(String(item.name).trim().slice(0, 10), item, { key: `extra:${String(item.name).trim()}`, provider }))
+        .map((item) => touchBarQuota(String(item.fold === 'five' ? `5h ${item.label || item.name}` : item.label || item.name).trim().slice(0, 12), item, { key: `extra:${String(item.name).trim()}`, provider }))
     },
     iq: displayItems.map((item) => ({
       label: item.label,
@@ -4419,7 +4538,7 @@ function touchBarQuota(label, windowValue, { key = null, provider = '' } = {}) {
     remainingPercent: Number.isFinite(remaining) ? clamp(Math.round(remaining), 0, 100) : null,
     resetAt: Number.isFinite(Number(windowValue?.resetAt)) ? Number(windowValue.resetAt) : null
   };
-  if (key && windowValue && !windowValue.inactive && (provider === 'codex' || provider === 'claude')) {
+  if (key && windowValue && !windowValue.inactive && (provider === 'codex' || provider === 'claude' || provider === 'antigravity')) {
     const windowMs = pace.windowDurationMs(key, provider);
     const info = pace.computePace(windowValue, { durationMs: windowMs });
     if (info) {
@@ -4500,6 +4619,9 @@ function refreshProvider(provider) {
   if (provider === 'claude') {
     return Promise.all([refreshClaudeUsage(), refreshClaudeRadar(), refreshClaudeActivity()]);
   }
+  if (provider === 'antigravity') {
+    return Promise.all([refreshAntigravityUsage(), refreshAntigravityActivity()]);
+  }
   return Promise.all([refreshUsage(), refreshRadar(), refreshTokenActivity()]);
 }
 
@@ -4511,6 +4633,7 @@ async function selectProvider(provider, { source = 'manual' } = {}) {
   await saveSettings({ provider });
   if (provider === 'claude') invalidateClaudeEntrySnapshot();
   if (provider === 'codex') invalidateCodexEntrySnapshot();
+  if (provider === 'antigravity') antigravityEntriesSnapshot.scannedAt = 0;
   refreshProvider(provider).catch(() => {});
   return state;
 }
@@ -4527,8 +4650,11 @@ function refreshActivities() {
   if (isProviderEnabled('claude', settings.providerSettings) && (mirrorAll || state.provider === 'claude')) {
     jobs.push(refreshClaudeActivity());
   }
+  if (isProviderEnabled('antigravity', settings.providerSettings) && (mirrorAll || state.provider === 'antigravity')) {
+    jobs.push(refreshAntigravityActivity());
+  }
   // 附加平台（Kimi/GLM/Qwen）没有本地 Token 记录，只有远端快照需要时才连带刷 Codex。
-  if (mirrorAll || (state.provider !== 'claude' && !EXTRA_PROVIDER_IDS.includes(state.provider))) {
+  if (mirrorAll || state.provider === 'codex') {
     jobs.push(refreshTokenActivity());
   }
   return jobs;
@@ -4539,6 +4665,7 @@ function refreshAll() {
   if (isProviderEnabled('claude', settings.providerSettings)) {
     jobs.push(refreshClaudeUsage(), refreshClaudeRadar());
   }
+  if (isProviderEnabled('antigravity', settings.providerSettings)) jobs.push(refreshAntigravityUsage());
   jobs.push(...refreshActivities());
   return Promise.all(jobs);
 }
@@ -4553,6 +4680,9 @@ function refreshAllForRemote() {
   ];
   if (isProviderEnabled('claude', settings.providerSettings)) {
     jobs.push(refreshClaudeUsage(), refreshClaudeRadar(), refreshClaudeActivity());
+  }
+  if (isProviderEnabled('antigravity', settings.providerSettings)) {
+    jobs.push(refreshAntigravityUsage(), refreshAntigravityActivity());
   }
   return Promise.all(jobs);
 }
@@ -4603,6 +4733,9 @@ app.whenReady().then(async () => {
   claudeUsageTimer = setInterval(() => {
     if (isProviderEnabled('claude', settings.providerSettings)) refreshClaudeUsage();
   }, CLAUDE_USAGE_REFRESH_MS);
+  antigravityUsageTimer = setInterval(() => {
+    if (isProviderEnabled('antigravity', settings.providerSettings)) refreshAntigravityUsage();
+  }, ANTIGRAVITY_USAGE_REFRESH_MS);
   radarTimer = setInterval(() => {
     refreshRadar();
     if (isProviderEnabled('claude', settings.providerSettings)) refreshClaudeRadar();
@@ -4640,6 +4773,7 @@ app.on('before-quit', () => {
   stopPanelBoundsAnimation();
   if (usageTimer) clearInterval(usageTimer);
   if (claudeUsageTimer) clearInterval(claudeUsageTimer);
+  if (antigravityUsageTimer) clearInterval(antigravityUsageTimer);
   if (claudeReconnectTimer) clearInterval(claudeReconnectTimer);
   if (radarTimer) clearInterval(radarTimer);
   if (serviceStatusTimer) clearInterval(serviceStatusTimer);

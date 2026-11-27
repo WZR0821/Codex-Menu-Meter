@@ -2,7 +2,7 @@
 
 ## 1. 文档信息
 
-- 当前基线版本：`2.0.0`
+- 当前基线版本：`2.1.0`
 - 应用名称：Codex Menu Meter
 - Bundle ID：`local.codex-menu-meter`
 - 技术栈：Electron 43、Node.js、原生 Swift Touch Bar helper、Objective-C++ 面板窗口模块（Node-API）
@@ -56,7 +56,7 @@ CMM_USER_DATA_DIR=/tmp/cmm-dev-data CMM_DISABLE_TOUCHBAR=1 npm start
 | `src/mobile/minimal.css`、`light.css` | 桌面在用：`minimal.css` 只有面板加载，`light.css` 面板和设置窗口都加载；手机页面不用 |
 | `src/mobile-server.js` | 只读手机端 HTTP/SSE 服务、鉴权和数据脱敏 |
 | `cloud/*` | 端到端加密快照 Worker、Durable Object 与 Wrangler 配置 |
-| `src/provider-config.js` | GPT、Claude、Kimi、GLM、Qwen 的统一配置 |
+| `src/provider-config.js` | GPT、Claude、Google（Antigravity）、Kimi、GLM、Qwen 的统一配置；`defaultEnabled` 的平台在设置里没选过时默认开启 |
 | `src/foreground-provider.js` | 前台应用识别和手动覆盖状态机 |
 | `src/panel-window.js`、`native/panel-window.mm` | 面板窗口的呈现和全屏空间属性，原生部分编译成 `native/panel-window.node`（第 8 节） |
 | `src/claude-credentials.js`、`src/claude-usage.js` | Claude 凭据判断、官方额度接口返回值解析 |
@@ -67,6 +67,7 @@ CMM_USER_DATA_DIR=/tmp/cmm-dev-data CMM_DISABLE_TOUCHBAR=1 npm start
 | `src/activity-windows.js` | 5 小时/周周期 Token 汇总及滚动窗口降级 |
 | `src/codex-token-activity.js` | Codex rollout token 事件解析 |
 | `src/claude-token-activity.js` | Claude 会话记录解析、去重键和 token 口径 |
+| `src/antigravity.js` | Google（Antigravity）：本机语言服务的额度读取与卡片映射、会话库（SQLite + protobuf）的 Token 解析（2.1.0，第 6.7 节） |
 | `src/transcript-reader.js` | 大型会话文件的增量读取和缓存，含 `.jsonl.zst` 解压 |
 | `src/daily-store.js` | 按天存档 `token-daily.json`（2.0.0） |
 | `src/usage-recap.js` | 周报（上一个完整的自然周）和 5 小时窗口的纯计算，主进程调用（2.0.0） |
@@ -279,6 +280,40 @@ Kimi / GLM 的 API Key 存在 macOS 钥匙串（2.0.0 起），服务名 `Codex 
   token、key 等打码。不带用量数字、费用、Key、推送地址、手机访问密钥和云同步账号。新增数据源时要加进
   `DIAGNOSTIC_SLICES`，并确认它的报错文案里不会带出敏感内容。
 
+### 6.7 Google（Antigravity，2.1.0）
+
+界面名一律「Google」，菜单栏和 Touch Bar 简写 `GA`，主题色绿（GPT 蓝、Claude 橙）。面板默认三栏 GPT、Claude、Google：
+`provider-config.js` 里 `claude`、`antigravity` 带 `defaultEnabled: true`，设置文件里没写过 `enabled` 就算开启。
+Google 没有雷达，`renderer.js` 的 `hasRadar()` 只对 codex / claude 返回 true（桌面 `.panel.no-radar`、手机
+`body[data-radar="off"]` 把切换藏起来）。
+
+额度（`readAntigravityUsage`，2 分钟一次）：
+
+- Antigravity 运行时在 `~/.gemini/antigravity/daemon/hub_<port>.json` 写下 pid、端口和 `csrfToken`，进程活着才用。
+- 向 `127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary` 发 Connect JSON 的 POST
+  （头 `X-Codeium-Csrf-Token`、`Connect-Protocol-Version: 1`），`GetUserStatus` 只取 `userTier.name` 当套餐名，失败也不影响额度。
+  `GetUserStatus` 的返回里有账号邮箱和姓名，不进状态；`csrfToken` 不落盘、不进诊断信息。
+- 返回 `groups[].buckets[]`（`window` 为 `5h` / `weekly`，`remainingFraction`、`resetTime`）。proto3 省略 0：有 `resetTime`
+  没 `remainingFraction` 表示用完；剩 1 且没 `resetTime` 表示还没开始计时（`inactive`）。
+- 卡片映射：主组是 Gemini。「一周」卡的大数字是 Gemini 一周，别组的一周以 `fold: 'week'` 并进同一张卡（双道条）；
+  「5 小时」卡优先 Gemini 5h，没有就用别组的 5h，卡片右上角写分组名。窗口对象带 `group`、`label`、`shortLabel`（手机窄屏用）、
+  `fold` 和唯一键 `name`（一周是组名，5 小时是 `<组名> · 5h`，额度采样和提醒按它区分）。免费档（Starter）用真实数据验过，
+  付费档只有单元测试里的模拟结构。
+- Antigravity 没开时报 `antigravity-not-running`，保留上一次的额度。
+
+Token 活动（`createAntigravityActivityReader`，30 秒快照）：
+
+- 读 `~/.gemini/antigravity/conversations/*.db`（SQLite）。为了不在原目录生成 `-shm` / `-wal`，先把 db 和 `-wal` 复制到
+  临时目录，再用 Node 自带的 `node:sqlite` 打开副本；原文件只读不写，按文件签名缓存解析结果。
+- `gen_metadata.data` 是 protobuf：1 chat_model、2 step_indices；ChatModelMetadata 的 4 usage、19 / 22 型号、20 custom_metadata
+  （含 last_step_index）；ModelUsageStats 的 2 input（不含缓存）、3 output（含思考）、4 cache_write、5 cache_read、11 response_id
+  （去重键 `ag:<responseId>`）。时间取 `steps.metadata` 的字段 1，工作目录取 `conversation_summaries.db` 的 `workspace_uris`。
+  字段含义是对照真实数据推出来的，没有官方文档，Antigravity 升级后先跑 `test/antigravity.test.js` 和真实数据核对。
+- 口径和 Claude 一致：总量 = 输入 + 缓存写 + 缓存读 + 输出，读写 = 输入 + 缓存写 + 输出，命中率 = 缓存读 / 全部输入。
+  Gemini 型号不在价格表里，费用写「未定价」（额度去向显示 `attrUnpriced`），命中率不分色。
+- `buildWindowsWithAttribution` 对 Antigravity 按窗口所属的组筛记录（`antigravityEntriesForGroup`：Gemini 组只算 Gemini 型号，
+  其他组算其余型号）。按天存档、1 年视图、周报、按小时分布和 5 小时窗口还原都走第 6.4 节的同一套代码。
+
 ## 7. 前台应用自动切换
 
 此功能由 `native/touchbar-helper.swift` 与 `src/foreground-provider.js` 共同实现。
@@ -305,6 +340,7 @@ foreground-app:<bundleId>\t<name>\t<bundlePath>\t<pid>
 | --- | --- |
 | Codex/ChatGPT 桌面端 | `com.openai.codex` |
 | Claude 桌面端 | `com.anthropic.claudefordesktop` |
+| Antigravity | `com.google.antigravity`（2.1.0） |
 
 名称和 `.app` 路径仅作为兼容回退。Safari、Finder、Terminal 等其他应用不会改变
 当前选择。

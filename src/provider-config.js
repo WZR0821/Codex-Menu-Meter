@@ -5,7 +5,20 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function createProviderConfig() {
   const PROVIDERS = Object.freeze([
     Object.freeze({ id: 'codex', label: 'GPT', switchLabel: 'GPT', tag: 'GPT', optional: false, usageOnly: false }),
-    Object.freeze({ id: 'claude', label: 'Claude', switchLabel: 'Claude', tag: 'CC', optional: true, usageOnly: false, hintKey: 'claudeHint' }),
+    // 2.1.0 起默认三栏：GPT、Claude、Google（用户定的顺序），新装也默认开着 Claude。
+    Object.freeze({ id: 'claude', label: 'Claude', switchLabel: 'Claude', tag: 'CC', optional: true, usageOnly: false, defaultEnabled: true, hintKey: 'claudeHint' }),
+    // 2.1.0：Google Antigravity。界面上叫 Google、简写 GA（用户定的）；内部 id 和设置键仍是 antigravity。
+    // 和 GPT / Claude 一样有额度卡、曲线和 Token 活动；默认开启（老设置里没有这一项也按开启算）。
+    Object.freeze({
+      id: 'antigravity',
+      label: 'Google',
+      switchLabel: 'Google',
+      tag: 'GA',
+      optional: true,
+      usageOnly: false,
+      defaultEnabled: true,
+      hintKey: 'antigravityHint'
+    }),
     Object.freeze({
       id: 'kimi',
       label: 'Kimi Code',
@@ -45,7 +58,7 @@
   const USAGE_ONLY_PROVIDER_IDS = Object.freeze(PROVIDERS.filter((provider) => provider.usageOnly).map((provider) => provider.id));
 
   function defaultProviderSettings() {
-    return Object.fromEntries(OPTIONAL_PROVIDER_IDS.map((id) => [id, { enabled: false, apiKey: '' }]));
+    return Object.fromEntries(OPTIONAL_PROVIDER_IDS.map((id) => [id, { enabled: Boolean(PROVIDER_BY_ID[id].defaultEnabled), apiKey: '' }]));
   }
 
   function normalizeProviderSettings(value) {
@@ -60,13 +73,17 @@
       const provider = PROVIDER_BY_ID[id];
       const legacyEntry = id === 'claude' ? null : legacyExtras[id];
       const entry = explicit?.[id] || legacyEntry || {};
-      // Claude was always visible before providerSettings existed. Preserve that
-      // behavior for upgrades while keeping fresh installs GPT-only.
-      const enabled = explicit
-        ? Boolean(entry.enabled)
-        : id === 'claude'
-          ? true
-          : Boolean(entry.enabled);
+      // Claude was always visible before providerSettings existed, and since 2.1.0 the
+      // default layout is GPT / Claude / Google: defaultEnabled providers start on
+      // unless the user switched them off.
+      const hasChoice = typeof entry.enabled === 'boolean';
+      const enabled = provider.defaultEnabled && !hasChoice
+        ? true
+        : explicit
+          ? Boolean(entry.enabled)
+          : id === 'claude'
+            ? true
+            : Boolean(entry.enabled);
       return [id, {
         enabled,
         apiKey: provider.apiKey && typeof entry.apiKey === 'string' ? entry.apiKey.trim() : ''

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 'use strict';
-// README 截图和手工 QA 用的合成演示状态（2.0.0）。项目名、用量、费用都是编的，按固定种子生成，
+// README 截图和手工 QA 用的合成演示状态（2.0.0；2.1.0 加了 Google / Antigravity）。项目名、用量、费用都是编的，按固定种子生成，
 // 不读本机任何日志或凭证。渲染层按“今天”画日历和柱状图，所以日期从运行当天往回排，截图前现生成一份：
 //   node scripts/make-demo-state.js > "$TMPDIR/cmm-demo.json"
 //   ./node_modules/.bin/electron scripts/qa-render.js "$TMPDIR/cmm-demo.json" codex usage docs/screenshots/codex-usage.png
 // --today=YYYY-MM-DD 固定“今天”（核对生成结果时用；截图要用真实的今天，否则日历对不上）。
 // 两个种子是 2026-11-23 拍 README 截图时挑的，那天的环比比较温和（GPT 近 30 天约 +20%，Claude 近 7 天 +5% 到 +8%，随拍摄的钟点变）；
 // 换一天生成，数值和环比都会跟着变。每小时的用量、5 小时窗口和周报（2.0.0）由各天的记录推出来，不改动这些数。
+// Google 的种子 29 是 2026-11-28 拍截图时挑的；Gemini 型号价格表里没有，按「未定价」处理，和真实情况一样。
 
 const fs = require('fs');
 const path = require('path');
@@ -24,7 +25,8 @@ const PRICES = {
   'gpt-5.5': [1.25, 0.125, 10],
   'claude-opus-5-5': [6.25, 0.5, 25],
   'claude-fable-5-2': [18.75, 1.5, 75],
-  'claude-sonnet-5-5': [3.75, 0.3, 15]
+  'claude-sonnet-5-5': [3.75, 0.3, 15],
+  'gemini-4-hydrogen': null // 未定价
 };
 
 const PROFILES = {
@@ -55,8 +57,28 @@ const PROFILES = {
       : [['claude-opus-5-5', 0.68], ['claude-fable-5-2', 0.2], ['claude-sonnet-5-5', 0.12]]),
     projects: [['notes-app', 4], ['design-system', 3], ['api-server', 3], ['docs-site', 2], ['mobile-client', 2], ['scripts', 1]],
     threads: 8
+  },
+  // Antigravity（2.1.0）：Gemini 走 Gemini 组的一周额度，Claude 型号走 Claude/GPT 组的 5 小时 / 一周额度。
+  antigravity: {
+    seed: 29,
+    source: 'antigravity_local',
+    tokensPerDay: [2.5e6, 12e6],
+    cachedShare: [0.86, 0.93],
+    outputShare: [0.008, 0.016],
+    // 和 antigravity.js 的加权一致：未命中缓存的输入 1 倍、缓存读 0.1 倍、输出 6 倍
+    weights: { uncached: 1, cached: 0.1, output: 6 },
+    models: (age) => (age > 90
+      ? [['gemini-4-hydrogen', 1]]
+      : [['gemini-4-hydrogen', 0.74], ['claude-sonnet-5-5', 0.26]]),
+    projects: [['landing-page', 4], ['notes-app', 3], ['data-pipeline', 2], ['blog', 1]],
+    threads: 5,
+    // 只统计这么多天：Antigravity 的本地记录比另外两家短
+    historyDays: 120
   }
 };
+
+// Antigravity 的额度分组：Gemini 型号算 Gemini 组，其余（Claude / GPT 型号）算 Claude/GPT 组，和 main.js 的 antigravityEntriesForGroup 一致。
+const isGeminiModel = (model) => /^gemini/i.test(model);
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -98,6 +120,7 @@ function parseArgs(argv) {
 }
 
 function costOf(model, { uncached, cached, output }) {
+  if (!PRICES[model]) return null;
   const [inPrice, cachedPrice, outPrice] = PRICES[model];
   return (uncached * inPrice + cached * cachedPrice + output * outPrice) / 1e6;
 }
@@ -133,11 +156,12 @@ function buildDay(profile, random, { date, age, todayFraction }) {
   const models = shares.map(([model, share]) => {
     const ratio = share / shareTotal;
     const cost = costOf(model, { uncached: uncachedTokens * ratio, cached: cachedInputTokens * ratio, output: outputTokens * ratio });
-    return { model, value: Math.round(tokens * ratio), costUsd: roundCents(cost), rawCost: cost };
+    return { model, value: Math.round(tokens * ratio), costUsd: cost === null ? null : roundCents(cost), rawCost: cost || 0 };
   }).sort((left, right) => right.value - left.value);
   // 舍入的零头并进用量最大的型号：各型号相加要正好等于当天总量，否则图上会多出一截「其他」。
   models[0].value += tokens - models.reduce((sum, model) => sum + model.value, 0);
   const rawCost = models.reduce((sum, model) => sum + model.rawCost, 0);
+  const unpriced = models.filter((model) => model.costUsd === null);
 
   const threads = 1 + Math.floor(random() * profile.threads);
   const record = {
@@ -148,8 +172,8 @@ function buildDay(profile, random, { date, age, todayFraction }) {
     inputTokens,
     cachedInputTokens,
     costUsd: roundCents(rawCost),
-    unpricedTokens: 0,
-    unpricedModels: [],
+    unpricedTokens: unpriced.reduce((sum, model) => sum + model.value, 0),
+    unpricedModels: unpriced.map((model) => model.model),
     threads,
     models: models.map(({ rawCost: _, ...model }) => model),
     projects: []
@@ -259,7 +283,8 @@ function weeklyReportOf(days, { now, samples }) {
     for (const model of day.models) {
       const item = models.get(model.model) || { model: model.model, tokens: 0, costUsd: 0 };
       item.tokens += model.value;
-      item.costUsd += model.costUsd;
+      if (model.costUsd === null) item.unpriced = true;
+      else item.costUsd += model.costUsd;
       models.set(model.model, item);
     }
     for (const project of day.projects) {
@@ -287,12 +312,12 @@ function weeklyReportOf(days, { now, samples }) {
     inputTokens: sum('inputTokens'),
     cachedInputTokens: sum('cachedInputTokens'),
     costUsd: roundCents(sum('costUsd')),
-    unpricedTokens: 0,
+    unpricedTokens: sum('unpricedTokens'),
     sessions: sum('threads'),
     activeDays: week.filter((day) => day.tokens > 0).length,
     busiestDay,
     busiestHour: peakHour > 0 ? { hour: hours.indexOf(peakHour), tokens: peakHour } : null,
-    models: topRows(models, 3, (item) => ({ model: item.model, tokens: item.tokens, costUsd: roundCents(item.costUsd) })),
+    models: topRows(models, 3, (item) => ({ model: item.model, tokens: item.tokens, costUsd: item.unpriced ? null : roundCents(item.costUsd) })),
     projects: topRows(projects, 3, (item) => ({ name: item.name, tokens: item.tokens, costUsd: roundCents(item.costUsd), sessions: item.sessions })),
     previousTokens: inRange(previousStartAt, startAt).reduce((total, day) => total + day.tokens, 0),
     quotaLow
@@ -305,6 +330,12 @@ function generateDays(profile, { today, now }) {
   const days = [];
   for (let age = HISTORY_VIEW_DAYS - 1; age >= 0; age -= 1) {
     const date = addDays(today, -age);
+    if (profile.historyDays && age >= profile.historyDays) {
+      // 本地记录开始之前：照样消耗随机数（buildDay 也调一次），各天的数值不受 historyDays 影响
+      random();
+      buildDay(profile, random, { date, age, todayFraction });
+      continue;
+    }
     const weekend = date.getDay() === 0 || date.getDay() === 6;
     const activeRoll = random();
     // 每天都先生成再决定要不要，随机序列不受“这天有没有用”影响。
@@ -326,6 +357,7 @@ function summarizeWindow(days, { startAt, endAt, basis }) {
   const summary = { startAt, endAt, basis, tokens: 0, ioTokens: 0, inputTokens: 0, cachedInputTokens: 0, threads: 0 };
   const projects = new Map();
   let costUsd = 0;
+  let unpricedTokens = 0;
   for (const day of days) {
     const dayStart = new Date(`${day.day}T00:00:00`).getTime();
     const overlap = Math.min(endAt, dayStart + DAY_MS) - Math.max(startAt, dayStart);
@@ -334,17 +366,50 @@ function summarizeWindow(days, { startAt, endAt, basis }) {
     for (const key of ['tokens', 'ioTokens', 'inputTokens', 'cachedInputTokens']) summary[key] += Math.round(day[key] * ratio);
     summary.threads += Math.max(1, Math.round(day.threads * ratio));
     costUsd += day.costUsd * ratio;
+    unpricedTokens += Math.round((day.unpricedTokens || 0) * ratio);
+    // 额度去向只算有价格的那部分（和 main.js 的 attributeWindow 一样，未定价的不进项目）
+    const pricedShare = day.tokens > 0 ? 1 - (day.unpricedTokens || 0) / day.tokens : 0;
+    if (!(pricedShare > 0)) continue;
     for (const project of day.projects) {
       const item = projects.get(project.name) || { name: project.name, costUsd: 0, tokens: 0 };
       item.costUsd += project.costUsd * ratio;
-      item.tokens += Math.round(project.tokens * ratio);
+      item.tokens += Math.round(project.tokens * ratio * pricedShare);
       projects.set(project.name, item);
     }
   }
-  return { summary, projects: [...projects.values()].sort((left, right) => right.costUsd - left.costUsd), costUsd };
+  return { summary, projects: [...projects.values()].sort((left, right) => right.costUsd - left.costUsd), costUsd, unpricedTokens };
 }
 
-function attribution({ summary, projects, costUsd }) {
+// 只留某些型号的那部分（Antigravity 的额度分组用）：各项按这些型号占当天的比例缩小。
+function restrictDays(days, keep) {
+  return days.map((day) => {
+    const models = day.models.filter((model) => keep(model.model));
+    const tokens = models.reduce((sum, model) => sum + model.value, 0);
+    if (!(tokens > 0)) return null;
+    const ratio = tokens / day.tokens;
+    const costUsd = roundCents(models.reduce((sum, model) => sum + (model.costUsd || 0), 0));
+    const costRatio = day.costUsd > 0 ? costUsd / day.costUsd : 0;
+    return {
+      ...day,
+      tokens,
+      ioTokens: Math.round(day.ioTokens * ratio),
+      inputTokens: Math.round(day.inputTokens * ratio),
+      cachedInputTokens: Math.round(day.cachedInputTokens * ratio),
+      threads: Math.max(1, Math.round(day.threads * ratio)),
+      costUsd,
+      unpricedTokens: models.filter((model) => model.costUsd === null).reduce((sum, model) => sum + model.value, 0),
+      models,
+      projects: day.projects.map((project) => ({
+        ...project,
+        tokens: Math.round(project.tokens * ratio),
+        ioTokens: Math.round(project.ioTokens * ratio),
+        costUsd: roundCents(project.costUsd * costRatio)
+      }))
+    };
+  }).filter(Boolean);
+}
+
+function attribution({ summary, projects, costUsd, unpricedTokens }) {
   const rows = projects.slice(0, ATTRIBUTION_PROJECTS).map((item) => ({ name: item.name, costUsd: round4(item.costUsd), tokens: item.tokens }));
   const rest = projects.slice(ATTRIBUTION_PROJECTS);
   if (rest.length) {
@@ -355,16 +420,18 @@ function attribution({ summary, projects, costUsd }) {
       tokens: rest.reduce((sum, item) => sum + item.tokens, 0)
     });
   }
-  return { costUsd: round4(costUsd), pricedTokens: summary.tokens, unpricedTokens: 0, projects: rows };
+  return { costUsd: round4(costUsd), pricedTokens: summary.tokens - unpricedTokens, unpricedTokens, projects: rows };
 }
 
-function activitySlice(provider, { today, now, fiveHour, week, samples, currentFive = null }) {
+// groups：Antigravity 的 5 小时卡和一周卡各按哪组型号算（不给就是全部型号）。
+function activitySlice(provider, { today, now, fiveHour, week, samples, currentFive = null, groups = null }) {
   const profile = PROFILES[provider];
   const all = generateDays(profile, { today, now });
   const cutoffDay = isoDay(addDays(today, -(WINDOW_DAYS - 1)));
   const days = all.filter((day) => day.day >= cutoffDay);
   const history = all.filter((day) => day.day < cutoffDay);
-  const weekWindow = summarizeWindow(days, { ...week, endAt: now });
+  const fiveDays = groups ? restrictDays(days, groups.fiveHour) : days;
+  const weekWindow = summarizeWindow(groups ? restrictDays(days, groups.week) : days, { ...week, endAt: now });
   return {
     status: 'ok',
     data: {
@@ -374,13 +441,13 @@ function activitySlice(provider, { today, now, fiveHour, week, samples, currentF
       pricingAsOf: isoDay(today),
       pricingSource: 'litellm',
       windows: {
-        fiveHour: summarizeWindow(days, { ...fiveHour, endAt: now }).summary,
+        fiveHour: summarizeWindow(fiveDays, { ...fiveHour, endAt: now }).summary,
         week: { ...weekWindow.summary, attribution: attribution(weekWindow) }
       },
       days,
       history: {
         status: 'ready',
-        coverageStart: isoDay(addDays(today, -400)),
+        coverageStart: isoDay(addDays(today, profile.historyDays ? -(profile.historyDays - 1) : -400)),
         days: history
       },
       weeklyReport: weeklyReportOf(days, { now, samples }),
@@ -449,18 +516,22 @@ function main() {
   const codexWeekResetAt = now + Math.round(3.6 * DAY_MS);
   const claudeFiveResetAt = now + 2 * HOUR_MS + 10 * 60_000;
   const claudeWeekResetAt = now + Math.round(2.4 * DAY_MS);
+  const geminiWeekResetAt = now + Math.round(4.3 * DAY_MS);
+  const agFiveResetAt = now + 3 * HOUR_MS + 25 * 60_000;
+  const agWeekResetAt = now + Math.round(5.1 * DAY_MS);
   const usage = (data) => ({ status: 'ok', fetchedAt: now - 2 * 60_000, error: null, errorCode: null, staleAfterMs: null, retryAt: null, data });
 
   const usageHistory = {
     ...base.usageHistory,
     codex: quotaSamples(now, { weekResetAt: codexWeekResetAt, weekUsed: 37, previousWeekUsed: 74 }),
-    claude: quotaSamples(now, { weekResetAt: claudeWeekResetAt, weekUsed: 56, previousWeekUsed: 81, fiveResetAt: claudeFiveResetAt, fiveUsed: 18 })
+    claude: quotaSamples(now, { weekResetAt: claudeWeekResetAt, weekUsed: 56, previousWeekUsed: 81, fiveResetAt: claudeFiveResetAt, fiveUsed: 18 }),
+    antigravity: quotaSamples(now, { weekResetAt: geminiWeekResetAt, weekUsed: 41, previousWeekUsed: 63, fiveResetAt: agFiveResetAt, fiveUsed: 24 })
   };
 
   const state = {
     provider: 'codex',
     language: 'zh-CN',
-    enabledProviders: ['codex', 'claude', 'kimi', 'glm', 'qwen'],
+    enabledProviders: ['codex', 'claude', 'antigravity', 'kimi', 'glm', 'qwen'],
     usageHistory,
     usage: usage({
       planType: 'plus',
@@ -497,6 +568,26 @@ function main() {
       week: { startAt: claudeWeekResetAt - 7 * DAY_MS, basis: 'cycle' },
       samples: usageHistory.claude,
       currentFive: { startAt: claudeFiveResetAt - 5 * HOUR_MS, endAt: claudeFiveResetAt, peak: 18 }
+    }),
+    // Antigravity 免费档（Starter）的样子：Gemini 只有一周额度，Claude/GPT 有 5 小时和一周，后者并进「一周」卡。
+    antigravityUsage: usage({
+      planType: 'Starter',
+      limitReached: false,
+      primaryWindow: { usedPercent: 24, remainingPercent: 76, resetAt: agFiveResetAt, group: 'Claude/GPT' },
+      secondaryWindow: { usedPercent: 41, remainingPercent: 59, resetAt: geminiWeekResetAt, group: 'Gemini' },
+      extraWindows: [{
+        usedPercent: 15, remainingPercent: 85, resetAt: agWeekResetAt,
+        name: 'Claude/GPT', label: 'Claude/GPT', shortLabel: 'Claude', fold: 'week', group: 'Claude/GPT'
+      }]
+    }),
+    antigravityActivity: activitySlice('antigravity', {
+      today,
+      now,
+      fiveHour: { startAt: agFiveResetAt - 5 * HOUR_MS, basis: 'cycle' },
+      week: { startAt: geminiWeekResetAt - 7 * DAY_MS, basis: 'cycle' },
+      samples: usageHistory.antigravity,
+      currentFive: { startAt: agFiveResetAt - 5 * HOUR_MS, endAt: agFiveResetAt, peak: 24 },
+      groups: { fiveHour: (model) => !isGeminiModel(model), week: isGeminiModel }
     }),
     codexStatus: status('codex', now),
     claudeStatus: status('claude', now),

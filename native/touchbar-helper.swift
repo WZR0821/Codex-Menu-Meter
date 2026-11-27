@@ -442,6 +442,7 @@ final class DashboardView: NSView {
     private func providerAccentColor() -> NSColor {
         switch activeProvider {
         case "claude": return .systemOrange
+        case "antigravity": return .systemGreen
         case "kimi": return .systemPink
         case "glm": return .systemPurple
         case "qwen": return .systemTeal

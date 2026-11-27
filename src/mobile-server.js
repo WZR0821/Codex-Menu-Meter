@@ -87,7 +87,12 @@ function sanitizeWindow(windowValue) {
     remainingPercent: safeNumber(windowValue.remainingPercent),
     usedPercent: safeNumber(windowValue.usedPercent),
     resetAt: safeNumber(windowValue.resetAt),
-    inactive: Boolean(windowValue.inactive)
+    inactive: Boolean(windowValue.inactive),
+    // Antigravity（2.1.0）：卡片标题后的分组名、显示名、并进哪张卡。
+    group: windowValue.group ? String(windowValue.group).slice(0, 24) : null,
+    label: windowValue.label ? String(windowValue.label).slice(0, 24) : null,
+    shortLabel: windowValue.shortLabel ? String(windowValue.shortLabel).slice(0, 12) : null,
+    fold: windowValue.fold === 'five' || windowValue.fold === 'week' ? windowValue.fold : null
   };
 }
 
@@ -484,6 +489,16 @@ function createMobilePayload(state) {
       radar: sanitizeRadarSlice(state.claudeRadar, 'claude'),
       history: sanitizeHistory(state, 'claude'),
       serviceStatus: sanitizeServiceStatus(state.claudeStatus)
+    };
+  }
+  if (enabled.includes('antigravity')) {
+    providers.antigravity = {
+      label: 'Google',
+      usage: sanitizeUsageSlice(state.antigravityUsage),
+      activity: sanitizeActivitySlice(state.antigravityActivity),
+      radar: null,
+      history: sanitizeHistory(state, 'antigravity'),
+      serviceStatus: null
     };
   }
   for (const provider of ['kimi', 'glm', 'qwen']) {

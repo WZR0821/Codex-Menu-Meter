@@ -32,7 +32,8 @@
     rangeWeek: ['7 天', '7d', '7日'],
     rangeMonth: ['30 天', '30d', '30日'],
     rangeYear: ['1 年', '1y', '1年'],
-    rangeRecap: ['周报', 'Weekly', '週報'],
+    // 英文原来是 Weekly：四段按最宽的一段等分，太长会把手机上的标题挤掉（2.1.0 改短）。
+    rangeRecap: ['周报', 'Recap', '週報'],
     usedDays: ['近 {n} 天已使用', '{n}-day used', '直近{n}日の使用量'],
     usedYear: ['近 12 个月已使用', '12-month used', '直近12か月の使用量'],
     nameDays: ['近 {n} 天', 'Last {n} days', '直近{n}日'],
@@ -109,6 +110,7 @@
       'Mac のローカルログを API 料金で換算。Web や他の端末の分は含みません'
     ],
     attrTooLittle: ['本周用量还太少，暂不估算', 'Too little usage this week to estimate', '今週はまだ推定できるほど使っていません'],
+    attrUnpriced: ['本周用到的型号暂无公开价格，没法按费用折算', 'No public price for the models used this week, so no estimate', '今週使ったモデルは公開価格がないため推定できません'],
     attrAria: ['本周各项目约占的周额度', 'Estimated share of the weekly quota by project', '今週の週間枠に占めるプロジェクト別の推定割合']
   };
 
@@ -995,6 +997,8 @@
     const usedPercent = clamp(used, 0, 100);
     const costUsd = num(attribution.costUsd);
     const ready = usedPercent >= ATTRIBUTION_MIN_USED && costUsd > 0;
+    // 窗口里有本机用量、但用到的型号都没有公开价格（Antigravity 的 Gemini）：说明原因，别说「用得太少」。
+    const unpricedOnly = !ready && costUsd <= 0 && num(attribution.unpricedTokens) > 0;
     const projects = Array.isArray(attribution.projects) ? attribution.projects.filter((row) => row && typeof row === 'object') : [];
     const named = projects.filter((row) => !(Number(row.other) > 0)).slice(0, ATTRIBUTION_ROWS - 1);
     const rest = projects.filter((row) => !named.includes(row));
@@ -1011,6 +1015,7 @@
     return {
       usedPercent,
       ready,
+      unpricedOnly,
       costUsd,
       perPointUsd: ready ? costUsd / usedPercent : null,
       tokensPerPoint: ready ? num(attribution.pricedTokens) / usedPercent : null,
@@ -1032,7 +1037,7 @@
     for (let index = 0; index < ATTRIBUTION_ROWS; index += 1) {
       const row = model.ready ? model.rows[index] : null;
       if (!model.ready && index === 0) {
-        rows.push(`<li class="attribution-row is-message"><span>${escapeHtml(text(lang, 'attrTooLittle'))}</span></li>`);
+        rows.push(`<li class="attribution-row is-message"><span>${escapeHtml(text(lang, model.unpricedOnly ? 'attrUnpriced' : 'attrTooLittle'))}</span></li>`);
         continue;
       }
       if (!row) {
